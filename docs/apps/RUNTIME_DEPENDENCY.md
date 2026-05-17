@@ -35,6 +35,30 @@ This is a staged release/dependency contract. It is ready for use in CI and
 release preparation, but it does not imply that a new runtime release has
 already been published externally.
 
+## Current CI Install Strategy
+
+GitHub Actions in this repo must be runnable before `aindy-runtime` is
+published to an index that CI can install from.
+
+Current staged strategy:
+
+- keep the declared dependency contract in `pyproject.toml` as
+  `aindy-runtime>=1.0,<2.0`
+- in CI only, check out the runtime repo and install `aindy-runtime` from that
+  source tree
+- verify that the installed runtime still reports the expected compatibility
+  metadata through `/api/version`
+
+GitHub workflow behavior:
+
+- default runtime checkout target: `${owner}/aindy-runtime`
+- optional override: repository variable `AINDY_RUNTIME_REPO`
+- optional explicit token for private/cross-repo checkout:
+  `AINDY_RUNTIME_CHECKOUT_TOKEN`
+
+This avoids pretending that runtime publication is complete while still
+preserving the long-term packaged-runtime contract.
+
 ## Startup Contract
 
 The apps repo owns:
@@ -69,6 +93,10 @@ When the runtime repo stages a new release:
 
 The apps repo should not move to an unbounded runtime dependency such as
 `aindy-runtime>=1.0`.
+
+Once runtime publication is fully real and GitHub Actions can install the
+intended version range directly, app CI should switch back from source checkout
+to normal package installation for `aindy-runtime>=1.0,<2.0`.
 
 Canonical app-profile startup from this repo root:
 

@@ -85,11 +85,26 @@ python -m pytest \
 
 Apps CI scope in `.github/workflows/app-ci.yml` is intentionally repo-owned:
 
-- install `aindy-runtime>=1.0,<2.0` explicitly before installing the apps repo
+- checkout `aindy-runtime` source in CI and install it explicitly before
+  installing the apps repo
 - verify that `AINDY` resolves from the installed runtime package
 - smoke `GET /api/version` in app-profile mode and assert non-zero app plugins
-- run cross-app import checks, bootstrap dependency validation, docs/API drift checks, and the representative app-profile pytest subset
-- keep frontend validation limited to app-owned client behavior
+- run cross-app import checks, bootstrap dependency validation, docs/API drift checks, and the full extracted app-profile pytest suite
+- run the frontend unit test suite and build the client
+- run a client Docker build smoke from `client/Dockerfile`
+
+GitHub Actions note:
+
+- until `aindy-runtime` is published to a package index, this workflow installs
+  runtime from repo source rather than from `pip install "aindy-runtime>=1.0,<2.0"`
+- if GitHub cannot read the runtime repo with the default token, set:
+  - repository variable `AINDY_RUNTIME_REPO`
+  - secret `AINDY_RUNTIME_CHECKOUT_TOKEN` with read access to that repo
+- once runtime publication is live and reachable from GitHub Actions, this CI
+  path should switch back to direct package installation by version range
+- Playwright E2E is not in the default push/PR workflow yet; those tests are
+  product/integration heavy and should be added separately once the extracted
+  apps repo has a stable CI backend/auth fixture story
 
 The apps repo does not publish a runtime package. Its staged release concern is
 dependency coherence:
@@ -98,6 +113,8 @@ dependency coherence:
 - the declared range must match the runtime compatibility policy for the active
   runtime MAJOR series
 - app-profile CI must run against an explicitly installed runtime package
+
+CI ownership guidance lives in `docs/apps/CI_OWNERSHIP.md`.
 
 ## Validated Split Check
 
