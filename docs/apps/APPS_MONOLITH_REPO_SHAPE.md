@@ -7,8 +7,8 @@ owner: "platform-team"
 ---
 # Apps Monolith Repo Shape
 
-This document defines the target structure for the future
-`aindy-apps-monolith` repo while the current combined repo still exists.
+This document defines the target structure for the extracted
+`aindy-apps-monolith` repo.
 
 The goal is not to split individual apps into separate packages. The goal is
 to move the existing `apps/` monolith into its own repo that depends on the
@@ -165,7 +165,7 @@ Move with `aindy-apps-monolith`:
 - app migrations and app-owned schema evolution assets that still belong to the
   monolith deployment
 
-In the current combined repo, this at least includes:
+In the extracted apps-repo boundary, this includes:
 
 - `apps/bootstrap.py`
 - `client/src/App.jsx`
@@ -208,19 +208,17 @@ Runtime-owned tests:
 - runtime startup, runtime-only boot, runtime public API contract shape, and
   runtime version surface checks
 
-The current monolith should keep both sets until extraction, but the ownership
-boundary should now be treated as explicit.
+The ownership boundary is now explicit, even if some historical planning or
+validation notes still reference the old combined repo.
 
-## Current Monolith Compatibility
+## Historical Compatibility Notes
 
-Nothing in this document changes the current combined repo boot shape:
+The old combined repo may still exist as an archival or migration workspace,
+but it is no longer the primary operating model for this document.
 
-- app-profile boot still works through repo-root `aindy_plugins.json`
-- runtime-only boot still works through `AINDY/runtime_plugins.json`
-- tests may still run in one repo
-
-This document only defines the target landing zone for the future apps repo so
-the extraction path is concrete rather than implied.
+App-profile boot in the extracted apps repo works through repo-root
+`aindy_plugins.json`, while runtime-only boot remains the runtime repo's
+responsibility.
 
 For the explicit frontend ownership decision, use
 [Client Ownership](./CLIENT_OWNERSHIP.md). For the runtime package dependency

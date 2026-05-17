@@ -31,6 +31,10 @@ Validated on `2026-05-11`:
 - apps repo dependency: `aindy-runtime>=1.0,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
 
+This is a staged release/dependency contract. It is ready for use in CI and
+release preparation, but it does not imply that a new runtime release has
+already been published externally.
+
 ## Startup Contract
 
 The apps repo owns:
@@ -46,6 +50,25 @@ The runtime package owns:
 - manifest parsing and profile selection
 - plugin loading
 - runtime-only boot
+
+Deployment boundary:
+
+- this repo owns app-profile deployment inputs such as `aindy_plugins.json`,
+  `apps.bootstrap`, `alembic/`, and `client/`
+- the runtime repo owns runtime-only deployment guidance, runtime packaging,
+  and standalone runtime boot surfaces
+
+## Release Staging Expectation
+
+When the runtime repo stages a new release:
+
+1. the runtime version is bumped in `AINDY/_version.py`
+2. the runtime staged build verifies `/api/version` compatibility metadata
+3. this repo keeps or updates its bounded dependency range deliberately
+4. app-profile CI runs against the target runtime version before adoption
+
+The apps repo should not move to an unbounded runtime dependency such as
+`aindy-runtime>=1.0`.
 
 Canonical app-profile startup from this repo root:
 

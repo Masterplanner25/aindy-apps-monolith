@@ -24,7 +24,8 @@ python -m pip install "aindy-runtime>=1.0,<2.0"
 python -m pip install -e . --no-build-isolation
 ```
 
-For local split validation with sibling repos:
+For local paired-repo validation when you are developing the runtime and apps
+repos together from sibling checkouts:
 
 ```bash
 python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
@@ -49,6 +50,23 @@ AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime-api
 The app repo owns `aindy_plugins.json` and `apps.bootstrap`. The runtime owns
 manifest parsing, plugin loading, and process entrypoints.
 
+## Deployment Ownership
+
+`aindy-apps-monolith` owns the app deployment layer:
+
+- repo-root `aindy_plugins.json`
+- `apps.bootstrap`
+- `alembic/` and schema-migration operations for deployed app databases
+- `client/` and app-hosted UI delivery
+- app-profile startup documentation and app-profile validation
+
+It consumes `aindy-runtime` as a dependency for:
+
+- `aindy-runtime` / `aindy-runtime-api`
+- runtime-only boot behavior
+- runtime health, readiness, and `/api/version` compatibility metadata
+- runtime public API and startup contracts
+
 ## Verify
 
 Representative app-profile subset:
@@ -65,9 +83,26 @@ python -m pytest \
   -m app_profile -q
 ```
 
+Apps CI scope in `.github/workflows/app-ci.yml` is intentionally repo-owned:
+
+- install `aindy-runtime>=1.0,<2.0` explicitly before installing the apps repo
+- verify that `AINDY` resolves from the installed runtime package
+- smoke `GET /api/version` in app-profile mode and assert non-zero app plugins
+- run cross-app import checks, bootstrap dependency validation, docs/API drift checks, and the representative app-profile pytest subset
+- keep frontend validation limited to app-owned client behavior
+
+The apps repo does not publish a runtime package. Its staged release concern is
+dependency coherence:
+
+- the declared `aindy-runtime` range must stay bounded
+- the declared range must match the runtime compatibility policy for the active
+  runtime MAJOR series
+- app-profile CI must run against an explicitly installed runtime package
+
 ## Validated Split Check
 
-Validated on `2026-05-11` in the extracted repo with installed `aindy-runtime`:
+Validated on `2026-05-17` in the extracted repo. One local validation run used
+an editable sibling checkout of `aindy-runtime`:
 
 ```bash
 python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
@@ -75,13 +110,14 @@ python -m pip install -e . --no-build-isolation
 python -m pytest \
   tests/unit/test_app_manifest_bootstrap_contract.py \
   tests/unit/test_import_boundaries.py \
+  tests/unit/test_runtime_dependency_contract.py \
   tests/unit/test_runtime_agent_api_ownership.py \
   tests/unit/test_tasks_public_contract.py \
   tests/unit/test_analytics_public_contract.py \
   tests/unit/test_app_model_registration.py \
   tests/test_bootstrap_completeness.py \
   -m app_profile -q
-python -c "import os; os.environ.update({'DATABASE_URL':'sqlite://','MONGO_URL':'','AINDY_ALLOW_SQLITE':'1','OPENAI_API_KEY':'sk-test-placeholder','DEEPSEEK_API_KEY':'ds-test-placeholder','SECRET_KEY':'apps-integration-secret','AINDY_API_KEY':'apps-integration-api-key','PERMISSION_SECRET':'apps-integration-permission-secret','AINDY_SKIP_MONGO_PING':'1','SKIP_MONGO_PING':'1'}); from fastapi.testclient import TestClient; import AINDY.main as main; from AINDY.platform_layer import registry; payload=TestClient(main.app, raise_server_exceptions=False).get('/api/version').json(); print(payload['runtime']['boot_profile'], payload['runtime']['app_plugins_loaded'], payload['runtime']['app_plugin_count'], len(registry.get_registered_apps()))"
+python -c "import os, json; os.environ.update({'DATABASE_URL':'sqlite://','MONGO_URL':'','AINDY_ALLOW_SQLITE':'1','OPENAI_API_KEY':'sk-test-placeholder','DEEPSEEK_API_KEY':'ds-test-placeholder','SECRET_KEY':'apps-integration-secret','AINDY_API_KEY':'apps-integration-api-key','PERMISSION_SECRET':'apps-integration-permission-secret','AINDY_SKIP_MONGO_PING':'1','SKIP_MONGO_PING':'1'}); from fastapi.testclient import TestClient; import AINDY.main as main; payload=TestClient(main.app, raise_server_exceptions=False).get('/api/version').json(); print(json.dumps(payload['runtime'], sort_keys=True)); print(json.dumps(payload['compatibility'], sort_keys=True))"
 python scripts/check_app_imports.py
 ```
 
@@ -89,7 +125,7 @@ Observed result:
 
 - app-profile `/api/version` reported `boot_profile=default-apps`
 - `app_plugins_loaded` was `True`
-- `app_plugin_count` and `len(registry.get_registered_apps())` were both `16`
+- `app_plugin_count` was non-zero and `len(registry.get_registered_apps())` was `16`
 - cross-app import boundary scan reported `33 declared, 0 undeclared`
 
 Non-blocking bootstrap warnings seen during smoke validation:

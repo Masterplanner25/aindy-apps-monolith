@@ -7,7 +7,10 @@
 - Apps repo path: C:\dev\aindy-apps-monolith
 - Runtime dependency path used for validation: C:\dev\aindy-runtime
 - Installed runtime package version: 1.0.0
-- Apps repo git status: initialized, no commit created by this cut
+- Validated extraction commit: `7565ce937f56c59e57b331ae1a50ca9f50faa668`
+- Working-tree state at signoff refresh: not clean; subsequent local CI,
+  dependency-contract, and documentation edits exist outside the validated
+  extraction commit
 
 ## Structure
 
@@ -29,6 +32,8 @@ Notes:
 - [x] repo depends on installed `aindy-runtime`
 - [x] no sibling-source dependency on local `AINDY/`
 - [x] imports resolve against the installed runtime package
+- [x] declared runtime dependency range is bounded and matches runtime
+  compatibility guidance: `aindy-runtime>=1.0,<2.0`
 
 Command(s) run:
 
@@ -99,6 +104,12 @@ Result:
 - Failed: 0
 - Skipped: 0
 - Cross-app import boundary: `33 declared, 0 undeclared`
+
+Validation basis:
+- this signoff records the validated extraction baseline at commit
+  `7565ce937f56c59e57b331ae1a50ca9f50faa668`
+- later local changes in the apps repo were not part of the original repo-cut
+  validation run and should be validated separately before a new signoff is cut
 
 ## Remaining Cautions
 

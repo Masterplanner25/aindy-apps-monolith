@@ -1,11 +1,19 @@
 # Migration Policy
 
+Repository ownership:
+
+- this document belongs to `aindy-apps-monolith`
+- this repo owns `alembic/`, `alembic.ini`, and deployment-time schema
+  migration execution
+- runtime-owned models are consumed from the installed `aindy-runtime`
+  dependency, but migration authority for deployed app databases remains here
+
 This document describes the current Alembic migration discipline as practiced in the repository. It does not invent rules that are not already observed; it records what is done.
 
 For the authoritative runtime-vs-app table ownership boundary, use the
 runtime repo's Database Ownership Contract.
 
-For repo version compatibility between the future runtime and apps repos, use
+For repo version compatibility between the runtime and apps repos, use
 the runtime repo's Repo Compatibility Policy.
 
 ## 1. Alembic Source of Truth

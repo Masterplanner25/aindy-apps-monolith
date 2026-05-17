@@ -5,12 +5,30 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   app-contracts:
     name: App Contracts
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
+    env:
+      ENV: test
+      PYTHONPATH: .
+      TESTING: "true"
+      TEST_MODE: "true"
+      DATABASE_URL: sqlite:///:memory:
+      AINDY_ALLOW_SQLITE: "true"
+      AINDY_SKIP_MONGO_PING: "true"
+      SKIP_MONGO_PING: "true"
+      MONGO_URL: ""
+      OPENAI_API_KEY: sk-test-placeholder
+      DEEPSEEK_API_KEY: ds-test-placeholder
+      SECRET_KEY: ci-apps-secret-key
+      PERMISSION_SECRET: ci-apps-permission-secret
+      AINDY_API_KEY: ci-apps-api-key
+      ALLOWED_ORIGINS: "http://localhost:3000"
 
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +39,49 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install runtime and app test dependencies
+      - name: Install runtime dependency and app package
         run: |
+          python -m pip install --upgrade pip
           python -m pip install "aindy-runtime>=1.0,<2.0"
           python -m pip install -e .[test] --no-build-isolation
+
+      - name: Verify installed runtime dependency
+        run: |
+          python - <<'PY'
+          import importlib.metadata as md
+          import importlib.util
+
+          spec = importlib.util.find_spec('AINDY')
+          paths = list(spec.submodule_search_locations or [])
+          runtime_version = md.version('aindy-runtime')
+
+          assert paths, 'AINDY namespace package did not resolve'
+          assert any('aindy-runtime' in path.lower() for path in paths), paths
+          assert runtime_version.startswith('1.'), runtime_version
+          print({'aindy_paths': paths, 'aindy_runtime_version': runtime_version})
+          PY
+
+      - name: Smoke app-profile version surface
+        run: |
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          import AINDY.main as main
+          from AINDY.platform_layer import registry as platform_registry
+
+          client = TestClient(main.app, raise_server_exceptions=False)
+          payload = client.get('/api/version').json()
+          runtime = payload['runtime']
+          compatibility = payload['compatibility']
+
+          assert runtime['boot_mode'] == 'app-profile'
+          assert runtime['boot_profile'] == 'default-apps'
+          assert runtime['app_plugins_loaded'] is True
+          assert runtime['app_plugin_count'] > 0
+          assert len(platform_registry.get_registered_apps()) > 0
+          assert compatibility['runtime_package']['name'] == 'aindy-runtime'
+          assert compatibility['apps_repo_contract']['recommended_runtime_requirement'] == '>=1.0,<2.0'
+          print(payload)
+          PY
 
       - name: Check cross-app import boundaries
         run: python scripts/check_app_imports.py
@@ -43,6 +100,7 @@ jobs:
           python -m pytest
           tests/unit/test_app_manifest_bootstrap_contract.py
           tests/unit/test_import_boundaries.py
+          tests/unit/test_runtime_dependency_contract.py
           tests/unit/test_runtime_agent_api_ownership.py
           tests/unit/test_tasks_public_contract.py
           tests/unit/test_analytics_public_contract.py
