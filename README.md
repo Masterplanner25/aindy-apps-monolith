@@ -67,6 +67,16 @@ It consumes `aindy-runtime` as a dependency for:
 - runtime health, readiness, and `/api/version` compatibility metadata
 - runtime public API and startup contracts
 
+## Branch And PR Model
+
+Active contribution model for this repo:
+
+- protected branch: `main`
+- pull requests should target: `main`
+- feature work should branch from the current `main`
+
+This repo does not use the archived monolith `develop`-targeting flow.
+
 ## Verify
 
 Representative app-profile subset:
@@ -115,6 +125,9 @@ dependency coherence:
 - app-profile CI must run against an explicitly installed runtime package
 
 CI ownership guidance lives in `docs/apps/CI_OWNERSHIP.md`.
+
+Manual GitHub branch-protection and review settings guidance lives in
+`docs/apps/GITHUB_SETTINGS_CHECKLIST.md`.
 
 ## Validated Split Check
 

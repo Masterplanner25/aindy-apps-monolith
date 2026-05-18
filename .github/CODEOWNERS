@@ -1,0 +1,24 @@
+# Default ownership for the apps monolith repo
+* @Masterplanner25
+
+# Repo governance and automation
+/.github/ @Masterplanner25
+
+# App-owned implementation and delivery surfaces
+/apps/ @Masterplanner25
+/client/ @Masterplanner25
+/alembic/ @Masterplanner25
+/scripts/ @Masterplanner25
+/aindy_plugins.json @Masterplanner25
+/pyproject.toml @Masterplanner25
+/pytest.ini @Masterplanner25
+/alembic.ini @Masterplanner25
+
+# App-owned and shared app-facing docs/tests
+/docs/apps/ @Masterplanner25
+/docs/architecture/ @Masterplanner25
+/docs/deployment/ @Masterplanner25
+/docs/platform/ @Masterplanner25
+/README.md @Masterplanner25
+/APPS_SIGNOFF.md @Masterplanner25
+/tests/ @Masterplanner25
