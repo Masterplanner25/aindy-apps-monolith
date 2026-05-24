@@ -31,6 +31,35 @@ ALLOWLIST = {
     "apps/search/routes/_route_helpers.py",  # helper utilities for search routes, never mounted directly
 }
 
+# Paths that are referenced in API_CONTRACTS.md but intentionally absent from the
+# monolith disk because they now live in the aindy-runtime repo. The doc retains
+# them as a shared route inventory; the ghost allowlist prevents false failures.
+GHOST_ALLOWLIST = {
+    "AINDY/routes/__init__.py",
+    "AINDY/routes/agent_router.py",
+    "AINDY/routes/auth_router.py",
+    "AINDY/routes/coordination_router.py",
+    "AINDY/routes/db_verify_router.py",
+    "AINDY/routes/flow_router.py",
+    "AINDY/routes/health_router.py",
+    "AINDY/routes/memory_metrics_router.py",
+    "AINDY/routes/memory_router.py",
+    "AINDY/routes/memory_trace_router.py",
+    "AINDY/routes/observability_router.py",
+    "AINDY/routes/platform/flows_router.py",
+    "AINDY/routes/platform/keys_router.py",
+    "AINDY/routes/platform/nodes_router.py",
+    "AINDY/routes/platform/nodus_flow_router.py",
+    "AINDY/routes/platform/nodus_router.py",
+    "AINDY/routes/platform/nodus_schedule_router.py",
+    "AINDY/routes/platform/platform_ops_router.py",
+    "AINDY/routes/platform/queue_router.py",
+    "AINDY/routes/platform/webhooks_router.py",
+    "AINDY/routes/platform_router.py",
+    "AINDY/routes/version_router.py",
+    "AINDY/routes/watcher_router.py",
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check API contract router inventory drift.")
@@ -97,7 +126,10 @@ def main(argv: list[str] | None = None) -> int:
     doc_paths = extract_doc_paths(text)
     doc_path_set = set(doc_paths)
 
-    ghosts = sorted(path for path in doc_path_set if not (REPO_ROOT / path).exists())
+    ghosts = sorted(
+        path for path in doc_path_set
+        if not (REPO_ROOT / path).exists() and path not in GHOST_ALLOWLIST
+    )
 
     actual_router_files = iter_router_files()
     missing = sorted(
@@ -123,9 +155,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print("SUMMARY")
-    print(f"  Ghost:   {len(ghosts)}")
-    print(f"  Missing: {len(missing)}")
-    print(f"  Allowlist: {len(ALLOWLIST)}")
+    print(f"  Ghost:          {len(ghosts)}")
+    print(f"  Ghost allowlist (runtime-owned): {len(GHOST_ALLOWLIST)}")
+    print(f"  Missing:        {len(missing)}")
+    print(f"  Allowlist:      {len(ALLOWLIST)}")
 
     if args.warn_only:
         return 0

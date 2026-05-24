@@ -192,4 +192,9 @@ jobs:
           VITE_API_BASE_URL: "https://ci-placeholder.aindy.dev"
 
       - name: Client Docker build smoke
-        run: docker build -f Dockerfile -t aindy-apps-client-ci:latest .
+        run: >
+          docker build
+          --build-arg VITE_API_BASE_URL=https://ci-placeholder.aindy.dev
+          -f Dockerfile
+          -t aindy-apps-client-ci:latest
+          .
