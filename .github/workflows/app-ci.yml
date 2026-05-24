@@ -68,35 +68,21 @@ jobs:
       # install from, app CI checks out the runtime repo explicitly and installs
       # it from source. The repo dependency contract in pyproject.toml remains
       # the long-term source of truth.
-      - name: Checkout runtime repo with explicit token
-        if: ${{ secrets.AINDY_RUNTIME_CHECKOUT_TOKEN != '' && vars.AINDY_RUNTIME_REPO != '' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.AINDY_RUNTIME_REPO }}
-          token: ${{ secrets.AINDY_RUNTIME_CHECKOUT_TOKEN }}
-          path: _runtime_src
-
-      - name: Checkout runtime repo with explicit repo path
-        if: ${{ secrets.AINDY_RUNTIME_CHECKOUT_TOKEN == '' && vars.AINDY_RUNTIME_REPO != '' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.AINDY_RUNTIME_REPO }}
-          path: _runtime_src
-
-      - name: Checkout runtime repo from owner default with explicit token
-        if: ${{ vars.AINDY_RUNTIME_REPO == '' && secrets.AINDY_RUNTIME_CHECKOUT_TOKEN != '' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/aindy-runtime
-          token: ${{ secrets.AINDY_RUNTIME_CHECKOUT_TOKEN }}
-          path: _runtime_src
-
-      - name: Checkout runtime repo from owner default
-        if: ${{ vars.AINDY_RUNTIME_REPO == '' && secrets.AINDY_RUNTIME_CHECKOUT_TOKEN == '' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/aindy-runtime
-          path: _runtime_src
+      #
+      # secrets context is not available in if: expressions, so repo + token
+      # selection is handled in a single bash step via env: instead.
+      - name: Checkout aindy-runtime source
+        env:
+          RUNTIME_TOKEN: ${{ secrets.AINDY_RUNTIME_CHECKOUT_TOKEN }}
+          RUNTIME_REPO: ${{ vars.AINDY_RUNTIME_REPO }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          REPO="${RUNTIME_REPO:-${REPO_OWNER}/aindy-runtime}"
+          if [ -n "$RUNTIME_TOKEN" ]; then
+            git clone "https://x-access-token:${RUNTIME_TOKEN}@github.com/${REPO}.git" _runtime_src
+          else
+            git clone "https://github.com/${REPO}.git" _runtime_src
+          fi
 
       - name: Install runtime dependency from runtime repo source
         run: |
