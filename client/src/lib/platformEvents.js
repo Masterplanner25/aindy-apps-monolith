@@ -1,1 +1,1 @@
-export const APPROVAL_EVENT = "agent-approval-count-changed";
+export { APPROVAL_EVENT } from "@aindy/ui-kit";

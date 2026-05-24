@@ -119,8 +119,6 @@ export default function AppShell() {
   const { isAdmin, logout, user } = useAuth();
   const { system } = useSystem();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // This shell belongs to the app-hosted SPA. In runtime-only mode it adapts
-  // to the runtime surface, but it is not a separately owned runtime console.
   const runtimeOnly = system?.runtime?.boot_mode === "runtime-only";
 
   const visibleGroups = useMemo(

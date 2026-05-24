@@ -7,7 +7,8 @@ import React, {
   useState,
 } from "react";
 
-import { ApiError, bootIdentity } from "../api";
+import { ApiError } from "../api/_core.js";
+import { bootIdentity } from "../api/auth.js";
 import { useAuth } from "./AuthContext";
 
 const SystemContext = createContext(null);

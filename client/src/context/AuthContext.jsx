@@ -1,12 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import {
-  clearStoredToken,
-  getStoredToken,
-  loginUser,
-  registerUser,
-  setStoredToken,
-} from "../api";
+import { clearStoredToken, getStoredToken, setStoredToken } from "../api/_core.js";
+import { loginUser, registerUser } from "../api/auth.js";
 
 const AuthContext = createContext(null);
 
