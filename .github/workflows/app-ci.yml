@@ -42,7 +42,7 @@ jobs:
       PYTHONPATH: .
       TESTING: "true"
       TEST_MODE: "true"
-      DATABASE_URL: sqlite:///:memory:
+      DATABASE_URL: "sqlite:///:memory:"
       AINDY_ALLOW_SQLITE: "true"
       AINDY_SKIP_MONGO_PING: "true"
       SKIP_MONGO_PING: "true"
