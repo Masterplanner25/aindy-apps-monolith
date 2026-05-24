@@ -1,4 +1,4 @@
-# alembic/env.py  -- unified version for A.I.N.D.Y.
+# alembic/alembic/env.py  -- monolith Alembic env for A.I.N.D.Y. apps repo
 #
 # Merges two previous env.py variants:
 # - original alembic env (uses config file, fileConfig)
@@ -9,6 +9,9 @@
 #   `from AINDY.db.models import Base` work when Alembic runs from the repo root.
 # - It intentionally avoids importing `main` unless you explicitly uncomment that line,
 #   because main.py can have side effects (app startup, event loops). Import models only.
+# - include_object() excludes runtime-owned tables so that aindy-runtime's Alembic
+#   manages those migrations. The canonical runtime table list is maintained in
+#   aindy-runtime/alembic/env.py — keep the two sets in sync on any schema split.
 
 from __future__ import annotations
 import logging
@@ -85,6 +88,54 @@ apps.bootstrap.bootstrap_models()
 target_metadata = Base.metadata
 
 # -------------------------
+# Runtime table exclusion
+# -------------------------
+# These tables are owned by aindy-runtime and managed by its own Alembic history.
+# Monolith autogenerate must not touch them; any schema changes to these tables
+# must come through aindy-runtime migrations.
+_RUNTIME_TABLES = {
+    "agent_capability_mappings",
+    "agent_events",
+    "agent_registry",
+    "agent_runs",
+    "agent_steps",
+    "agent_trust_settings",
+    "agents",
+    "background_task_leases",
+    "capabilities",
+    "dynamic_flows",
+    "dynamic_nodes",
+    "event_edges",
+    "event_outcomes",
+    "execution_units",
+    "flow_history",
+    "flow_runs",
+    "job_logs",
+    "memory_metrics",
+    "memory_node_history",
+    "memory_trace_nodes",
+    "memory_traces",
+    "nodus_scheduled_jobs",
+    "nodus_trace_events",
+    "platform_api_keys",
+    "request_metrics",
+    "system_events",
+    "system_health_logs",
+    "system_state_snapshots",
+    "user_identity",
+    "users",
+    "waiting_flow_runs",
+    "webhook_subscriptions",
+}
+
+
+def include_object(obj, name, type_, reflected, compare_to):
+    """Exclude runtime-owned tables from monolith autogenerate."""
+    if type_ == "table" and name in _RUNTIME_TABLES:
+        return False
+    return True
+
+# -------------------------
 # Debug / verification (optional)
 # -------------------------
 # Useful to verify Alembic sees all tables. Remove or comment out after verification.
@@ -123,7 +174,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True,   # detect type changes
+        compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -142,7 +194,8 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,   # detect type changes
+            compare_type=True,
+            include_object=include_object,
         )
 
         with context.begin_transaction():
