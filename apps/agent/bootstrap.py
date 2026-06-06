@@ -8,6 +8,7 @@ APP_DEPENDS_ON: list[str] = []
 
 def register() -> None:
     _register_models()
+    _register_routers()
     _register_route_prefixes()
     _register_async_jobs()
     _register_agent_tools()
@@ -20,6 +21,13 @@ def register() -> None:
 def _register_models() -> None:
     # Agent persistence models are runtime-owned and loaded by AINDY.db.model_registry.
     return None
+
+
+def _register_routers() -> None:
+    from AINDY.platform_layer.registry import register_router
+    from apps.agent.routes.agent_router import router
+    register_router(router)
+
 
 def _register_route_prefixes() -> None:
     from AINDY.platform_layer.registry import register_route_prefix

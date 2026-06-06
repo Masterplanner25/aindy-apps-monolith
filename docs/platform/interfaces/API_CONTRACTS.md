@@ -85,8 +85,8 @@ Stable runtime API for external integrations and tooling. Breaking changes requi
 
 Mutable domain features. All paths below are prefixed with `/apps`.
 
-- `AINDY/routes/agent_router.py` (router prefix `/agent`) **[JWT auth required]** ? `/apps/agent/run`, `/apps/agent/runs`, etc. The URL remains under `/apps` for compatibility, but ownership is runtime-layer rather than app-layer.
-- `apps/agent/routes/agent_router.py` is a deprecated compatibility re-export to `AINDY/routes/agent_router.py`. It is not separately mounted and does not define an independent API surface.
+- `apps/agent/routes/agent_router.py` (router prefix `/agent`) **[JWT auth required]** → `/apps/agent/run`, `/apps/agent/runs`, etc. Registered by `apps.agent.bootstrap`. Canonical monolith-owned router.
+- `AINDY/routes/agent_router.py` is a deprecated reference copy retained in aindy-runtime. No longer registered; does not define a live API surface.
 - `apps/arm/routes/arm_router.py` (router prefix `/arm`) **[JWT auth required]** ? `/apps/arm/analyze`, `/apps/arm/generate`, etc.
 - `apps/autonomy/routes/autonomy_router.py` (router prefix `/autonomy`) **[JWT auth required]** ? `/apps/autonomy/decisions`
 - `apps/tasks/routes/task_router.py` (router prefix `/tasks`) **[JWT auth required]** ? `/apps/tasks/create`, `/apps/tasks/start`, etc.
@@ -95,8 +95,10 @@ Mutable domain features. All paths below are prefixed with `/apps`.
 - `apps/masterplan/routes/genesis_router.py` (router prefix `/genesis`) **[JWT auth required]** ? `/apps/genesis/session`, `/apps/genesis/message`, etc.
 - `apps/automation/routes/automation_router.py` (router prefix `/automation`) **[JWT auth required]** ? `/apps/automation/logs`, etc.
 - `AINDY/routes/memory_router.py` (router prefix `/memory`) **[JWT auth required]** ? `/apps/memory/nodes`, `/apps/memory/recall`, etc.
-- `AINDY/routes/memory_metrics_router.py` (router prefix `/memory`) **[JWT auth required]** ? `/apps/memory/metrics`, etc.
-- `AINDY/routes/memory_trace_router.py` (router prefix `/memory`) **[JWT auth required]** ? `/apps/memory/traces`, etc.
+- `apps/memory/routes/memory_metrics_router.py` (router prefix `/memory`) **[JWT auth required]** → `/apps/memory/metrics`, etc. Registered by `apps.memory.bootstrap`.
+- `apps/memory/routes/memory_trace_router.py` (router prefix `/memory`) **[JWT auth required]** → `/apps/memory/traces`, etc. Registered by `apps.memory.bootstrap`.
+- `AINDY/routes/memory_metrics_router.py` is a deprecated reference copy retained in aindy-runtime. No longer registered.
+- `AINDY/routes/memory_trace_router.py` is a deprecated reference copy retained in aindy-runtime. No longer registered.
 - `apps/bridge/routes/bridge_router.py` (router prefix `/bridge`) **[JWT auth required for /nodes and /link; API key for /user_event]** ? `/apps/bridge/*`
 - `apps/freelance/routes/freelance_router.py` (router prefix `/freelance`) **[JWT auth required]** ? `/apps/freelance/*`
 - `apps/search/routes/leadgen_router.py` (router prefix `/leadgen`) **[JWT auth required]** ? `/apps/leadgen/`

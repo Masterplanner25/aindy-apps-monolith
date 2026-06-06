@@ -8,11 +8,12 @@ from AINDY.routes.agent_router import router as runtime_agent_router
 pytestmark = pytest.mark.app_profile
 
 
-def test_runtime_agent_router_is_app_surface_router():
-    assert runtime_agent_router in APP_ROUTERS
+def test_runtime_agent_router_is_not_app_surface_router():
+    # agent_router extracted to plugin layer — no longer in runtime APP_ROUTERS
+    assert runtime_agent_router not in APP_ROUTERS
 
 
-def test_plugin_registry_does_not_own_agent_router_after_bootstrap():
+def test_plugin_registry_owns_agent_router_after_bootstrap():
     import apps.bootstrap as bs
     from AINDY.platform_layer import registry
 
@@ -28,10 +29,11 @@ def test_plugin_registry_does_not_own_agent_router_after_bootstrap():
     bs.bootstrap()
 
     registered_prefixes = [getattr(router, "prefix", None) for router in registry.get_routers()]
-    assert "/agent" not in registered_prefixes
+    assert "/agent" in registered_prefixes
 
 
-def test_legacy_agent_router_shim_reexports_runtime_router():
-    from apps.agent.routes.agent_router import router as shim_router
+def test_monolith_agent_router_is_independent_of_runtime_router():
+    from apps.agent.routes.agent_router import router as monolith_router
 
-    assert shim_router is runtime_agent_router
+    # monolith now owns the canonical router — it is NOT the deprecated runtime copy
+    assert monolith_router is not runtime_agent_router
