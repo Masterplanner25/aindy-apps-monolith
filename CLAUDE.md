@@ -1,0 +1,201 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
+## Commands
+
+```bash
+# Install — runtime from sibling checkout (local paired-repo dev)
+python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
+python -m pip install -e . --no-build-isolation
+
+# Install — published runtime (once PyPI publication is live)
+python -m pip install "aindy-runtime>=1.0,<2.0"
+python -m pip install -e . --no-build-isolation
+
+# Boot app-profile server (run from repo root so aindy_plugins.json is discovered)
+aindy-runtime-api
+AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime-api   # explicit manifest form
+
+# App-profile test subset (no live server required)
+pytest tests/unit/test_app_manifest_bootstrap_contract.py \
+       tests/unit/test_import_boundaries.py \
+       tests/unit/test_runtime_agent_api_ownership.py \
+       tests/unit/test_tasks_public_contract.py \
+       tests/unit/test_analytics_public_contract.py \
+       tests/unit/test_app_model_registration.py \
+       tests/test_bootstrap_completeness.py \
+       -m app_profile -q
+
+# Single test
+pytest tests/unit/test_import_boundaries.py::test_name -v
+
+# Cross-app import boundary check (required before any PR)
+python scripts/check_app_imports.py
+
+# App-profile smoke (mirrors CI — verifies boot_profile=default-apps, app_plugins_loaded=True)
+python -c "
+import os, json
+os.environ.update({
+    'DATABASE_URL': 'sqlite://', 'MONGO_URL': '', 'AINDY_ALLOW_SQLITE': '1',
+    'OPENAI_API_KEY': 'sk-test-placeholder', 'DEEPSEEK_API_KEY': 'ds-test-placeholder',
+    'SECRET_KEY': 'apps-integration-secret', 'AINDY_API_KEY': 'apps-integration-api-key',
+    'PERMISSION_SECRET': 'apps-integration-permission-secret',
+    'AINDY_SKIP_MONGO_PING': '1', 'SKIP_MONGO_PING': '1',
+})
+from fastapi.testclient import TestClient
+import AINDY.main as main
+payload = TestClient(main.app, raise_server_exceptions=False).get('/api/version').json()
+print(json.dumps(payload['runtime'], sort_keys=True))
+"
+# Expected: boot_profile=default-apps, app_plugins_loaded=True, app_plugin_count=16
+```
+
+---
+
+## Architecture
+
+### Ownership
+
+This repo owns:
+
+- `apps/` — 16 domain app modules
+- `client/` — React/Vite frontend
+- `aindy_plugins.json` — app-owned plugin manifest
+- `alembic/` — app-owned DB migrations
+- app-profile tests and docs
+
+It does **not** own `AINDY/`. Runtime code, runtime-only entrypoints, and runtime-only
+docs live in `aindy-runtime` and are consumed as a published dependency.
+
+### 16 domain apps
+
+`tasks`, `analytics`, `arm`, `authorship`, `automation`, `autonomy`, `bridge`,
+`dashboard`, `freelance`, `identity`, `masterplan`, `network_bridge`, `rippletrace`,
+`search`, `social`, `agent`
+
+**Core domains** (`IS_CORE_DOMAIN = True`): `tasks`, `identity`, `agent` — startup fails
+if any of these fail to register.
+
+All other domains are degradable peripherals — startup continues with a warning.
+
+### Plugin registry pattern
+
+The runtime exposes a registration surface. Apps call it at startup. The runtime never
+imports `apps.*` directly.
+
+Every domain app's `register()` function calls runtime-owned registration functions:
+
+```python
+# apps/<domain>/bootstrap.py
+
+BOOTSTRAP_DEPENDS_ON: list[str] = ["identity"]  # boot-order hard deps — enforced at startup
+APP_DEPENDS_ON: list[str] = []                   # cross-domain import declarations (AST-validated)
+IS_CORE_DOMAIN: bool = False
+
+def register() -> None:
+    from AINDY.platform_layer.registry import (
+        register_router, register_models, register_flow_definitions,
+        register_scheduler_jobs, register_syscalls, register_agent_tools,
+        register_event_handlers,
+        # ...18 registration categories total
+    )
+    register_router(router, prefix="/api/myapp")
+    register_models([MyModel])
+    register_flow_definitions([my_flow_def])
+    # ...
+```
+
+`apps/bootstrap.py` is the aggregator: it builds a dependency graph from all
+`BOOTSTRAP_DEPENDS_ON` declarations and calls `register()` in topological order.
+
+Full pattern documentation: `docs/architecture/PLUGIN_REGISTRY_PATTERN.md`
+
+### Adding a new domain app
+
+1. Create `apps/<newdomain>/` with a `bootstrap.py` declaring `BOOTSTRAP_DEPENDS_ON`,
+   `APP_DEPENDS_ON`, `IS_CORE_DOMAIN`, and `register()`.
+2. Add `"newdomain": "apps.newdomain.bootstrap"` to `APP_BOOTSTRAP_MODULES` in
+   `apps/bootstrap.py`.
+3. Run `python scripts/check_app_imports.py` — all cross-app imports must be declared.
+4. Add tests under `tests/unit/test_newdomain_*.py` with `pytestmark = pytest.mark.app_profile`.
+
+### Boot profiles
+
+| Profile | Manifest | Plugins loaded |
+|---|---|---|
+| `platform-only` | `AINDY/runtime_plugins.json` | none |
+| `default-apps` | `./aindy_plugins.json` | `apps.bootstrap` → 16 apps |
+
+Running `aindy-runtime-api` from this repo root automatically selects `aindy_plugins.json`.
+Set `AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json` explicitly if the CWD is different.
+
+---
+
+## Import boundary rules
+
+These are enforced by CI and must not be violated:
+
+- `AINDY/` code must never import `apps.*` — validated by `test_import_boundaries.py`
+- Apps may only import `AINDY.*` through declared public contracts
+- Cross-app imports (`apps.tasks` importing from `apps.identity`) must be declared in
+  `APP_DEPENDS_ON` in the importing app's `bootstrap.py` — enforced by
+  `scripts/check_app_imports.py`
+
+Violation consequence: the import scan exits non-zero and blocks CI.
+
+---
+
+## Alembic
+
+App-owned migrations live in `alembic/versions/`. Runtime migrations live in
+`aindy-runtime/alembic/`.
+
+- The runtime uses the `alembic_version_runtime` table; apps use the standard
+  `alembic_version` table.
+- Run app migrations separately (`alembic upgrade head` from this repo root with
+  `DATABASE_URL` pointing at the app database).
+- All migrations must use `IF NOT EXISTS` / `IF EXISTS` guards — same idempotency
+  rule as the runtime.
+
+---
+
+## Runtime dependency contract
+
+```toml
+aindy-runtime>=1.0,<2.0
+```
+
+The upper bound is required. Never widen to an unbounded range.
+
+For local dev against a sibling `aindy-runtime` checkout:
+
+```bash
+python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
+```
+
+`--no-deps` prevents pip from overwriting the runtime with a published version while
+still making the editable source importable.
+
+CI installs runtime from source until PyPI publication is complete (see
+`PYPI-PUBLISH-1` in `aindy-runtime/TECH_DEBT.md`).
+
+---
+
+## Key file locations
+
+| What | Where |
+|---|---|
+| Plugin manifest | `aindy_plugins.json` |
+| Bootstrap aggregator | `apps/bootstrap.py` |
+| Bootstrap validator (AST-based) | `apps/_bootstrap_validator.py` |
+| Cross-app import checker | `scripts/check_app_imports.py` |
+| App-owned Alembic migrations | `alembic/versions/` |
+| Plugin registry pattern doc | `docs/architecture/PLUGIN_REGISTRY_PATTERN.md` |
+| Boot profiles doc | `docs/architecture/BOOT_PROFILES.md` |
+| Cross-domain coupling doc | `docs/architecture/CROSS_DOMAIN_COUPLING.md` |
+| Runtime dependency contract doc | `docs/apps/RUNTIME_DEPENDENCY.md` |
+| CI ownership doc | `docs/apps/CI_OWNERSHIP.md` |
+| Tech debt tracker | `TECH_DEBT.md` |
