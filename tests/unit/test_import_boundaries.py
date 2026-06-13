@@ -108,7 +108,11 @@ def test_aindy_tree_has_no_direct_apps_agent_imports():
     for source_file in AINDY_ROOT.glob("**/*.py"):
         source = source_file.read_text(encoding="utf-8-sig")
         if "apps.agent" in source:
-            direct_agent_imports.append(f"{source_file.relative_to(ROOT).as_posix()}: contains apps.agent")
+            try:
+                rel = source_file.relative_to(ROOT).as_posix()
+            except ValueError:
+                rel = source_file.relative_to(AINDY_ROOT.parent).as_posix()
+            direct_agent_imports.append(f"{rel}: contains apps.agent")
 
     assert not direct_agent_imports, (
         "Found forbidden app-layer agent references under AINDY/:\n- "
@@ -123,7 +127,11 @@ def test_aindy_tree_has_no_direct_apps_references():
     for source_file in AINDY_ROOT.glob("**/*.py"):
         source = source_file.read_text(encoding="utf-8-sig")
         if "from apps." in source or "import apps." in source:
-            direct_app_references.append(f"{source_file.relative_to(ROOT).as_posix()}: contains direct apps.* import text")
+            try:
+                rel = source_file.relative_to(ROOT).as_posix()
+            except ValueError:
+                rel = source_file.relative_to(AINDY_ROOT.parent).as_posix()
+            direct_app_references.append(f"{rel}: contains direct apps.* import text")
 
     assert not direct_app_references, (
         "Found forbidden direct apps.* references under AINDY/:\n- "
