@@ -170,7 +170,7 @@ async def get_scheduler_status(
     current_user: dict = Depends(get_current_user),
 ):
     def handler(_ctx):
-        from platform_layer.scheduler_service import get_scheduler
+        from AINDY.platform_layer.scheduler_service import get_scheduler
 
         try:
             scheduler = get_scheduler()
