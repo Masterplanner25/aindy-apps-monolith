@@ -159,9 +159,27 @@ def handle_agent_run_completed(context: dict):
         return None
 
 
+def stub_planner_backend(request) -> dict:
+    """Canned plan for smoke testing — activates via AINDY_AGENT_PLANNER_BACKEND=stub."""
+    objective = getattr(request, "objective", "") or ""
+    return {
+        "executive_summary": "Stub plan for smoke testing. No LLM required.",
+        "steps": [
+            {
+                "tool": "memory.recall",
+                "args": {"query": objective[:80] or "smoke test"},
+                "risk_level": "high",
+                "description": "Stub step: recall memories (smoke test only).",
+            }
+        ],
+        "overall_risk": "high",
+    }
+
+
 def register() -> None:
     from AINDY.platform_layer.registry import (
         register_agent_completion_hook,
+        register_agent_planner_backend,
         register_planner_context_provider,
         register_run_tool_provider,
     )
@@ -169,3 +187,4 @@ def register() -> None:
     register_planner_context_provider("default", build_planner_context)
     register_run_tool_provider("default", get_tools_for_run)
     register_agent_completion_hook("default", handle_agent_run_completed)
+    register_agent_planner_backend("stub", stub_planner_backend)

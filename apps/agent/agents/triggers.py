@@ -85,7 +85,7 @@ def evaluate_autonomy_trigger(payload: dict[str, Any]) -> dict[str, Any]:
 def _enrich_context(*, trigger: dict[str, Any], trigger_type: str, context: dict[str, Any]) -> dict[str, Any]:
     db = context.get("db")
     user_id = context.get("user_id")
-    if db is None:
+    if db is None or not callable(getattr(db, "query", None)):
         return context
 
     enriched = dict(context)

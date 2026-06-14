@@ -60,7 +60,7 @@ def seed_authorship(context: dict) -> None:
         return
 
     session_factory = context.get("session_factory")
-    if session_factory is None:
+    if not callable(session_factory):
         return
 
     log = context.get("log")

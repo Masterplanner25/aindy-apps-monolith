@@ -101,13 +101,13 @@ def _handle_system_startup(context: dict):
     from apps.tasks.services import task_service
     return task_service.start_background_tasks(
         enable=context.get("enable", True),
-        log=context.get("log"),
+        log=None,  # logger can't survive sanitize_extension_context
     )
 
 
 def _handle_system_shutdown(context: dict):
     from apps.tasks.services import task_service
-    return task_service.stop_background_tasks(log=context.get("log"))
+    return task_service.stop_background_tasks(log=None)  # logger can't survive sanitize_extension_context
 
 
 def _handle_scheduler_tick(context: dict):
