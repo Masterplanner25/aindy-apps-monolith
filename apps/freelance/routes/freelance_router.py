@@ -346,11 +346,10 @@ def get_all_orders(
 ):
     user_id = str(current_user["sub"])
     def handler(_ctx):
-        result = _run_flow_freelance("freelance_orders_list", {}, db, user_id, return_full=True)
-        data = result.get("data") or {}
+        orders = _run_flow_freelance("freelance_orders_list", {}, db, user_id)
         return {
-            "status": result.get("status"),
-            "orders": data.get("orders", []),
+            "status": "SUCCESS",
+            "orders": orders if isinstance(orders, list) else [],
         }
     return _execute_freelance(request, "freelance.orders.list", handler, db=db, user_id=user_id)
 
