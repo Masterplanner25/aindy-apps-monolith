@@ -25,7 +25,7 @@ def add_drop_point(db: Session, dp, user_id: str = None):
         user_id=user_uuid,
     )
     db.add(db_dp)
-    db.flush()
+    db.commit()
     db.refresh(db_dp)
     return db_dp
 
@@ -50,12 +50,13 @@ def add_ping(db: Session, pg, user_id: str = None):
         connection_type=connection_type,
     )
     db.add(db_pg)
-    db.flush()
+    db.commit()
     db.refresh(db_pg)
     try:
         analyze_drop_point(pg.drop_point_id, db)
     except Exception as exc:
         logger.warning("ThreadWeaver analysis failed for ping %s: %s", pg.id, exc)
+    db.refresh(db_pg)
     return db_pg
 
 def get_ripples(db: Session, drop_point_id: str, user_id: str = None):
