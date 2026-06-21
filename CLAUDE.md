@@ -231,3 +231,4 @@ Use `disabled` (set in `pytest.integration.ini`), **not** `stub`. The `stub` bac
 | Runtime dependency contract doc | `docs/apps/RUNTIME_DEPENDENCY.md` |
 | CI ownership doc | `docs/apps/CI_OWNERSHIP.md` |
 | Tech debt tracker | `TECH_DEBT.md` |
+| Live stack verification scope | `LIVE_VERIFICATION_SCOPE.md` |
