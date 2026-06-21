@@ -184,6 +184,38 @@ CI installs runtime from source until PyPI publication is complete (see
 
 ---
 
+## Integration test patterns
+
+### `run_flow()` return structure
+
+`run_flow()` returns a uniform envelope: `{"status": "SUCCESS"|"error", "data": {...}, "run_id": ..., "trace_id": ..., ...}`. The handler's actual output is always nested under `"data"`. **Do not read output keys from the top-level result dict.**
+
+```python
+# CORRECT
+result = run_flow("my_flow", payload, db=db, user_id=user_id)
+data = result.get("data") or {}
+message = data.get("message", "")  # flow output key lives here
+
+# WRONG — output keys are never at the top level of result
+message = result.get("message", "")
+```
+
+### `_fresh_main_app()` and `Base.metadata` — model import timing hazard
+
+`_setup_postgres_schema` (session-scoped, autouse) calls `Base.metadata.create_all()` once at session start. Each test's `_fresh_main_app()` reloads `AINDY.main` + `AINDY.startup`, which imports all app modules and may add new model classes to `Base.metadata`. Tables registered this way exist in `Base.metadata` but **were never created in PostgreSQL** because `create_all` already ran.
+
+`cleanup_committed_test_state` guards against this by querying `pg_catalog.pg_tables` before building the `TRUNCATE` list — only truncating tables that actually exist in the DB. **Do not simplify this back to iterating `Base.metadata.sorted_tables` directly.** Tables like `freelance_refund_records` (imported late via a freelance module reload) will raise `UndefinedTable`, which rolls back the cleanup transaction, leaves data in the DB, and cascades into isolation assertion failures and `InFailedSqlTransaction` errors across the rest of the session.
+
+### `AINDY_AGENT_PLANNER_BACKEND` in integration tests
+
+Use `disabled` (set in `pytest.integration.ini`), **not** `stub`. The `stub` backend causes planner-path tests to fail with errors rather than cleanly skip when the planner isn't wired up. Tests that touch planner-dependent paths must check `os.environ.get("AINDY_AGENT_PLANNER_BACKEND") == "disabled"` and skip or fast-path accordingly.
+
+### ARM config — per-user scoping
+
+`arm_config.id` is a `String(36)` primary key. All rows are keyed by user UUID. All `arm_config_dao` calls must pass `user_id=str(current_user["sub"])`. A missing `user_id` falls back to the key `"default"` — the system default singleton, not per-user storage. The `String(36)` length is required to hold a UUID; `String(32)` is too short.
+
+---
+
 ## Key file locations
 
 | What | Where |
