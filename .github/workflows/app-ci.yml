@@ -81,33 +81,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Temporary staged-release strategy:
-      # until aindy-runtime is published to an index that GitHub Actions can
-      # install from, app CI checks out the runtime repo explicitly and installs
-      # it from source. The repo dependency contract in pyproject.toml remains
-      # the long-term source of truth.
-      #
-      # secrets context is not available in if: expressions, so repo + token
-      # selection is handled in a single bash step via env: instead.
-      - name: Checkout aindy-runtime source
-        env:
-          RUNTIME_TOKEN: ${{ secrets.AINDY_RUNTIME_CHECKOUT_TOKEN }}
-          RUNTIME_REPO: ${{ vars.AINDY_RUNTIME_REPO }}
-          REPO_OWNER: ${{ github.repository_owner }}
-        run: |
-          REPO="${RUNTIME_REPO:-${REPO_OWNER}/aindy-runtime}"
-          if [ -n "$RUNTIME_TOKEN" ]; then
-            git clone "https://x-access-token:${RUNTIME_TOKEN}@github.com/${REPO}.git" _runtime_src
-          else
-            git clone "https://github.com/${REPO}.git" _runtime_src
-          fi
-
-      - name: Install runtime dependency from runtime repo source
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r _runtime_src/AINDY/requirements.txt
-          python -m pip install -e ./_runtime_src --no-deps --no-build-isolation
-          python -m pip install -e .[test] --no-build-isolation
+          python -m pip install -e .[test]
 
       - name: Verify installed runtime dependency
         run: |
@@ -121,9 +98,7 @@ jobs:
 
           assert paths, 'AINDY namespace package did not resolve'
           assert any(
-              '_runtime_src' in path.lower()
-              or 'site-packages' in path.lower()
-              or 'dist-packages' in path.lower()
+              'site-packages' in path.lower() or 'dist-packages' in path.lower()
               for path in paths
           ), paths
           assert runtime_version.startswith('1.'), runtime_version

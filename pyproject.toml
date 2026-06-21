@@ -12,6 +12,7 @@ license = "MIT"
 authors = [{ name = "platform-team" }]
 dependencies = [
   "aindy-runtime>=1.0,<2.0",
+  "aindy-sdk>=1.0,<2.0",
 ]
 
 [project.optional-dependencies]
