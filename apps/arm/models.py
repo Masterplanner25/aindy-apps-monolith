@@ -140,7 +140,7 @@ class ARMConfig(Base):
 class ArmConfig(Base):
     __tablename__ = "arm_config"
 
-    id = Column(String(32), primary_key=True, default="default")
+    id = Column(String(36), primary_key=True, default="default")
     model = Column(String(128), nullable=False, default="gpt-4o")
     analysis_model = Column(String(128), nullable=False, default="gpt-4o")
     generation_model = Column(String(128), nullable=False, default="gpt-4o")

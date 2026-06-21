@@ -121,16 +121,21 @@ def create_agent_run(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not body.goal or not body.goal.strip():
-        raise HTTPException(status_code=400, detail="goal is required")
     user_id = _current_user_id(current_user)
+    stripped_goal = (body.goal or "").strip()
+
+    def _handler(_ctx):
+        if not stripped_goal:
+            raise HTTPException(status_code=400, detail="goal is required")
+        return create_agent_run_runtime(goal=stripped_goal, db=db, user_id=user_id)
+
     return _execute_agent(
         request,
         "agent.run.create",
-        lambda _ctx: create_agent_run_runtime(goal=body.goal, db=db, user_id=user_id),
+        _handler,
         db=db,
         user_id=str(user_id),
-        input_payload={"goal": body.goal.strip()},
+        input_payload={"goal": stripped_goal},
     )
 
 

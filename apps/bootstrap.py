@@ -256,7 +256,9 @@ def bootstrap() -> None:
         try:
             mod = _import_bootstrap_module(app_name)
             mod.register()
-            publish_bootstrap_registration(app_name, depends_on)
+            publish_bootstrap_registration(
+                app_name, depends_on, module_name=f"apps.{app_name}.bootstrap"
+            )
             logger.info("Bootstrap OK: %s", app_name)
         except Exception as exc:
             failed_domains.add(app_name)

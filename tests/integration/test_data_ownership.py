@@ -217,11 +217,11 @@ class TestComputeOwnership:
         client.post("/apps/analytics/kpi-weights/adapt", json={}, headers=_auth(token_a))
 
         r = client.get("/apps/analytics/kpi-weights", headers=_auth(token_b))
-        body = r.json()
-        assert body.get("adapted_count") == 0, (
-            f"User B's adapted_count is {body.get('adapted_count')}, expected 0"
+        d = _data(r)
+        assert d.get("adapted_count") == 0, (
+            f"User B's adapted_count is {d.get('adapted_count')}, expected 0"
         )
-        assert body.get("is_personalized") is False, (
+        assert d.get("is_personalized") is False, (
             "User B's weights show as personalized after User A adapted"
         )
 

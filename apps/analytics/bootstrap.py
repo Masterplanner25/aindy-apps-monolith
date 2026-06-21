@@ -59,10 +59,10 @@ def _register_routers() -> None:
 
 def _register_response_adapters() -> None:
     from AINDY.platform_layer.registry import register_response_adapter
-    from AINDY.platform_layer.response_adapters import raw_json_adapter
+    from AINDY.platform_layer.response_adapters import raw_canonical_adapter
 
-    register_response_adapter("analytics", raw_json_adapter)
-    register_response_adapter("main", raw_json_adapter)
+    register_response_adapter("analytics", raw_canonical_adapter)
+    register_response_adapter("main", raw_canonical_adapter)
 
 
 def _register_events() -> None:

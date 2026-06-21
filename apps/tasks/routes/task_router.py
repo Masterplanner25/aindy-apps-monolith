@@ -1,7 +1,7 @@
 # /routers/task_router.py
 import logging
 
-from fastapi import APIRouter, Depends, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Request
 from sqlalchemy.orm import Session
 from AINDY.core.execution_gate import to_envelope
 from AINDY.core.execution_helper import execute_with_pipeline_sync
@@ -138,6 +138,7 @@ def start_task(
     current_user: dict = Depends(get_current_user),
 ):
     user_id = str(current_user["sub"])
+    _not_found: list[bool] = []
 
     def handler(_ctx):
         from AINDY.runtime.flow_engine import run_flow
@@ -151,9 +152,17 @@ def start_task(
             raise RuntimeError(
                 (result.get("data") or {}).get("message", "Task start flow failed")
             )
+        # run_flow returns {"status": "SUCCESS", "data": {"message": "..."}, ...}
+        data = result.get("data") if isinstance(result, dict) else None
+        msg = data.get("message", "") if isinstance(data, dict) else ""
+        if msg and "not found" in msg.lower():
+            _not_found.append(True)
         return _flow_envelope(result)
 
-    return _execute_tasks(request, "tasks.start", handler, db=db, user_id=user_id, input_payload={"task_name": task.name})
+    response = _execute_tasks(request, "tasks.start", handler, db=db, user_id=user_id, input_payload={"task_name": task.name})
+    if _not_found:
+        raise HTTPException(status_code=404, detail=f"Task '{task.name}' not found")
+    return response
 
 @router.post("/pause")
 @limiter.limit("30/minute")
@@ -191,6 +200,8 @@ def complete_task(
 ):
     user_id = str(current_user["sub"])
 
+    _not_found: list[bool] = []
+
     def handler(_ctx):
         from AINDY.runtime.flow_engine import run_flow
         result = run_flow(
@@ -203,9 +214,17 @@ def complete_task(
             raise RuntimeError(
                 (result.get("data") or {}).get("message", "Task completion flow failed")
             )
+        # run_flow returns {"status": "SUCCESS", "data": {"task_result": "...", ...}, ...}
+        data = result.get("data") if isinstance(result, dict) else None
+        task_result = data.get("task_result", "") if isinstance(data, dict) else ""
+        if isinstance(task_result, str) and "not found" in task_result.lower():
+            _not_found.append(True)
         return _flow_envelope(result)
 
-    return _execute_tasks(request, "tasks.complete", handler, db=db, user_id=user_id, input_payload={"task_name": task.name})
+    response = _execute_tasks(request, "tasks.complete", handler, db=db, user_id=user_id, input_payload={"task_name": task.name})
+    if _not_found:
+        raise HTTPException(status_code=404, detail=f"Task '{task.name}' not found")
+    return response
 
 @router.get("/list")
 @limiter.limit("60/minute")

@@ -216,7 +216,8 @@ async def get_config(
 ):
     """Read current ARM configuration."""
     def handler(ctx):
-        data = _arm_config_to_dict(arm_config_dao.get_config(db))
+        user_id = str(current_user["sub"])
+        data = _arm_config_to_dict(arm_config_dao.get_config(db, user_id=user_id))
         data.setdefault("execution_envelope", to_envelope(
             eu_id=None, trace_id=None,
             status="SUCCESS",
@@ -241,11 +242,11 @@ async def update_config(
     """Update ARM configuration parameters."""
     def handler(ctx):
         user_id = str(current_user["sub"])
-        current = _arm_config_to_dict(arm_config_dao.get_config(db))
+        current = _arm_config_to_dict(arm_config_dao.get_config(db, user_id=user_id))
         filtered = {k: v for k, v in body.updates.items() if k in _UPDATABLE_KEYS}
         if filtered:
             current.update(filtered)
-            updated = arm_config_dao.upsert_config(db, **current)
+            updated = arm_config_dao.upsert_config(db, user_id=user_id, **current)
             _invalidate_arm_analyzer_cache()
             try:
                 from AINDY.platform_layer.registry import emit_event

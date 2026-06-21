@@ -72,6 +72,10 @@ def test_engine():
 
     if database_url.startswith("postgresql"):
         from AINDY.db.database import engine
+        # Pre-ping prevents cascade failures when a background thread (e.g., agent
+        # plan generation subprocess) TCP-resets a pooled connection; the pool
+        # discards the dead connection on next checkout rather than handing it out.
+        engine.pool._pre_ping = True
 
         yield engine
         engine.dispose()
@@ -197,9 +201,14 @@ def cleanup_committed_test_state(test_engine):
 
     with test_engine.begin() as connection:
         if test_engine.dialect.name == "postgresql":
+            result = connection.execute(
+                text("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public'")
+            )
+            existing_tables = {row[0] for row in result}
             table_names = [
                 table.fullname
                 for table in reversed(Base.metadata.sorted_tables)
+                if table.name in existing_tables
             ]
             if table_names:
                 quoted = ", ".join(table_names)
