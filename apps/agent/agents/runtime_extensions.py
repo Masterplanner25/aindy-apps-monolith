@@ -184,7 +184,13 @@ def register() -> None:
         register_run_tool_provider,
     )
 
+    from apps.agent.agents.planner_anthropic import claude_planner_backend
+
     register_planner_context_provider("default", build_planner_context)
     register_run_tool_provider("default", get_tools_for_run)
     register_agent_completion_hook("default", handle_agent_run_completed)
     register_agent_planner_backend("stub", stub_planner_backend)
+    # App-owned LLM planner: select via AINDY_AGENT_PLANNER_BACKEND=anthropic_chat.
+    # The runtime ships disabled/runtime_local/openai_chat_compat; this adds Claude
+    # without touching the runtime package.
+    register_agent_planner_backend("anthropic_chat", claude_planner_backend)
