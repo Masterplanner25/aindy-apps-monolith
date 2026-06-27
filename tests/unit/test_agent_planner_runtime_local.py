@@ -41,40 +41,6 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _planner_tools_resolvable() -> bool:
-    """True when the runtime can resolve run-tool providers in this environment.
-
-    The runtime routes first-party-app run-tool providers through an isolated
-    subprocess (registry._maybe_wrap_runtime_callback). In some environments —
-    notably a Linux CI host with a wheel-installed runtime — that subprocess
-    cannot re-import the apps package, so it returns zero tools even though
-    TOOL_REGISTRY is populated in-process. The plan-generation tests below need
-    resolvable tools, so they skip (rather than fail) when the environment can't
-    provide them. This is a runtime subprocess-isolation limitation, separate
-    from the node_type contract this file also guards.
-    """
-    from AINDY.db.database import SessionLocal
-    from AINDY.platform_layer.registry import get_tools_for_run
-
-    db = SessionLocal()
-    try:
-        tools = get_tools_for_run(
-            "default", {"run_type": "default", "user_id": None, "db": db}
-        )
-        return bool(tools)
-    except Exception:
-        return False
-    finally:
-        db.close()
-
-
-_TOOLS_UNRESOLVABLE_REASON = (
-    "runtime run-tool provider returns no tools in this environment "
-    "(subprocess callback isolation cannot re-import apps) — see "
-    "registry._maybe_wrap_runtime_callback"
-)
-
-
 @pytest.fixture
 def runtime_local_planner(monkeypatch):
     """Select the deterministic no-LLM planner backend for the duration of a test."""
@@ -97,9 +63,6 @@ def test_planner_generates_plan_over_registered_tools(client, runtime_local_plan
     from AINDY.db.database import SessionLocal
 
     assert TOOL_REGISTRY, "no agent tools registered — app bootstrap not loaded"
-
-    if not _planner_tools_resolvable():
-        pytest.skip(_TOOLS_UNRESOLVABLE_REASON)
 
     db = SessionLocal()
     try:
@@ -127,9 +90,6 @@ def test_run_created_with_persisted_plan(client, runtime_local_planner):
     Without auto-execute trust the run lands in pending_approval — proving the
     planner-driven create path without depending on the Postgres-only execute path.
     """
-    if not _planner_tools_resolvable():
-        pytest.skip(_TOOLS_UNRESOLVABLE_REASON)
-
     token = _register_and_login(client)
     r = client.post(
         "/apps/agent/run",
