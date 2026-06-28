@@ -66,6 +66,25 @@ class SocialPost(BaseModel):
     # AI Analysis Hook (for future "Memory Scribe" integration)
     ai_context: Optional[Dict[str, Any]] = None
 
+# --- 2b. DISCUSSION: Comments & Replies --------------------------------------
+class SocialComment(BaseModel):
+    """
+    A comment on a post, or a reply to another comment.
+
+    Replies carry ``parent_comment_id`` so the frontend can reconstruct threads;
+    top-level comments leave it ``None``. This is the content surface behind the
+    flattened ``SocialPost.comments_count`` counter.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    post_id: str
+    author_id: str
+    author_username: str  # Denormalized for faster thread rendering
+
+    content: str
+    parent_comment_id: Optional[str] = None  # set for replies, None for top-level
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 # --- 3. RELATIONSHIPS: The Trust Graph --------------------------------------
 class Connection(BaseModel):
     """
