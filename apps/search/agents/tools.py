@@ -17,6 +17,19 @@ def _dispatch_tool_syscall(syscall_name: str, args: dict, user_id: str, *, capab
 
 def register() -> None:
     register_tool(
+        "search.query",
+        risk="medium",
+        description=(
+            "Unified search over leadgen, research, SEO, and memory surfaces. "
+            "Args: {query, search_type?: 'research'|'leadgen'|'seo_analysis'|'memory', limit?}. "
+            "Returns a ranked SearchResponse (query, search_type, results[], search_score, memory)."
+        ),
+        capability="tool:search.query",
+        required_capability="external_api_call",
+        category="search",
+        egress_scope="external_web",
+    )(search_query)
+    register_tool(
         "leadgen.search",
         risk="medium",
         description="Search for B2B leads matching a query",
@@ -34,6 +47,12 @@ def register() -> None:
         category="research",
         egress_scope="external_web",
     )(research_query)
+
+
+def search_query(args: dict, user_id: str, db) -> dict:
+    return _dispatch_tool_syscall(
+        "sys.v1.search.query", args, user_id, capability="search.query"
+    )
 
 
 def leadgen_search(args: dict, user_id: str, db) -> dict:

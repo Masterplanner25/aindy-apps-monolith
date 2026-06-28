@@ -134,6 +134,8 @@ def research_query_node(state, context):
         payload = {
             "id": created.id, "query": created.query, "summary": created.summary,
             "source": created.source, "data": d,
+            "results": unified.get("results") or [],
+            "search_type": "research",
             "created_at": created.created_at.isoformat() if getattr(created, "created_at", None) else None,
             "search_score": d.get("search_score") if isinstance(d, dict) else None,
             "_execution_meta": {

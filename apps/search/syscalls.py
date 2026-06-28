@@ -116,6 +116,77 @@ def _handle_research_query(payload: dict, ctx: SyscallContext) -> dict:
     return {"raw_result": raw[:2000] if raw else ""}
 
 
+def _memory_to_item(item):
+    """Map a recalled memory item onto the shared SearchResultItem shape."""
+    from apps.search.schemas.search_schema import SearchResultItem
+
+    if isinstance(item, dict):
+        title = str(item.get("title") or item.get("node_type") or item.get("type") or "memory")
+        snippet = str(
+            item.get("content") or item.get("summary") or item.get("text") or ""
+        )[:240] or None
+        metadata = {
+            k: item[k] for k in ("id", "node_type", "tags", "score") if k in item
+        }
+        return SearchResultItem(title=title, snippet=snippet, metadata=metadata)
+    return SearchResultItem(title="memory", snippet=str(item)[:240] or None)
+
+
+def _handle_search_query(payload: dict, ctx: SyscallContext) -> dict:
+    """Unified search syscall — one contract over leadgen, research, SEO, memory.
+
+    Routes by ``search_type`` and returns a normalized ``SearchResponse`` dump so
+    every surface answers with the same ranked structure (Evolution Plan — Step 5).
+    """
+    from apps.search.schemas.search_schema import (
+        SEARCH_TYPE_LEAD_PREVIEW,
+        SEARCH_TYPE_LEADGEN,
+        SEARCH_TYPE_RESEARCH,
+        SEARCH_TYPE_SEO,
+        SearchMemoryRef,
+        SearchResponse,
+        to_search_response,
+    )
+    from apps.search.services import search_service
+
+    query = (payload.get("query") or "").strip()
+    if not query:
+        raise ValueError("sys.v1.search.query requires 'query'")
+    search_type = (payload.get("search_type") or SEARCH_TYPE_RESEARCH).lower()
+    limit = max(1, int(payload.get("limit") or 3))
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        if search_type in (SEARCH_TYPE_LEADGEN, SEARCH_TYPE_LEAD_PREVIEW):
+            raw = search_service.search_leads(
+                query, db=db, user_id=ctx.user_id, max_results=limit
+            )
+            response = to_search_response(raw, search_type=SEARCH_TYPE_LEADGEN)
+        elif search_type in (SEARCH_TYPE_SEO, "seo"):
+            raw = search_service.analyze_seo_content(query, db=db, user_id=ctx.user_id)
+            response = to_search_response(raw, search_type=SEARCH_TYPE_SEO)
+        elif search_type == "memory":
+            mem = search_service.search_memory(
+                query, db=db, user_id=ctx.user_id, limit=limit
+            )
+            response = SearchResponse(
+                query=query,
+                search_type="memory",
+                results=[_memory_to_item(it) for it in (mem.get("items") or [])],
+                memory=SearchMemoryRef(
+                    count=int(mem.get("count") or 0),
+                    ids=[str(i) for i in (mem.get("ids") or [])],
+                ),
+            )
+        else:
+            raw = search_service.unified_query(query, db=db, user_id=ctx.user_id)
+            response = to_search_response(raw, search_type=SEARCH_TYPE_RESEARCH)
+        return response.model_dump()
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_search_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.leadgen.search",
@@ -143,5 +214,12 @@ def register_search_syscall_handlers() -> None:
         handler=_handle_research_query,
         capability="research.query",
         description="Web research query.",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.search.query",
+        handler=_handle_search_query,
+        capability="search.query",
+        description="Unified search across leadgen, research, SEO, and memory surfaces.",
         stable=False,
     )

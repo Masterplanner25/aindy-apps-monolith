@@ -108,6 +108,7 @@ def _register_flow_results() -> None:
     from AINDY.platform_layer.registry import register_flow_result
 
     result_keys = {
+        "unified_search": "search_result",
         "leadgen_search": "search_results",
         "leadgen_list": "leadgen_list_result",
         "leadgen_preview_search": "leadgen_preview_search_result",
