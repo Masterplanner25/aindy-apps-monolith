@@ -48,7 +48,7 @@ function edgeStroke(edge) {
 }
 
 function graphLayout(nodes, edges) {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const byId = new Map(safeMap(nodes, (node) => [node.id, node]));
   const depthMap = new Map();
   const incoming = new Map();
   const outgoing = new Map();
@@ -60,7 +60,7 @@ function graphLayout(nodes, edges) {
     outgoing.set(edge.source, list);
   });
 
-  const queue = nodes.filter((node) => !incoming.get(node.id)).map((node) => ({ id: node.id, depth: 0 }));
+  const queue = safeMap(nodes.filter((node) => !incoming.get(node.id)), (node) => ({ id: node.id, depth: 0 }));
   while (queue.length) {
     const current = queue.shift();
     if (!current) break;
@@ -93,7 +93,7 @@ function graphLayout(nodes, edges) {
 
   return {
     nodes: positioned,
-    edges: edges.map((edge) => ({
+    edges: safeMap(edges, (edge) => ({
       ...edge,
       sourceNode: positioned.find((node) => node.id === edge.source) || byId.get(edge.source),
       targetNode: positioned.find((node) => node.id === edge.target) || byId.get(edge.target),
@@ -162,6 +162,10 @@ function TraceGraph({ nodes, edges, selectedNodeId, onSelectNode }) {
 export default function RippleTraceViewer() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <RippleTraceViewerContent />;
+}
+
+function RippleTraceViewerContent() {
   const [traceId, setTraceId] = useState("");
   const [submittedTraceId, setSubmittedTraceId] = useState("");
   const [data, setData] = useState(null);
@@ -395,12 +399,12 @@ export default function RippleTraceViewer() {
           {!loading && !error && data ? (
             <div className="mt-5">
               <div className="mb-5 flex flex-wrap items-center gap-2">
-                {[
+                {safeMap([
                   ["graph", "Graph"],
                   ["narrative", "Narrative"],
                   ["predictions", "Predictions"],
                   ["recommendations", "Recommendations"],
-                ].map(([tab, label]) => (
+                ], ([tab, label]) => (
                   <button
                     key={tab}
                     type="button"

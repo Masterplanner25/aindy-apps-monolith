@@ -27,7 +27,7 @@ export default function ARMConfig() {
       try {
         const res = await getARMConfig();
         setConfig(res.config ?? res.runtime_config ?? res);
-      } catch (e) {
+      } catch {
         setConfig({});
       }
     })();

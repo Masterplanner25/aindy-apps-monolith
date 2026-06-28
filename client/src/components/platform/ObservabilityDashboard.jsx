@@ -121,6 +121,10 @@ function buildBootDashboard(system) {
 export default function ObservabilityDashboard() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <ObservabilityDashboardContent />;
+}
+
+function ObservabilityDashboardContent() {
   const { system } = useSystem();
   const [data, setData] = useState(() => buildBootDashboard(system));
   const [loading, setLoading] = useState(true);

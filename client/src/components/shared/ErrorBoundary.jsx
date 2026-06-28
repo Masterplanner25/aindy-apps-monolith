@@ -29,7 +29,7 @@ export default class ErrorBoundary extends Component {
         try {
           const payload = JSON.parse(atob(token.split(".")[1]));
           userId = payload.sub || null;
-        } catch {}
+        } catch { /* malformed token — leave userId null */ }
       }
       reportClientError({
         error_message: error?.message || String(error),
@@ -42,7 +42,7 @@ export default class ErrorBoundary extends Component {
         user_id: userId,
         trace_id: null,
       });
-    } catch {}
+    } catch { /* error reporting is best-effort */ }
   }
 
   render() {

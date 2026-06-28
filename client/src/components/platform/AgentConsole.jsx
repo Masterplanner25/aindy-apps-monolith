@@ -454,6 +454,10 @@ function eventTypeColor(eventType) {
 export default function AgentConsole() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <AgentConsoleContent />;
+}
+
+function AgentConsoleContent() {
   const { system } = useSystem();
   const runtimeOnly = system?.runtime?.boot_mode === "runtime-only";
   const [goal, setGoal] = useState("");
@@ -509,7 +513,7 @@ export default function AgentConsole() {
     try {
       const data = await getAgentSuggestions();
       setSuggestions(data || []);
-    } catch (e) {
+    } catch {
 
       // Suggestions are non-critical — fail silently
     }}, []);

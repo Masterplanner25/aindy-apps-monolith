@@ -22,6 +22,10 @@ import { useToast } from "../../utils/useToast";
 export default function ExecutionConsole() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <ExecutionConsoleContent />;
+}
+
+function ExecutionConsoleContent() {
   // 1. Tab State
   const [activeTab, setActiveTab] = useState("core");
 

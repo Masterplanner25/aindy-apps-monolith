@@ -34,7 +34,7 @@ export function initVitals() {
         _scheduleSend();
       }
     }).observe({ type: "largest-contentful-paint", buffered: true });
-  } catch {}
+  } catch { /* PerformanceObserver entry type unsupported */ }
 
   try {
     let clsScore = 0;
@@ -47,7 +47,7 @@ export function initVitals() {
       _vitals.cls_score = Math.round(clsScore * 1000) / 1000;
       _scheduleSend();
     }).observe({ type: "layout-shift", buffered: true });
-  } catch {}
+  } catch { /* PerformanceObserver entry type unsupported */ }
 
   try {
     new PerformanceObserver((list) => {
@@ -58,5 +58,5 @@ export function initVitals() {
       }
       _scheduleSend();
     }).observe({ type: "event", buffered: true, durationThreshold: 40 });
-  } catch {}
+  } catch { /* PerformanceObserver entry type unsupported */ }
 }

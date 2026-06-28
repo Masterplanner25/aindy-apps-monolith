@@ -16,7 +16,7 @@ export default function TaskDashboard() {
 
   const tasks = useMemo(() => {
     const items = Array.isArray(data) ? [...data] : [];
-    return items.sort((a, b) => (a.status === "completed" ? 1 : -1));
+    return items.sort((a) => (a.status === "completed" ? 1 : -1));
   }, [data]);
 
   useEffect(() => {
