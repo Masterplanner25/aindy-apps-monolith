@@ -276,7 +276,7 @@ def list_leads(db: Session, user_id: str) -> list[dict]:
 
     rows = (
         db.query(LeadGenResult)
-        .filter(LeadGenResult.user_id == user_id)
+        .filter(LeadGenResult.user_id == uuid.UUID(str(user_id)))
         .order_by(LeadGenResult.created_at.desc(), LeadGenResult.id.desc())
         .all()
     )
