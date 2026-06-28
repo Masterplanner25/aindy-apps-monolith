@@ -197,7 +197,6 @@ This capability exists but is not wired into the Search System flows documented 
 
 * unified search pipeline
 * reusable hybrid search orchestration across search surfaces
-* consistent ranking model across search surfaces (shared scorer exists, but ranking remains shallow and surface-specific)
 * UI integration for SEO and LeadGen
 
 ---
@@ -249,7 +248,16 @@ It is NOT:
 
 **Actions:**
 
-* unify relevance scoring across SEO, leadgen, research (partial)
+* unify relevance scoring across SEO, leadgen, research - DONE
+
+A shared lexical relevance signal (`lexical_relevance`) plus a `composite_score`
+(0.6 relevance / 0.4 surface quality) now live in `apps/search/services/search_scoring.py`.
+The `rank_items` ranker in `apps/search/schemas/search_schema.py` applies them so
+every surface's `SearchResponse.results` carry one unified `score` (surface quality
+preserved under `metadata.quality_score`, relevance under `metadata.relevance`).
+Leadgen and research results are reordered by the composite; SEO is annotated
+without reordering (it is an analysis surface, not retrieval).
+**Tests:** `tests/unit/test_search_ranking.py`.
 
 ---
 
@@ -286,7 +294,7 @@ It is NOT:
 
 * ? leadgen search now uses real retrieval (orchestrator + provider)
 * ? research search executes via `/research/query`
-* ranking helpers are shared, but ranking remains surface-specific
+* ranking unified: shared lexical relevance + composite score order results across surfaces
 * SEO suggestions stubbed
 
 ### Conceptual
@@ -301,7 +309,7 @@ It is NOT:
 | ----- | -------------------- | ----------- | --------------- |
 | v1    | Surface Alignment    | Partial     | Normalize       |
 | v2    | Retrieval Integration| Complete    | Maintenance only |
-| v3    | Ranking Unification  | Partial     | Deepen shared ranking |
+| v3    | Ranking Unification  | Complete    | Maintenance only |
 | v4    | Feedback Loop        | Missing     | Persist + reuse |
 | v5    | UI Integration       | Missing     | Implement       |
 

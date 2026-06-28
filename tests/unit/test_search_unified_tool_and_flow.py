@@ -59,7 +59,9 @@ def test_search_syscall_routes_research_by_default(monkeypatch):
     assert out["search_type"] == "research"
     assert out["query"] == "market sizing"
     assert out["results"][0]["snippet"] == "a research summary"
-    assert out["search_score"] == pytest.approx(0.6)
+    # search_score is the top-ranked composite (relevance 1.0 + quality 0.6)
+    assert out["search_score"] == pytest.approx(0.84)
+    assert out["results"][0]["metadata"]["quality_score"] == pytest.approx(0.6)
     assert out["memory"]["count"] == 1
     assert captured["query"] == "market sizing"
 
@@ -86,7 +88,9 @@ def test_search_syscall_routes_leadgen(monkeypatch):
     item = out["results"][0]
     assert item["title"] == "Acme"
     assert item["url"] == "https://acme.io"
-    assert item["score"] == pytest.approx(0.8)
+    # surface quality (0.8) preserved; score is the composite (relevance 0 here)
+    assert item["metadata"]["quality_score"] == pytest.approx(0.8)
+    assert item["score"] == pytest.approx(0.32)
 
 
 def test_search_syscall_routes_seo(monkeypatch):
