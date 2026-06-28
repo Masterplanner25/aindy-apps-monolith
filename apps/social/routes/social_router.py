@@ -22,6 +22,7 @@ from apps.social.services.comment_service import (
     list_comments,
 )
 from apps.social.services.bridge_feed_service import get_bridge_feed_events
+from apps.social.services.identity_binding_service import resolve_canonical_username
 from apps.social.services.social_metrics_history_service import record_metric_deltas
 from apps.social.services.social_performance_service import (
     compute_conversion_signal,
@@ -231,12 +232,18 @@ def _mongo_degraded_payload(reason: str, *, data=None):
     }
 
 
-def _resolve_comment_author(db: Database, user_id: str, supplied: Optional[str]) -> str:
+def _resolve_comment_author(
+    db: Database, sql_db: Session, user_id: str, supplied: Optional[str]
+) -> str:
     """Best-effort display name for a comment author.
 
-    Prefers a client-supplied username, falls back to the author's social
-    profile, and finally to a short id slug so a comment always renders.
+    Prefers the canonical users.username (source of truth), then a client-supplied
+    value, then the author's social profile, then a short id slug so a comment
+    always renders.
     """
+    canonical, is_canonical = resolve_canonical_username(sql_db, user_id)
+    if is_canonical and canonical:
+        return canonical
     if supplied and supplied.strip():
         return supplied.strip()
     try:
@@ -254,16 +261,36 @@ def upsert_profile(
     request: Request,
     profile_data: SocialProfile,
     db: Database | None = Depends(get_optional_mongo_db),
+    sql_db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
     def handler(ctx):
         if db is None:
             return _mongo_degraded_payload("mongodb_unavailable")
+        user_id = str(current_user["sub"])
+
+        # Canonical users.username is the source of truth. When present it
+        # overrides the client value and marks the profile verified; when absent
+        # the social-supplied username is kept, flagged unverified.
+        canonical, is_canonical = resolve_canonical_username(sql_db, user_id)
+        effective_username = canonical if is_canonical else (profile_data.username or "").strip()
+        if not effective_username:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "username_required", "message": "A username is required"},
+            )
+
         try:
             profiles = db["profiles"]
-            user_id = str(current_user["sub"])
-            existing_any = profiles.find_one({"username": profile_data.username})
-            if existing_any and existing_any.get("user_id") != user_id:
+            # The owner's profile is keyed by user_id (so a username change
+            # reconciles in place rather than orphaning the old document).
+            existing = profiles.find_one({"user_id": user_id})
+
+            # Reject taking a username already held by a different user — unless
+            # ours is canonical, in which case canonical authority wins and the
+            # other (necessarily unverified) profile reconciles on its next write.
+            squatter = profiles.find_one({"username": effective_username})
+            if squatter and squatter.get("user_id") != user_id and not is_canonical:
                 raise HTTPException(
                     status_code=403,
                     detail={
@@ -272,24 +299,18 @@ def upsert_profile(
                     },
                 )
 
-            existing = profiles.find_one(
-                {
-                    "username": profile_data.username,
-                    "user_id": user_id,
-                }
-            )
+            update_data = profile_data.dict(exclude={"id", "joined_at"})
+            update_data["username"] = effective_username
+            update_data["username_verified"] = is_canonical
+            update_data["user_id"] = user_id
+            update_data["updated_at"] = _now_utc()
+
             if existing:
-                update_data = profile_data.dict(exclude={"id", "joined_at"})
-                update_data["updated_at"] = _now_utc()
-                update_data["user_id"] = user_id
-                profiles.update_one(
-                    {"username": profile_data.username, "user_id": user_id},
-                    {"$set": update_data},
-                )
+                profiles.update_one({"user_id": user_id}, {"$set": update_data})
                 return {**existing, **update_data}
 
             new_profile = profile_data.dict()
-            new_profile["user_id"] = user_id
+            new_profile.update(update_data)
             db["profiles"].insert_one(new_profile)
             return new_profile
         except ServerSelectionTimeoutError:
@@ -302,6 +323,7 @@ def upsert_profile(
         route_name="social.profile.upsert",
         handler=handler,
         user_id=str(current_user["sub"]),
+        metadata={"db": sql_db},
     )
     return _with_execution_envelope(result)
 
@@ -350,7 +372,14 @@ def create_post(
         if db is None:
             return _mongo_degraded_payload("mongodb_unavailable")
         post_data = post.dict()
-        post_data["user_id"] = str(current_user["sub"])
+        user_id = str(current_user["sub"])
+        post_data["user_id"] = user_id
+        # Bind the denormalized author_username to the canonical users.username
+        # when the user has one, so feed labels match the account identity.
+        canonical, is_canonical = resolve_canonical_username(sql_db, user_id)
+        if is_canonical:
+            post_data["author_username"] = canonical
+        author_username = post_data.get("author_username") or ""
         post_data["impressions"] = int(post_data.get("impressions", 0) or 0)
         post_data["clicks"] = int(post_data.get("clicks", 0) or 0)
         post_data["engagement_score"] = float(post_data.get("engagement_score", 0.0) or 0.0)
@@ -367,7 +396,7 @@ def create_post(
                 "memory": [
                     {
                         "event_type": "social_post",
-                        "content": f"Social Broadcast: @{post.author_username} | {post.content}",
+                        "content": f"Social Broadcast: @{author_username} | {post.content}",
                         "source": "social_router",
                         "tags": ["social", "broadcast", post.trust_tier_required] + post.tags,
                         "node_type": "outcome",
@@ -589,7 +618,7 @@ def create_post_comment(
             return _mongo_degraded_payload("mongodb_unavailable")
         user_id = str(current_user["sub"])
         try:
-            author_username = _resolve_comment_author(db, user_id, body.author_username)
+            author_username = _resolve_comment_author(db, sql_db, user_id, body.author_username)
             comment = create_comment(
                 db,
                 post_id=post_id,

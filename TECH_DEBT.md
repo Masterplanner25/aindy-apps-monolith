@@ -1,5 +1,39 @@
 # Technical Debt
 
+## SOCIAL-IDENTITY-1: social profile ↔ canonical user (username bound; metrics/lifecycle deferred)
+
+**Status:** Username-binding slice DONE (2026-06-28). Remaining items deferred (below).
+
+**Context:** Three stores key off the same user UUID — `users` (SQL, runtime-owned:
+`id`, `email`, unique-but-nullable `username`), `UserIdentity` (SQL, runtime-owned:
+inferred behavioral prefs — *not* a profile), and `SocialProfile` (Mongo, social app:
+username, tagline, bio, `metrics_snapshot`, tags). The social username and the
+denormalized post `author_username` were set independently of the canonical
+`users.username` and could drift/collide.
+
+**Done (apps-only):** `users.username` is now the source of truth. On profile upsert
+and post creation the social username is sourced from it (lazy reconcile on write);
+when `users.username` is null the social value is kept and flagged
+`username_verified=false`. The social app never writes the runtime-owned `users`
+table. See `apps/social/services/identity_binding_service.py`.
+
+**Deferred:**
+1. **Metrics duplication** — `SocialProfile.metrics_snapshot` (written directly to
+   Mongo by `apps/tasks/services/task_service.py`) duplicates analytics `UserScore`.
+   Make it a read-through projection of `apps/analytics/public` and retire the direct
+   write.
+2. **Profile lifecycle** — no `SocialProfile` is created at signup (only `users` +
+   `UserIdentity`). Ensure one exists per user; coordinate with the runtime signup
+   path (`signup_initialization_service`).
+3. **Full canonical profile (cross-repo)** — a runtime-owned canonical profile both
+   social and identity project from; requires `aindy-runtime` changes.
+
+**Reopen trigger:** any of the three deferred items, or a runtime task to make
+`users.username` non-nullable / guaranteed at signup (which would let the social
+layer drop the unverified path).
+
+---
+
 ## MONGO-DB-NAME-1: social layer split across two Mongo databases (RESOLVED)
 
 **Status:** RESOLVED (2026-06-27). Code unified; no data migration required
