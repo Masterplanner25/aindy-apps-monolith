@@ -12,3 +12,18 @@ client/dist/
 client/logs/
 client/playwright-report/
 client/test-results/
+
+# Local working notes (not tracked)
+Session Handoff Summary.md
+MISSING TESTS.txt
+
+# Local virtualenv
+venv/
+
+# Local server run artifacts (not tracked)
+/logs/
+server.log
+server.err
+
+# Local diagnostic scripts (not tracked)
+scripts/diag_*.py
