@@ -49,10 +49,10 @@ def _execute_social_action(payload: dict[str, Any], config: dict[str, Any]) -> d
     if not content:
         raise ValueError("social_content_required")
 
-    from AINDY.db.mongo_setup import require_mongo_client
+    from AINDY.db.mongo_setup import MONGO_DB_NAME, require_mongo_client
 
     mongo = require_mongo_client("automation_execution_service")
-    social_db = mongo["aindy_social_layer"]
+    social_db = mongo[MONGO_DB_NAME]
     posts = social_db["posts"]
     post_id = str(config.get("post_id") or "")
     now = datetime.now(timezone.utc)

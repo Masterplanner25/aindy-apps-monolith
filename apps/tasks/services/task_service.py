@@ -704,10 +704,10 @@ def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID
         logger.warning("Task completion feedback failed: %s", exc)
 
     try:
-        from AINDY.db.mongo_setup import require_mongo_client
+        from AINDY.db.mongo_setup import MONGO_DB_NAME, require_mongo_client
 
         mongo = require_mongo_client("task_service")
-        db_mongo = mongo["aindy_social_layer"]
+        db_mongo = mongo[MONGO_DB_NAME]
         profiles = db_mongo["profiles"]
         kpi_snapshot = get_kpi_snapshot_via_syscall(str(owner_user_id), db) or {}
         master_score = float(kpi_snapshot.get("master_score", 0.0) or 0.0)

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any
 
-from AINDY.db.mongo_setup import get_mongo_client
+from AINDY.db.mongo_setup import MONGO_DB_NAME, get_mongo_client
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def summarize_social_performance(*, user_id: str | None = None, limit: int = 50)
         if mongo is None:
             logger.warning("MongoDB unavailable for social performance query — returning empty")
             return {"status": "degraded", "data": [], "reason": "mongodb_unavailable"}
-        social_db = mongo["aindy_social_layer"]
+        social_db = mongo[MONGO_DB_NAME]
         posts = social_db["posts"]
         query: dict[str, Any] = {}
         if user_id:
