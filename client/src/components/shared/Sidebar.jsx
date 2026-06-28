@@ -149,11 +149,11 @@ export default function Sidebar() {
           icon="🔍"
           isOpen={openSection === "Tools"}
           toggle={() => toggleSection("Tools")}
-          isAnyChildActive={isActive("/research") || isActive("/seo") || isActive("/leadgen")}
+          isAnyChildActive={isActive("/search") || isActive("/analytics")}
         >
-          <SubNavItem to="/research" active={isActive("/research")}>Research Engine</SubNavItem>
-          <SubNavItem to="/seo" active={isActive("/seo")}>SEO Tool</SubNavItem>
-          <SubNavItem to="/leadgen" active={isActive("/leadgen")}>LeadGen</SubNavItem>
+          <SubNavItem to="/search/research" active={isActive("/search/research")}>Research Engine</SubNavItem>
+          <SubNavItem to="/search/seo" active={isActive("/search/seo")}>SEO Tool</SubNavItem>
+          <SubNavItem to="/search/leadgen" active={isActive("/search/leadgen")}>LeadGen</SubNavItem>
           <SubNavItem to="/analytics" active={isActive("/analytics")}>Analytics</SubNavItem>
         </NavSection>
 

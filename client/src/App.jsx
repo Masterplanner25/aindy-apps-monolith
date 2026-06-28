@@ -27,6 +27,7 @@ const Genesis = lazy(() => import("./components/app/Genesis"));
 const MasterPlanDashboard = lazy(() => import("./components/app/MasterPlanDashboard"));
 const AnalyticsPanel = lazy(() => import("./components/app/AnalyticsPanel"));
 const ResearchEngine = lazy(() => import("./components/app/ResearchEngine"));
+const AiSeoTool = lazy(() => import("./components/app/AiSeoTool"));
 const LeadGen = lazy(() => import("./components/app/LeadGen"));
 const Feed = lazy(() => import("./components/app/Feed"));
 const FreelanceDashboard = lazy(() => import("./components/app/FreelanceDashboard"));
@@ -233,6 +234,7 @@ export default function App() {
                     <Route path="/analytics" element={<AppProfileRoute element={routeElement("Analytics", <AnalyticsPanel />)} />} />
                     <Route path="/kpi" element={<AppProfileRoute element={routeElement("KPI Snapshot", <KPIDashboard />)} />} />
                     <Route path="/search/research" element={<AppProfileRoute element={routeElement("Research", <ResearchEngine />)} />} />
+                    <Route path="/search/seo" element={<AppProfileRoute element={routeElement("AI SEO", <AiSeoTool />)} />} />
                     <Route path="/search/leadgen" element={<AppProfileRoute element={routeElement("Lead Generation", <LeadGen />)} />} />
                     <Route path="/social" element={<AppProfileRoute element={routeElement("Social Feed", <Feed />)} />} />
                     <Route path="/freelance" element={<AppProfileRoute element={routeElement("Freelance Dashboard", <FreelanceDashboard />)} />} />

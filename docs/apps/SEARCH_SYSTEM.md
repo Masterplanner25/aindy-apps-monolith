@@ -195,9 +195,9 @@ This capability exists but is not wired into the Search System flows documented 
 
 **Missing:**
 
-* unified search pipeline
-* reusable hybrid search orchestration across search surfaces
-* UI integration for SEO and LeadGen
+* (none of the original roadmap items remain) — unified search pipeline, reusable
+  hybrid orchestration, shared ranking, and SEO/LeadGen/Research UI are all
+  implemented; see the Phase Mapping table and Next Steps below.
 
 ---
 
@@ -272,14 +272,23 @@ without reordering (it is an analysis surface, not retrieval).
 
 ---
 
-### Phase v5 � UI + Dashboard Integration
+### Phase v5 � UI + Dashboard Integration - DONE
 
 **Goal:** Operational surface
 
 **Actions:**
 
-* integrate SEO + LeadGen UI into client
-* add result history views
+* integrate SEO + LeadGen UI into client - DONE
+* add result history views - DONE
+
+The Research, SEO, and LeadGen surfaces are now routed (`/search/research`,
+`/search/seo`, `/search/leadgen`) and reachable from the sidebar + app-shell nav
+(the SEO tool was previously built but orphaned, and the sidebar links pointed at
+dead `/research`, `/seo`, `/leadgen` paths). A shared `client/src/components/app/SearchResults.jsx`
+renders the unified ranked `results[]` with per-item rank/relevance score badges
+and an overall `search_score`; Research surfaces ranked sources and SEO/Research/
+LeadGen each show a `SearchHistory` result-history view.
+**Tests:** `client/src/test/search-nav.test.jsx`, `client/src/test/search-results.test.jsx`.
 
 ---
 
@@ -311,7 +320,7 @@ without reordering (it is an analysis surface, not retrieval).
 | v2    | Retrieval Integration| Complete    | Maintenance only |
 | v3    | Ranking Unification  | Complete    | Maintenance only |
 | v4    | Feedback Loop        | Missing     | Persist + reuse |
-| v5    | UI Integration       | Missing     | Implement       |
+| v5    | UI Integration       | Complete    | Maintenance only |
 
 ---
 
