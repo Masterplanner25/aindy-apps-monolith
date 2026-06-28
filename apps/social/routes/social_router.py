@@ -16,6 +16,11 @@ from AINDY.db.mongo_setup import get_optional_mongo_db
 from AINDY.platform_layer.app_runtime import execute_with_pipeline_sync
 from AINDY.services.auth_service import get_current_user
 from apps.social.models.social_models import FeedItem, SocialPost, SocialProfile, TrustTier
+from apps.social.services.comment_service import (
+    CommentValidationError,
+    create_comment,
+    list_comments,
+)
 from apps.social.services.social_performance_service import (
     compute_conversion_signal,
     compute_engagement_score,
@@ -28,6 +33,12 @@ router = APIRouter(prefix="/social", tags=["Social Layer"], dependencies=[Depend
 class SocialInteractionRequest(BaseModel):
     action: str
     amount: int = 1
+
+
+class SocialCommentRequest(BaseModel):
+    content: str
+    parent_comment_id: Optional[str] = None
+    author_username: Optional[str] = None
 
 
 TRUST_TIER_WEIGHTS = {
@@ -172,6 +183,23 @@ def _mongo_degraded_payload(reason: str, *, data=None):
         "data": [] if data is None else data,
         "reason": reason,
     }
+
+
+def _resolve_comment_author(db: Database, user_id: str, supplied: Optional[str]) -> str:
+    """Best-effort display name for a comment author.
+
+    Prefers a client-supplied username, falls back to the author's social
+    profile, and finally to a short id slug so a comment always renders.
+    """
+    if supplied and supplied.strip():
+        return supplied.strip()
+    try:
+        profile = db["profiles"].find_one({"user_id": user_id})
+    except (ServerSelectionTimeoutError, PyMongoError):
+        profile = None
+    if profile and profile.get("username"):
+        return str(profile["username"])
+    return f"user-{user_id[:8]}"
 
 
 @router.post("/profile")
@@ -480,6 +508,109 @@ def record_post_interaction(
         metadata={"db": sql_db},
     )
     return _with_execution_envelope(result)
+
+
+@router.post("/posts/{post_id}/comments")
+@limiter.limit("30/minute")
+def create_post_comment(
+    request: Request,
+    post_id: str,
+    body: SocialCommentRequest,
+    db: Database | None = Depends(get_optional_mongo_db),
+    sql_db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    def handler(ctx):
+        if db is None:
+            return _mongo_degraded_payload("mongodb_unavailable")
+        user_id = str(current_user["sub"])
+        try:
+            author_username = _resolve_comment_author(db, user_id, body.author_username)
+            comment = create_comment(
+                db,
+                post_id=post_id,
+                author_id=user_id,
+                author_username=author_username,
+                content=body.content,
+                parent_comment_id=body.parent_comment_id,
+            )
+        except CommentValidationError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"error": exc.error, "message": exc.message},
+            )
+        except ServerSelectionTimeoutError:
+            return _mongo_degraded_payload("mongodb_unavailable")
+        except PyMongoError as exc:
+            return _mongo_degraded_payload(str(exc))
+
+        # comments_count just changed — refresh derived engagement metrics and
+        # collect any high/low performance memory hints, mirroring /interact.
+        memory_hints: list[dict] = []
+        try:
+            post_doc = db["posts"].find_one({"id": post_id})
+            if post_doc:
+                _, memory_hints = _maybe_capture_performance_signal(
+                    db=db,
+                    user_id=user_id,
+                    post_doc=post_doc,
+                )
+        except (ServerSelectionTimeoutError, PyMongoError):
+            memory_hints = []
+
+        hints = list(memory_hints)
+        hints.append(
+            {
+                "event_type": "social_comment",
+                "content": f"Comment by @{author_username}: {comment['content'][:160]}",
+                "source": "social_router",
+                "tags": ["social", "comment"],
+                "node_type": "outcome",
+                "user_id": user_id,
+                "agent_namespace": "social",
+            }
+        )
+        return {"data": comment, "execution_hints": {"memory": hints}}
+
+    result = execute_with_pipeline_sync(
+        request=request,
+        route_name="social.post.comment.create",
+        handler=handler,
+        user_id=str(current_user["sub"]),
+        metadata={"db": sql_db},
+    )
+    return _with_execution_envelope(result)
+
+
+@router.get("/posts/{post_id}/comments")
+@limiter.limit("60/minute")
+def list_post_comments(
+    request: Request,
+    post_id: str,
+    limit: int = 100,
+    db: Database | None = Depends(get_optional_mongo_db),
+    current_user: dict = Depends(get_current_user),
+):
+    def handler(ctx):
+        if db is None:
+            return _mongo_degraded_payload("mongodb_unavailable")
+        try:
+            comments = list_comments(db, post_id=post_id, limit=limit)
+        except ServerSelectionTimeoutError:
+            return _mongo_degraded_payload("mongodb_unavailable")
+        except PyMongoError as exc:
+            return _mongo_degraded_payload(str(exc))
+        return {"data": comments}
+
+    result = execute_with_pipeline_sync(
+        request=request,
+        route_name="social.post.comment.list",
+        handler=handler,
+        user_id=str(current_user["sub"]),
+    )
+    if isinstance(result, dict) and result.get("status") == "degraded":
+        return _with_execution_envelope(result)
+    return result
 
 
 @router.get("/analytics")

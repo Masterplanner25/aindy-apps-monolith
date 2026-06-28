@@ -1,4 +1,4 @@
-# Social Layer � Canonical Definition & Evolution Plan
+# Social Layer — Canonical Definition & Evolution Plan
 
 ---
 
@@ -20,7 +20,7 @@ It is a **social execution layer** designed to:
 ## 2. Core Lifecycle (Canonical Pipeline)
 
 ```
-Profile ? Post ? Feed ? Signal ? Insight
+Profile → Post → Feed → Signal → Insight
 ```
 
 ### Profile
@@ -104,13 +104,16 @@ Analytics + feedback:
 * create posts
 * fetch feed with trust-tier weighted relevance scoring
 * track impressions and interaction signals
+* record explicit interactions (`view`, `click`, `like`, `boost`, `comment`) via
+  `POST /social/posts/{post_id}/interact`
 * expose social analytics summaries
 
 **Missing:**
 
-* comment/reply model
+* comment/reply **content** model — `comments_count` is an integer counter only;
+  there is no stored comment text or threaded discussion
 
---- 
+---
 
 ### 3.3 Bridge Integration
 
@@ -121,8 +124,13 @@ Analytics + feedback:
 
 **Current Capabilities:**
 
-* Node ? FastAPI bridge exists
+* Node → FastAPI bridge exists
 * `/bridge/user_event` persists to SQL audit table (`bridge_user_events`)
+
+**Missing:**
+
+* bridge / system-origin events are not surfaced in the social feed — they remain
+  isolated SQL audit rows
 
 ---
 
@@ -130,11 +138,12 @@ Analytics + feedback:
 
 **Implementation:**
 
-* `apps/social/routes/social_router.py` calls `create_memory_node()`
+* `apps/social/routes/social_router.py` calls into the Memory Bridge via execution hints
 
 **Current Capabilities:**
 
 * posts are logged to Memory Bridge with DB session
+* high/low engagement signals are captured as memory hints
 
 ---
 
@@ -179,19 +188,21 @@ Analytics + feedback:
 * profile upsert + fetch
 * post creation
 * feed listing + visibility scoring
-* Node ? FastAPI bridge
+* explicit interaction capture (view/click/like/boost/comment counters)
+* Node → FastAPI bridge
 * analytics summaries and trend output
 * memory-backed performance feedback
 * Infinity-facing social performance signals
 
 **Missing:**
 
-* social narrative or event-driven feed surfaces
-* comment/reply model
+* comment/reply **content** model (threaded discussion)
+* social narrative / event-driven feed surfaces (bridge + system-origin events)
+* durable analytics history (metrics are flattened onto post documents)
 
 ---
 
-## 6. Doc ? Code Parity Table
+## 6. Doc → Code Parity Table
 
 | Documented Capability | Evidence in Docs | Implementation Reality | Status | Primary Files |
 | --- | --- | --- | --- | --- |
@@ -199,18 +210,21 @@ Analytics + feedback:
 | Post creation | Social layer notes | Post insert + list | Implemented | `apps/social/routes/social_router.py` |
 | Feed ranking | Roadmap intent | Trust-tier weighted ranking + Infinity score weighting | Implemented | `apps/social/routes/social_router.py` |
 | Trust-tier weighting | Roadmap intent | Trust tier weighted relevance scoring in feed | Implemented | `apps/social/routes/social_router.py` |
+| Interaction capture (view/click/like/boost/comment counts) | Social layer intent | `POST /social/posts/{post_id}/interact` persists `$inc` counters and refreshes engagement signals | Implemented | `apps/social/routes/social_router.py` |
 | Bridge event persistence | Bridge integration notes | `/bridge/user_event` persists to `bridge_user_events` | Implemented | `apps/bridge/routes/bridge_router.py`, `apps/automation/bridge_user_event.py` |
-| Memory logging | Social layer notes | Posts logged via `MemoryCaptureEngine` with DB session | Implemented | `apps/social/routes/social_router.py` |
-| Interactions (likes/comments/boosts) | Social layer intent | Interaction tracking exists for views/clicks/engagement, but comment/reply flows are still absent | Partial | `apps/social/models/social_models.py`, `apps/social/routes/social_router.py` |
+| Memory logging | Social layer notes | Posts logged via Memory Bridge with DB session | Implemented | `apps/social/routes/social_router.py` |
+| Comment / reply threads | Social layer intent | Only a `comments_count` integer counter exists — no stored comment text or threading | Missing | `apps/social/models/social_models.py`, `apps/social/routes/social_router.py` |
 | Analytics dashboard | Roadmap intent | Analytics summaries, trends, and top content are exposed in API/UI | Implemented | `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx` |
 
 ---
 
-## 7. Gap ? File Mapping
+## 7. Gap → File Mapping
 
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
-| No comment/reply model | Social layer still lacks threaded discussion | `apps/social/routes/social_router.py`, `apps/social/models/social_models.py`, `client/src/components/app/*` |
+| No comment/reply content model | Social layer still lacks threaded discussion | `apps/social/routes/social_router.py`, `apps/social/models/social_models.py`, `client/src/components/app/*` |
+| Bridge / system events not surfaced in feed | Audit-origin events stay isolated from the social surface | `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx` |
+| Analytics history embedded in post documents | Trend analysis is rebuilt from current counters, not durable snapshots | `apps/social/models/social_models.py`, `apps/social/services/social_performance_service.py` |
 | Identity split between social and system identity | Profile state can drift across Mongo social profiles and SQL identity profiles | `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files |
 
 ---
@@ -242,7 +256,7 @@ It is NOT:
 
 ---
 
-### Phase v1 � Stabilize Social CRUD
+### Phase v1 — Stabilize Social CRUD
 
 **Goal:** Stable identity and content flow
 
@@ -255,50 +269,54 @@ It is NOT:
 
 ---
 
-### Phase v2 � Bridge Persistence
+### Phase v2 — Bridge Persistence
 
 **Goal:** Make bridge events real
 
 **Actions:**
 
-* persist `/bridge/user_event` ?
+* persist `/bridge/user_event` ✅
 
 **Status:** Complete
 
 ---
 
-### Phase v3 � Visibility Scoring
+### Phase v3 — Visibility Scoring
 
 **Goal:** Ranking logic
 
 **Actions:**
 
-* trust-tier weighting ?
-* engagement-based ordering ?
+* trust-tier weighting ✅
+* engagement-based ordering ✅
 
 **Status:** Complete
 
 ---
 
-### Phase v4 � Analytics Layer
+### Phase v4 — Analytics Layer
 
 **Goal:** Social intelligence surface
 
 **Actions:**
 
-* dashboards ?
-* visibility metrics ?
+* dashboards ✅
+* visibility metrics ✅
+
+**Status:** Complete
 
 ---
 
-### Phase v5 � Feedback Loop
+### Phase v5 — Feedback Loop
 
 **Goal:** Continuous improvement
 
 **Actions:**
 
-* feed analytics into scoring ?
-* log visibility outcomes to Memory Bridge ?
+* feed analytics into scoring ✅
+* log visibility outcomes to Memory Bridge ✅
+
+**Status:** Complete
 
 ---
 
@@ -310,7 +328,7 @@ It is NOT:
 
 ### Functional
 
-* comment/reply support is not implemented
+* comment/reply content is not implemented (only a counter exists)
 
 ### Conceptual
 
@@ -332,29 +350,31 @@ It is NOT:
 
 ## 13. Next Steps
 
-### Step 1 - Add interaction endpoints
-**Files:** `apps/social/routes/social_router.py`, `apps/social/models/social_models.py`  
-**Outcome:** likes, boosts, and comments become real persisted interactions instead of dormant fields on posts.
+The core phases (v1–v5) are complete. The following are enhancements beyond v5.
 
-### Step 2 - Add a comment and reply model
-**Files:** `apps/social/models/social_models.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`  
-**Outcome:** the social layer supports actual discussion threads instead of one-way posting only.
+### Completed
 
-### Step 3 - Add a comment and reply model
-**Files:** `apps/social/models/social_models.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`  
-**Outcome:** the social layer supports threaded discussion instead of only post-level interactions.
+* **Interaction endpoints** — likes, boosts, and comment counts are persisted
+  interactions via `POST /social/posts/{post_id}/interact` rather than dormant
+  fields on posts. _(Done — see `apps/social/routes/social_router.py`.)_
 
-### Step 4 - Unify social profile with system identity
-**Files:** `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files  
-**Outcome:** Mongo social profiles and SQL identity profiles stop drifting as separate user identity systems.
+### Remaining
 
-### Step 5 - Surface bridge and system-origin events where intended
-**Files:** `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`  
+#### Step 1 — Add a comment and reply content model
+**Files:** `apps/social/models/social_models.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`
+**Outcome:** the social layer supports actual discussion threads (stored comment text, author, optional parent reply) instead of a bare `comments_count` integer.
+
+#### Step 2 — Surface bridge and system-origin events where intended
+**Files:** `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`
 **Outcome:** bridge-origin or system-origin events can appear in the social layer instead of remaining isolated audit rows.
 
-### Step 6 - Expand analytics history and retention
-**Files:** `apps/social/models/social_models.py`, `apps/social/routes/social_router.py`, analytics UI components  
+#### Step 3 — Expand analytics history and retention
+**Files:** `apps/social/models/social_models.py`, `apps/social/services/social_performance_service.py`, analytics UI components
 **Outcome:** trend analysis is based on durable history rather than only current post-document counters.
+
+#### Step 4 — Unify social profile with system identity
+**Files:** `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files
+**Outcome:** Mongo social profiles and SQL identity profiles stop drifting as separate user identity systems.
 
 ---
 
@@ -363,8 +383,8 @@ It is NOT:
 * This document is the **canonical reference** for the Social Layer.
 * Any deviations must be recorded in:
 
-  * `docs/platform/engineering/TECH_DEBT.md`
-  * `docs/apps/EVOLUTION_PLAN.md`
+  * `TECH_DEBT.md`
+  * `docs/platform/governance/EVOLUTION_PLAN.md`
 
 ---
 
