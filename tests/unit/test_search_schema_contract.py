@@ -66,12 +66,16 @@ def test_leadgen_adapter_maps_rows_and_metadata():
     assert item.title == "Acme Corp"
     assert item.url == "https://acme.example.com"
     assert item.snippet == "Strong intent signals"
-    # overall_score 85 (0..100) normalizes onto 0..1
-    assert item.score == pytest.approx(0.85)
+    # overall_score 85 (0..100) is the surface quality, preserved in metadata
+    assert item.metadata["quality_score"] == pytest.approx(0.85)
+    # query "fintech leads" shares no terms with this lead => relevance 0
+    assert item.metadata["relevance"] == pytest.approx(0.0)
+    # item.score is now the unified composite (0.6*relevance + 0.4*quality)
+    assert item.score == pytest.approx(0.34)
     assert item.metadata["fit_score"] == 80
     assert item.metadata["overall_score"] == 85
-    # top-level search_score derived from item scores
-    assert resp.search_score == pytest.approx(0.85)
+    # top-level search_score is the top-ranked item's composite
+    assert resp.search_score == pytest.approx(item.score)
 
 
 def test_leadgen_adapter_derives_company_from_url_when_missing():
@@ -92,9 +96,11 @@ def test_research_adapter_builds_summary_and_extracts_sources():
     }
     resp = research_to_search_response(payload)
     assert resp.search_type == SEARCH_TYPE_RESEARCH
-    # first item is the summary
+    # summary item ranks first: its title is the query, so relevance is high
     assert resp.results[0].snippet == "The TAM is large and growing."
-    assert resp.results[0].score == pytest.approx(0.6)
+    assert resp.results[0].metadata["quality_score"] == pytest.approx(0.6)
+    assert resp.results[0].metadata["relevance"] == pytest.approx(1.0)
+    assert resp.results[0].score == pytest.approx(0.84)
     assert resp.results[0].metadata["source"] == "external_search"
     # source URLs surface as additional results
     urls = [i.url for i in resp.results if i.url]

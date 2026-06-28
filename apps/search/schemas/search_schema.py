@@ -153,22 +153,50 @@ def enrich_lead_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def rank_items(query: str, items: list[SearchResultItem], *, reorder: bool = True) -> list[SearchResultItem]:
+    """Score items by a shared relevance+quality composite and (optionally) sort.
+
+    Each surface puts its own quality score in ``item.score``; this preserves it
+    under ``metadata.quality_score``, records ``metadata.relevance``, and sets
+    ``item.score`` to the unified composite so every surface ranks on one axis
+    (Evolution Plan — Phase v3). With no usable query the items pass through
+    unchanged so callers never see scores deflated by a missing signal.
+    """
+    if not items or not (query or "").strip():
+        return list(items)
+    from apps.search.services.search_scoring import composite_score, lexical_relevance
+
+    ranked: list[SearchResultItem] = []
+    for item in items:
+        text = " ".join(part for part in (item.title, item.snippet) if part)
+        relevance = lexical_relevance(query, text)
+        quality = item.score if item.score is not None else 0.0
+        composite = composite_score(relevance, quality)
+        metadata = dict(item.metadata or {})
+        metadata.setdefault("quality_score", round(quality, 4))
+        metadata["relevance"] = round(relevance, 4)
+        ranked.append(item.model_copy(update={"score": round(composite, 4), "metadata": metadata}))
+    if reorder:
+        ranked.sort(key=lambda i: i.score if i.score is not None else 0.0, reverse=True)
+    return ranked
+
+
 def leadgen_to_search_response(payload: Any) -> SearchResponse:
     """Normalize a leadgen / lead-preview payload into a ``SearchResponse``."""
     data = _as_dict(payload)
-    items: list[SearchResultItem] = [
-        lead_result_item(row)
-        for row in (data.get("results") or [])
-        if isinstance(row, dict)
-    ]
-
-    search_score = data.get("search_score")
-    if search_score is None and items:
-        scored = [i.score for i in items if i.score is not None]
-        search_score = max(scored) if scored else None
+    query = data.get("query", "")
+    items = rank_items(
+        query,
+        [
+            lead_result_item(row)
+            for row in (data.get("results") or [])
+            if isinstance(row, dict)
+        ],
+    )
+    search_score = items[0].score if items else data.get("search_score")
 
     return SearchResponse(
-        query=data.get("query", ""),
+        query=query,
         search_type=data.get("search_type") or SEARCH_TYPE_LEADGEN,
         results=items,
         search_score=search_score,
@@ -216,11 +244,12 @@ def research_to_search_response(payload: Any) -> SearchResponse:
         if len(items) >= 6:
             break
 
+    items = rank_items(query, items)
     return SearchResponse(
         query=query,
         search_type=data.get("search_type") or SEARCH_TYPE_RESEARCH,
         results=items,
-        search_score=search_score,
+        search_score=items[0].score if items else search_score,
         memory=_memory_ref(data),
         learning_context=data.get("learning_context"),
         history_id=data.get("history_id"),
@@ -258,6 +287,9 @@ def seo_to_search_response(payload: Any) -> SearchResponse:
             )
         )
 
+    # SEO is an analysis surface, not retrieval: annotate relevance for parity
+    # but keep the analysis-then-keywords order and the SEO quality score.
+    items = rank_items(query, items, reorder=False)
     return SearchResponse(
         query=query,
         search_type=data.get("search_type") or SEARCH_TYPE_SEO,
@@ -301,6 +333,7 @@ __all__ = [
     "SearchResultItem",
     "SearchMemoryRef",
     "SearchResponse",
+    "rank_items",
     "lead_result_item",
     "enrich_lead_row",
     "leadgen_to_search_response",
