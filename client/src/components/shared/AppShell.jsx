@@ -46,6 +46,7 @@ const NAV_GROUPS = [
     runtimeOnlySafe: false,
     links: [
       { to: "/search/research", label: "Research" },
+      { to: "/search/seo", label: "AI SEO" },
       { to: "/search/leadgen", label: "Lead Gen" },
       { to: "/social", label: "Social Feed" },
       { to: "/freelance", label: "Freelance" },

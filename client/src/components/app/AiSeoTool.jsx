@@ -5,6 +5,7 @@ import {
   suggestSeoImprovements as apiSuggestSeoImprovements,
 } from "../../api/search.js";
 import { safeMap } from "../../utils/safe";
+import SearchHistory from "./SearchHistory";
 
 export default function AiSeoTool() {
   const [content, setContent] = useState("");
@@ -12,6 +13,14 @@ export default function AiSeoTool() {
   const [metaDescription, setMetaDescription] = useState("");
   const [seoSuggestions, setSeoSuggestions] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const handleHistorySelect = (item) => {
+    const stored = item.result || {};
+    setContent(stored.query || item.query || "");
+    setSeoData(stored);
+    setMetaDescription("");
+    setSeoSuggestions("");
+  };
 
   const analyzeSeo = async () => {
     setLoading(true);
@@ -101,15 +110,22 @@ export default function AiSeoTool() {
                 {/* SEO ANALYSIS BOX */}
                 {seoData &&
         <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-xl shadow-lg">
-                        <h2 className="text-xl font-bold mb-4 text-blue-400 border-b border-zinc-800 pb-2">SEO Scorecard</h2>
+                        <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-2">
+                            <h2 className="text-xl font-bold text-blue-400">SEO Scorecard</h2>
+                            {seoData.search_score != null && (
+                              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                                score {Math.round(Number(seoData.search_score) * 100)}
+                              </span>
+                            )}
+                        </div>
                         <div className="space-y-2 text-gray-300">
                             <p><strong className="text-white">Word Count:</strong> {seoData.word_count}</p>
                             <p><strong className="text-white">Readability:</strong> <span className="text-emerald-400">{seoData.readability}</span></p>
-                            <p><strong className="text-white">Top Keywords:</strong> {seoData.top_keywords.join(", ")}</p>
-                            
+                            <p><strong className="text-white">Top Keywords:</strong> {(seoData.top_keywords || []).join(", ")}</p>
+
                             <h3 className="mt-4 font-bold text-white">Keyword Densities:</h3>
                             <ul className="grid grid-cols-2 gap-2 mt-2">
-                                {safeMap(Object.entries(seoData.keyword_densities), ([keyword, density]) =>
+                                {safeMap(Object.entries(seoData.keyword_densities || {}), ([keyword, density]) =>
               <li key={keyword} className="bg-zinc-800 p-2 rounded text-sm border border-zinc-700">
                                         <span className="text-gray-400">{keyword}:</span> <span className="text-blue-300">{density}%</span>
                                     </li>)
@@ -141,6 +157,11 @@ export default function AiSeoTool() {
                     </div>
         }
             </div>
+
+            <SearchHistory
+        searchType="seo_analysis"
+        title="Recent SEO Analyses"
+        onSelect={handleHistorySelect} />
         </div>);
 
 }

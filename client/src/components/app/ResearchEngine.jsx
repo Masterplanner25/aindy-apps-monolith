@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { runResearch } from "../../api/search.js";
 import SearchHistory from "./SearchHistory";
+import SearchResults from "./SearchResults";
 
 export default function ResearchEngine() {
   const [query, setQuery] = useState("");
@@ -83,9 +84,14 @@ export default function ResearchEngine() {
 
       {result && (
         <div className="border border-zinc-700 rounded p-5 mt-6 bg-zinc-900 shadow-xl">
-          <h2 className="font-semibold text-xl mb-2 text-blue-400 border-b border-zinc-800 pb-2">
-            Research Results
-          </h2>
+          <div className="flex items-center justify-between mb-2 border-b border-zinc-800 pb-2">
+            <h2 className="font-semibold text-xl text-blue-400">Research Results</h2>
+            {result.search_score != null && (
+              <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-300">
+                score {Math.round(Number(result.search_score) * 100)}
+              </span>
+            )}
+          </div>
           <div className="space-y-3">
             <p className="text-sm">
               <span className="text-gray-500 uppercase text-xs block font-bold">Query</span>
@@ -97,9 +103,15 @@ export default function ResearchEngine() {
             </p>
             <div className="text-[10px] text-gray-500 pt-4 flex justify-between">
               <span>A.I.N.D.Y. Engine v1.0</span>
-              <span>{new Date(result.created_at).toLocaleString()}</span>
+              {result.created_at && <span>{new Date(result.created_at).toLocaleString()}</span>}
             </div>
           </div>
+
+          <SearchResults
+            results={result.results}
+            searchScore={result.search_score}
+            title="Ranked Sources"
+          />
         </div>
       )}
 
