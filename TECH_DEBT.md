@@ -145,11 +145,36 @@ not app-owned — the apps-monolith slice was small. Disposition:
   3. `docs/api/CHANGELOG.md` → app-route (`/apps/*`, `/masterplans/*`, `/bridge/*`) history extracted
      into this repo's `docs/api/CHANGELOG.md`; runtime routes (`/platform/*`, `/agent/*`,
      `/observability/*`) left to the runtime changelog.
-- **Bucket D — living governance, defer (author fresh per-repo, don't copy-split):**
-  `architecture/SYSTEM_SPEC.md`, `platform/governance/EVOLUTION_PLAN.md`,
-  `platform/GOVERNANCE_INDEX.md`, `platform/governance/release_notes.md`.
+- **Bucket D — living governance (triaged 2026-06-27; author fresh, not copy-split):**
+  - `platform/GOVERNANCE_INDEX.md` → **AUTHORED** fresh as `docs/GOVERNANCE_INDEX.md` (indexes
+    only docs this repo owns; runtime contracts referenced as upstream authority).
+  - `architecture/SYSTEM_SPEC.md` → **SKIP (redundant)** — app-facing content already covered by
+    `ARCHITECTURE_MAP` + `BOOT_PROFILES` + `PLUGIN_REGISTRY_PATTERN` + `APPS_MONOLITH_REPO_SHAPE`;
+    runtime content belongs to `aindy-runtime`.
+  - `platform/governance/release_notes.md` → **ARCHIVE-ONLY** — completed pre-split sprint history;
+    app release tracking starts fresh from the split (git history + `docs/api/CHANGELOG.md`).
+  - `platform/governance/EVOLUTION_PLAN.md` → **BROUGHT OVER** as `docs/platform/governance/EVOLUTION_PLAN.md`.
+    It's an existing, current roadmap (not synthesized): Phases 1–4 are completed runtime hardening
+    (kept as historical context, owned upstream by `aindy-runtime`), Phase 5 is the current
+    cross-repo phase, and Phases 6–7 + the named phases are app-facing. Brought over with
+    cross-repo reference hygiene (runtime-owned governance links flagged; moved app-doc paths fixed)
+    and an ownership preamble.
 
-**Reopen trigger:** Bucket D surfacing app-side, or the `aindy-runtime` task to relocate Bucket A.
+- **`platform/governance/INVARIANTS.md` (late finding — was pre-classified runtime-only, actually
+  mixed ~50/50):** the app-domain invariants were extracted to
+  `docs/platform/governance/INVARIANTS.md` — masterplan/genesis (single-active, locking,
+  synthesis-ready gate, audit-draft gate, atomic creation, non-null columns), analytics canonical-
+  metrics uniqueness, rippletrace DropPoint-before-Ping, freelance non-null columns, and the
+  JWT/API-key/rate-limit invariants whose protected surfaces are app routers (enforcement mechanism
+  stays runtime-owned). Original section numbers preserved for traceability. The runtime invariants
+  (PostgreSQL/UTC/session-isolation/memory-graph/embedding/schema-drift) remain runtime-owned —
+  **author the runtime half in `aindy-runtime`** (fold into the Bucket A handoff).
+
+**Status:** DOCS-MIGRATION-2 complete (apps side). Open items, both on `aindy-runtime`: the **Bucket A**
+relocation and the **runtime half of `INVARIANTS.md`**.
+
+**Reopen trigger:** Follow-up on the `aindy-runtime` items, or a re-triage of `EVOLUTION_PLAN` phases
+as they complete.
 
 ---
 
