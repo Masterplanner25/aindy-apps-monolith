@@ -57,6 +57,7 @@ App code and docs must conform to these and must not contradict or redefine them
 
 ### Level 5 — Evolution, risk & domain guides
 - `TECH_DEBT.md` (repo root) — debt register.
+- `docs/platform/governance/EVOLUTION_PLAN.md` — phased app evolution roadmap.
 - `LIVE_VERIFICATION_SCOPE.md` — live-stack verification scope.
 - Domain guides under `docs/apps/`: `AGENTICS`, `AUTONOMOUS_REASONING_MODULE`,
   `INFINITY_ALGORITHM*`, `RIPPLETRACE`, `SEARCH_SYSTEM`, `SOCIAL_LAYER`,
@@ -120,6 +121,6 @@ modifications. For runtime behavior, defer to the runtime repo's authority docs.
 ## 9. Out of Scope (owned elsewhere)
 - Runtime behavior, execution/retry semantics, memory bridge, syscalls,
   invariants, deployment model → `aindy-runtime` (`docs/runtime/`).
-- A product roadmap / evolution plan for the app domains is intentionally **not**
-  carried over from the pre-split archive; author one fresh when app priorities
-  are set (tracked under DOCS-MIGRATION-2, Bucket D, in `TECH_DEBT.md`).
+- The app evolution roadmap lives at `docs/platform/governance/EVOLUTION_PLAN.md`
+  (Level 5). Its Phase 1–4 runtime/platform hardening is owned upstream by
+  `aindy-runtime` and retained there only as historical context.

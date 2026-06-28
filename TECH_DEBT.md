@@ -153,14 +153,17 @@ not app-owned — the apps-monolith slice was small. Disposition:
     runtime content belongs to `aindy-runtime`.
   - `platform/governance/release_notes.md` → **ARCHIVE-ONLY** — completed pre-split sprint history;
     app release tracking starts fresh from the split (git history + `docs/api/CHANGELOG.md`).
-  - `platform/governance/EVOLUTION_PLAN.md` → **PRODUCT CALL, deferred** — an app-domain roadmap is
-    a human prioritization decision, not something to synthesize from a stale archive. Author fresh
-    when app priorities are set.
+  - `platform/governance/EVOLUTION_PLAN.md` → **BROUGHT OVER** as `docs/platform/governance/EVOLUTION_PLAN.md`.
+    It's an existing, current roadmap (not synthesized): Phases 1–4 are completed runtime hardening
+    (kept as historical context, owned upstream by `aindy-runtime`), Phase 5 is the current
+    cross-repo phase, and Phases 6–7 + the named phases are app-facing. Brought over with
+    cross-repo reference hygiene (runtime-owned governance links flagged; moved app-doc paths fixed)
+    and an ownership preamble.
 
-**Status:** DOCS-MIGRATION-2 complete except the deferred **app EVOLUTION_PLAN** (product call) and the
-**Bucket A** relocation task on `aindy-runtime` (handed off separately).
+**Status:** DOCS-MIGRATION-2 complete (apps side). Only open item is the **Bucket A** relocation task
+on `aindy-runtime`, handed off separately.
 
-**Reopen trigger:** Deciding to author the app evolution plan/roadmap, or follow-up on Bucket A.
+**Reopen trigger:** Follow-up on Bucket A, or a future re-triage of `EVOLUTION_PLAN` phases as they complete.
 
 ---
 
