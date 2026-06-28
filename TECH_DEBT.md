@@ -1,5 +1,40 @@
 # Technical Debt
 
+## MONGO-DB-NAME-1: social layer split across two Mongo databases (RESOLVED)
+
+**Status:** RESOLVED (2026-06-27). Code unified; no data migration required
+(production runs `MONGO_DB_NAME=aindy_social_layer`, confirmed with the owner).
+
+**Context:** The social layer selected its Mongo database two different ways. The
+`social_router` endpoints (profile/post/feed/interact/comments) used the runtime
+dependency `get_optional_mongo_db`, which yields `client[MONGO_DB_NAME]`
+(`MONGO_DB_NAME` defaults to `aindy_default`). Four services instead hardcoded
+`client["aindy_social_layer"]`: `social_performance_service`,
+`social_metrics_history_service`, `automation_execution_service` (apps/automation),
+and `task_service` (apps/tasks). `MONGO_DB_NAME` was never set in the repo and
+undocumented in `.env.example`.
+
+**Impact (when `MONGO_DB_NAME` is unset):** `posts` and `profiles` were written
+and read under two different databases — analytics read an empty
+`aindy_social_layer.posts` while user posts lived in `aindy_default.posts`;
+masterplan-automation posts and task-completion profile velocity bumps landed in
+`aindy_social_layer` but were invisible to the router serving `aindy_default`.
+The system only worked if an operator separately knew to set
+`MONGO_DB_NAME=aindy_social_layer`.
+
+**Fix:** All four call sites now resolve `client[MONGO_DB_NAME]` (single source of
+truth, matching the router). Safe in both directions: with the prod value
+`aindy_social_layer` it is a no-op; if unset, services now agree with the router on
+`aindy_default`. `MONGO_DB_NAME` is documented in `.env.example`.
+
+**Residual / reopen trigger:** If any environment historically ran with
+`MONGO_DB_NAME` unset *and* accumulated Mongo data, that data is split across
+`aindy_default` and `aindy_social_layer` and needs a one-time merge of the `posts`
+and `profiles` collections. Production was confirmed on `aindy_social_layer`, so no
+merge is needed there; revisit only if a split-data environment surfaces.
+
+---
+
 ## LINT-VERSION-GAP-1: eslint trails @aindy/ui-kit by one major version
 
 **Status:** RESOLVED (2026-06-27, PR #4). `eslint` ^9.36 → ^10.4, `@eslint/js` → ^10.0.1,

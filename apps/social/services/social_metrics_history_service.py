@@ -11,10 +11,10 @@ This module records a per-(post, day) snapshot of the *deltas* as interactions
 happen, so trends can be rebuilt from durable history. Recording is best-effort:
 a history failure must never break the interaction that triggered it.
 
-The history lives in the same ``aindy_social_layer`` database the performance
-service reads from, so record and read always agree regardless of how
-``MONGO_DB_NAME`` is configured. Functions accept an explicit ``db`` handle for
-testing; in production they resolve the social database themselves.
+The history lives in the configured Mongo database (``client[MONGO_DB_NAME]``)
+— the same database the social router and the rest of the social layer use — so
+record and read always agree. Functions accept an explicit ``db`` handle for
+testing; in production they resolve the database themselves.
 """
 
 from __future__ import annotations
@@ -23,12 +23,11 @@ from datetime import datetime, timezone
 import logging
 from typing import Any
 
-from AINDY.db.mongo_setup import get_mongo_client
+from AINDY.db.mongo_setup import MONGO_DB_NAME, get_mongo_client
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
 logger = logging.getLogger(__name__)
 
-SOCIAL_DB_NAME = "aindy_social_layer"
 HISTORY_COLLECTION = "social_metrics_history"
 
 # Counter fields tracked in history — the flattened engagement fields on a post.
@@ -41,7 +40,7 @@ def _resolve_social_db(db: Any | None) -> Any | None:
     client = get_mongo_client()
     if client is None:
         return None
-    return client[SOCIAL_DB_NAME]
+    return client[MONGO_DB_NAME]
 
 
 def _today() -> str:
