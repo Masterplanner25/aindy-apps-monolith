@@ -838,7 +838,6 @@ function AutomationLogDetail({ log, onRefresh }) {
 
 function AutomationLogRow({ log, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
-  const canReplay = log.status === "failed" || log.status === "retrying";
   const dur = duration(log.started_at, log.completed_at);
   const multiAttempt = log.attempt_count > 1;
 
@@ -1185,7 +1184,7 @@ function NodeBox({ name, highlighted }) {
 
 }
 
-function FlowCard({ flowName, registry, highlightedNode }) {
+function FlowCard({ flowName, registry }) {
   const [expanded, setExpanded] = useState(false);
   const flow = registry.flows[flowName];
   if (!flow) return null;
@@ -1518,6 +1517,10 @@ const TABS = [
 export default function FlowEngineConsole() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <FlowEngineConsoleContent />;
+}
+
+function FlowEngineConsoleContent() {
   const [activeTab, setActiveTab] = useState("runs");
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [refreshTick, setRefreshTick] = useState(0);

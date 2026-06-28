@@ -443,6 +443,10 @@ function FederatedSearchPanel({ agents }) {
 export default function AgentRegistry() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <AgentRegistryContent />;
+}
+
+function AgentRegistryContent() {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

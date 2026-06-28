@@ -165,6 +165,10 @@ function ApprovalRow({ run, pendingAction, onApprove, onReject }) {
 export default function AgentApprovalInbox() {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <AdminAccessRequired />;
+  return <AgentApprovalInboxContent />;
+}
+
+function AgentApprovalInboxContent() {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

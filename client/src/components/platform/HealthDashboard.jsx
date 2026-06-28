@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { getHealthDetails } from "../../api/platform.js";
 import { useAuth } from "../../context/AuthContext";
 import { AdminAccessRequired } from "../shared/AdminApiErrorBoundary";
+import { safeMap } from "../../utils/safe";
 
 export default function HealthDashboard() {
   const { isAdmin } = useAuth();
@@ -40,7 +41,7 @@ export default function HealthDashboard() {
       <p>Degraded Domains: {degradedDomains.length ? degradedDomains.join(", ") : "none"}</p>
 
       <div style={{ marginTop: "1rem", display: "grid", gap: "0.75rem" }}>
-        {platformChecks.map(([name, status]) => (
+        {safeMap(platformChecks, ([name, status]) => (
           <div
             key={name}
             style={{

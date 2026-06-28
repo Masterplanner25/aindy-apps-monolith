@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
 import { useSystem } from "../../context/SystemContext";
+import { safeMap } from "../../utils/safe";
 
 const PLATFORM_BASE = import.meta.env.VITE_PLATFORM_BASE_URL ?? "/platform";
 const platformUrl = (path) => `${PLATFORM_BASE}${path}`;
@@ -123,10 +124,11 @@ export default function AppShell() {
 
   const visibleGroups = useMemo(
     () =>
-      NAV_GROUPS
-        .filter((group) => !group.adminOnly || isAdmin)
-        .filter((group) => !runtimeOnly || group.runtimeOnlySafe !== false)
-        .map((group) => ({
+      safeMap(
+        NAV_GROUPS
+          .filter((group) => !group.adminOnly || isAdmin)
+          .filter((group) => !runtimeOnly || group.runtimeOnlySafe !== false),
+        (group) => ({
           ...group,
           title: group.title === "RUNTIME" && !runtimeOnly ? "IDENTITY" : group.title,
           links: group.links.filter((link) => !runtimeOnly || link.runtimeOnlySafe !== false),
@@ -174,13 +176,13 @@ export default function AppShell() {
           </div>
 
           <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-5 custom-scrollbar">
-            {visibleGroups.map((group) => (
+            {safeMap(visibleGroups, (group) => (
               <div key={group.title}>
                 <p className="mb-3 px-2 text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-600">
                   {group.title}
                 </p>
                 <div className="space-y-2">
-                  {group.links.map((link) => (
+                  {safeMap(group.links, (link) => (
                     <ShellLink
                       key={link.to}
                       to={link.to}

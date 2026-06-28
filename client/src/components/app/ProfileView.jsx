@@ -28,7 +28,7 @@ export default function ProfileView() {
       setProfile(data);
       setFormData(data); // Pre-fill form
       setIsEditing(false);
-    } catch (err) {
+    } catch {
       console.log("Profile not found. Showing create mode.");
       setProfile(null); // Triggers create mode
       setIsEditing(true);

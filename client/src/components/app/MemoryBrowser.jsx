@@ -7,7 +7,6 @@ import {
   getNodePerformance,
   getNodeHistory,
   traverseMemory,
-  getFederatedRecall,
   shareMemoryNode,
   getMemoryNodes,
 } from "../../api/memory.js";
@@ -69,7 +68,7 @@ function ResonanceBar({ score }) {
 
 }
 
-function Badge({ label, color = "#27272a", textColor = "#a1a1aa", style = {} }) {
+function Badge({ label, color = "#27272a", style = {} }) {
   return (
     <span style={{
       display: "inline-block",
@@ -188,7 +187,7 @@ function NodeDetailPanel({ nodeId, onClose }) {
 
 }
 
-function MemoryNodeCard({ node, agentFilter }) {
+function MemoryNodeCard({ node }) {
   const [expanded, setExpanded] = useState(false);
   const [feedback, setFeedback] = useState(null); // "success" | "failure" | null
   const [sharing, setSharing] = useState(false);
@@ -368,7 +367,7 @@ export default function MemoryBrowser() {
   const [nodes, setNodes] = useState(system?.memory || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [, setHasSearched] = useState(false);
   const [totalCount, setTotalCount] = useState(null);
 
   const [suggestions, setSuggestions] = useState([]);
@@ -572,19 +571,6 @@ export default function MemoryBrowser() {
         message="No memory nodes found."
         hint="Memory nodes are written automatically as the system runs." />
       }
-      {false && !loading && visibleNodes.length === 0 &&
-      <div style={{ textAlign: "center", padding: "48px 24px", background: "#111113", border: "1px solid #27272a", borderRadius: 12 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🧠</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#e4e4e7", marginBottom: 8 }}>
-            {hasSearched ? "No memories match your search" : "Your memory is empty"}
-          </div>
-          <div style={{ fontSize: 13, color: "#71717a", maxWidth: 380, margin: "0 auto", lineHeight: 1.6 }}>
-            {hasSearched ?
-          "Try different keywords, fewer tags, or switch to 'All agents' to widen the search." :
-          "Use ARM to analyze code, Genesis to build a masterplan, or complete Tasks — A.I.N.D.Y. captures each event as a memory node automatically."}
-          </div>
-        </div>
-      }
 
       {!loading && visibleNodes.length > 0 &&
       <div>
@@ -599,11 +585,6 @@ export default function MemoryBrowser() {
       }
 
       {loading && <LoadingPanel label="Reading memory..." />}
-      {false && loading &&
-      <div style={{ textAlign: "center", padding: 40, color: "#52525b", fontSize: 13 }}>
-          Scanning memory…
-        </div>
-      }
     </div>);
 
 }

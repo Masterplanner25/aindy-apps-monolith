@@ -159,7 +159,7 @@ function ETAProjectionPanel({ planId }) {
     try {
       const data = await getMasterplanProjection(planId);
       setProjection(data);
-    } catch (err) {
+    } catch {
       setError("ETA unavailable");
     } finally {
       setLoading(false);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { deleteSearchHistoryItem, getSearchHistory } from "../../api/search.js";
+import { safeMap } from "../../utils/safe";
 
 export default function SearchHistory({ searchType = null, title = "Search History", onSelect }) {
   const [items, setItems] = useState([]);
@@ -55,7 +56,7 @@ export default function SearchHistory({ searchType = null, title = "Search Histo
       )}
 
       <div className="space-y-2">
-        {items.map((item) => (
+        {safeMap(items, (item) => (
           <div key={item.id} className="border border-zinc-800 rounded-md p-3 bg-zinc-900/70">
             <div className="flex items-start justify-between gap-3">
               <button
