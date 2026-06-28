@@ -123,19 +123,67 @@ of the `deepseek_arm_service` / `agent_run_event` references.
 
 ---
 
-## DOCS-MIGRATION-2: ~14 shared pre-split docs still need an editorial split
+## DOCS-MIGRATION-2: shared pre-split docs — triaged and app slice extracted
 
-**Status:** Tracked, deferred (intentionally not moved in the 2026-06-27 pass).
+**Status:** App-facing slice DONE (2026-06-27). Runtime-owned + deferred buckets recorded below.
 
-**Context:** Beyond the 18 clearly app-owned docs (DOCS-MIGRATION-1), the archive holds ~14 docs that
-span both runtime and app concerns and were flagged by `RUNTIME_DOCSET_BOUNDARY.md` for a deliberate
-editorial split rather than a clean move: `architecture/{DATA_MODEL_MAP,ANALYTICS_BOUNDARY,MODEL_OWNERSHIP_POLICY,SYSTEM_SPEC}.md`,
-`api/CHANGELOG.md`, `tutorials/*` (4), and several `platform/governance/*` files
-(`AGENT_WORKING_RULES`, `CHANGELOG`, `ERROR_HANDLING_POLICY`, `EVOLUTION_PLAN`, `NEXT_PHASE_PLAN`,
-`release_notes`, `GOVERNANCE_INDEX`). Each needs its app-facing portion extracted into this repo and
-its runtime-facing portion left to / reconciled with `aindy-runtime`.
+**Context:** Beyond the 18 clearly app-owned docs (DOCS-MIGRATION-1), the archive held 17 docs that
+the boundary review treated as "shared." A per-doc content analysis showed most are **runtime-owned**,
+not app-owned — the apps-monolith slice was small. Disposition:
 
-**Reopen trigger:** When one of these surfaces is needed app-side (e.g. an app-owned data model map
-or analytics boundary reference), split that doc on demand rather than batch-migrating all 14.
+- **Bucket A — runtime-owned (NOT this repo; belong in `aindy-runtime`):** `architecture/DATA_MODEL_MAP.md`,
+  `architecture/MODEL_OWNERSHIP_POLICY.md`, `platform/governance/AGENT_WORKING_RULES.md`,
+  `platform/governance/ERROR_HANDLING_POLICY.md`, `platform/governance/CHANGELOG.md`, and all 4
+  `tutorials/*` (they teach runtime primitives — memory bridge, flow WAIT/RESUME, scheduler, Nodus —
+  no app-domain workflow). Tracked as a future `aindy-runtime` task; out of scope here.
+- **Bucket B — stale/archive-only:** `platform/governance/NEXT_PHASE_PLAN.md` (completed pre-split
+  sprint narrative). Not migrated.
+- **Bucket C — app-facing slice extracted into this repo (DONE):**
+  1. `docs/platform/engineering/TECH_DEBT.md` → the app-domain debt items it carried (a real
+     tracking gap) migrated below as **APP-DEBT-MIGRATED-1**.
+  2. `docs/architecture/ANALYTICS_BOUNDARY.md` → added as the app-owned half of the analytics boundary.
+  3. `docs/api/CHANGELOG.md` → app-route (`/apps/*`, `/masterplans/*`, `/bridge/*`) history extracted
+     into this repo's `docs/api/CHANGELOG.md`; runtime routes (`/platform/*`, `/agent/*`,
+     `/observability/*`) left to the runtime changelog.
+- **Bucket D — living governance, defer (author fresh per-repo, don't copy-split):**
+  `architecture/SYSTEM_SPEC.md`, `platform/governance/EVOLUTION_PLAN.md`,
+  `platform/GOVERNANCE_INDEX.md`, `platform/governance/release_notes.md`.
 
-**Estimated effort:** Per-doc; varies. Not a single sitting.
+**Reopen trigger:** Bucket D surfacing app-side, or the `aindy-runtime` task to relocate Bucket A.
+
+---
+
+## APP-DEBT-MIGRATED-1: domain debt recovered from the pre-split register (2026-06-27)
+
+**Status:** Tracked. Migrated from the pre-split `docs/platform/engineering/TECH_DEBT.md`
+(triaged 2026-04-25) under DOCS-MIGRATION-2 Bucket C. These app-domain items were never carried into
+this repo's register — a genuine tracking gap. Runtime/infrastructure items from the same source stay
+with `aindy-runtime`. Verify each against current code before acting; the source triage is ~2 months old.
+
+### APP-DEBT-MIGRATED-1a: Genesis session locking enforced only in application logic (production-blocking)
+
+**Severity:** High  **Effort:** M  **Files:** `apps/masterplan/services/masterplan_factory.py`,
+`apps/masterplan/masterplan.py`
+
+`create_masterplan_from_genesis()` prevents double-locking by reading `GenesisSessionDB.status` in
+application code, but the schema enforces no DB-level uniqueness/lock invariant for the
+lock/plan-creation transition. Concurrent lock requests can create duplicate or inconsistent
+masterplan state from one genesis session — a correctness bug in a primary planning workflow.
+Fix: move the invariant into the DB transaction boundary (explicit constraint or row-locking).
+Note: the constraint/migration surface may touch runtime-owned tooling — coordinate the
+transaction-boundary contract with `aindy-runtime`.
+
+### Deferred app-domain items
+
+| Item | Domain | Effort | When to revisit |
+|------|--------|--------|-----------------|
+| Search orchestration not fully unified — LeadGen full-generation persistence, SEO meta generation, and richer provider-backed ranking still split from the shared `search_service` layer | search | M | before expanding search-heavy workflows or adding search providers |
+| Freelance commercial workflow incomplete — payments/refunds/webhooks/idempotency exist, but broader fulfillment and subscription automation are not end-to-end | freelance | M | before exposing freelance as a primary revenue path |
+| RippleTrace productization incomplete — execution-causality, graph edges, and UI exist; deeper insight generation, scenario coverage, and hardening do not | rippletrace | L | before using RippleTrace as a primary incident/audit surface |
+| Masterplan dependency cascade + execution automation incomplete — anchor/ETA debt is closed; dependency-cascade modeling and execution automation are not | masterplan | L | before treating Masterplan as an autonomous planner |
+| ARM low-risk config suggestions require manual apply — `auto_apply_safe` remains advisory, not auto-applied | arm | S | before positioning ARM as a self-tuning service |
+| Infinity loop autonomy still shallow — memory-weighted and feedback-aware, but no deep threshold/weight learning and not a bounded autonomous controller | analytics | M | before enabling autonomous optimization decisions |
+| Identity inference rules-only — observation exists; probabilistic/model-driven inference does not | identity | M | before expanding identity-driven personalization |
+| SYLVA reserved agent namespace inactive — scaffolding only, agent unimplemented | agent | S | when the reserved agent is activated or removed |
+
+**Reopen trigger:** Per-item "when to revisit" above, or substantial work in the named domain.
