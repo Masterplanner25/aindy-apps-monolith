@@ -141,37 +141,45 @@ is the bulk (38 sites, each needs judgment); budget a half-day if driving to zer
 
 ---
 
-## SEARCH-RANKING-EMBEDDINGS-1: unified ranking is lexical-only; semantic (embedding) ranking deferred
+## SEARCH-RANKING-EMBEDDINGS-1: hybrid semantic (embedding) ranking — RESOLVED
 
-**Status:** Tracked, accepted (2026-06-28). The v3 Ranking Unification (PR #16) intentionally
-shipped a lexical relevance signal with a pluggable seam for a future embedding upgrade.
+**Status:** RESOLVED (2026-06-28). The hybrid embedding seam scoped here is now implemented:
+semantic relevance via the runtime embedding stack, opt-in, with automatic lexical fallback. The
+v3 Ranking Unification (PR #16) had intentionally shipped lexical-only with this pluggable seam;
+this pass wired the seam.
 
-**Context:** Phase v3 of the Search System (`docs/apps/SEARCH_SYSTEM.md`) added a shared ranking
-layer: `lexical_relevance()` + `composite_score()` in `apps/search/services/search_scoring.py`,
-applied by `rank_items()` in `apps/search/schemas/search_schema.py` so every surface (leadgen,
-research, SEO) ranks `SearchResponse.results` on one composite axis (0.6 relevance / 0.4 surface
-quality). Relevance is token-overlap + saturating term-frequency — pure Python, deterministic, no
-new dependencies. It captures **lexical** overlap but not **semantic** similarity (synonyms,
-paraphrase, query intent). Lexical was chosen deliberately so ranking stays deterministic and
-testable on the SQLite app-profile/CI path.
+**Context (original):** Phase v3 of the Search System (`docs/apps/SEARCH_SYSTEM.md`) added a shared
+ranking layer: `lexical_relevance()` + `composite_score()` in
+`apps/search/services/search_scoring.py`, applied by `rank_items()` in
+`apps/search/schemas/search_schema.py` so every surface (leadgen, research, SEO) ranks
+`SearchResponse.results` on one composite axis (0.6 relevance / 0.4 surface quality). Lexical
+relevance (token-overlap + saturating term-frequency) captures lexical overlap but not **semantic**
+similarity (synonyms, paraphrase, query intent).
 
-**Upgrade scope when triggered:**
-1. Add an embedding-backed relevance function alongside `lexical_relevance`, reusing the runtime
-   memory/embedding stack the app already reaches via `MemoryOrchestrator` (see
-   `search_service.search_memory`) — no new external dependency on the app side.
-2. Make `rank_items` accept a relevance provider: default lexical, opt into embeddings when the
-   embedding service is available, with graceful fallback to lexical on error/unavailability
-   (the hybrid approach scoped during v3/v5 planning).
-3. Preserve determinism in app-profile tests — gate embedding calls behind availability so
-   SQLite/CI runs stay lexical; cover the embedding path separately with the service mocked.
-4. Consider caching embeddings per query/result so cache-hit search paths don't recompute.
+**Resolution — what shipped (all four scoped items):**
+1. `embedding_relevance()` and the caching `EmbeddingRelevanceProvider` in `search_scoring.py`
+   compute cosine similarity over the runtime embedding stack the app already reaches
+   (`AINDY.memory.embedding_service.generate_query_embedding` / `cosine_similarity`) — the same
+   backend behind `search_service.search_memory`. No new external dependency on the app side.
+2. `rank_items()` gained a `relevance_fn` parameter and defaults to `default_relevance_provider()`:
+   lexical unless the `AINDY_SEARCH_EMBEDDING_RANKING` flag opts into embeddings. The embedding
+   provider degrades to lexical on its own when the backend is unavailable, so the default is
+   always safe and the surface adapters required no changes.
+3. Determinism preserved: the seam is off by default, and even when enabled the runtime embedding
+   service returns a zero vector under `settings.is_testing` (no OpenAI client) — detected by
+   `_is_zero_vector()` and routed to lexical. SQLite/app-profile/CI runs therefore stay lexical and
+   deterministic. The embedding path is covered separately with the service mocked
+   (`tests/unit/test_search_ranking.py`).
+4. Within a ranking pass, `EmbeddingRelevanceProvider` embeds the query once and caches each
+   document embedding, so `rank_items` does not recompute per item.
 
-**Reopen trigger:** (a) relevance-quality complaints traceable to lexical-only matching
-(synonym/paraphrase misses), (b) a search-heavy workflow or new search-provider integration that
-needs semantic ranking, or (c) a deliberate pass to wire the embedding seam.
+**Follow-up (not blocking):** cross-request / persistent embedding caching (current cache is
+per-pass only), and cosine-score calibration for ada-002's compressed similarity range if semantic
+ordering proves too flat in production. Reopen if either is needed.
 
-**Estimated effort:** ~half-day for the provider hook + fallback + tests (runtime embedding API is
-already reachable from the app layer); add time if an embedding cache is included.
+**Tests:** `tests/unit/test_search_ranking.py` — fallback-on-zero-vector, active cosine path,
+per-pass caching, flag-gated provider selection, and embedding-driven reordering through
+`rank_items`.
 
 **Cross-ref:** Completes the v3 design seam noted in `SEARCH_SYSTEM.md` Phase v3; supersedes the
 "richer provider-backed ranking" clause of APP-DEBT-MIGRATED-1's search row.
@@ -322,7 +330,7 @@ application guard, the DB unique-index rejection, and that distinct sessions rem
 
 | Item | Domain | Effort | When to revisit |
 |------|--------|--------|-----------------|
-| Search orchestration unified (Steps 1–6 + v3 ranking, 2026-06-28) — shared `search_service`, unified `SearchResponse` contract, agent tool + `unified_search` workflow, and shared lexical ranking all shipped. Remaining: semantic/provider-backed ranking, tracked separately as **SEARCH-RANKING-EMBEDDINGS-1** | search | — | see SEARCH-RANKING-EMBEDDINGS-1 |
+| Search orchestration unified (Steps 1–6 + v3 ranking + semantic seam, 2026-06-28) — shared `search_service`, unified `SearchResponse` contract, agent tool + `unified_search` workflow, shared lexical ranking, and the hybrid embedding-ranking seam (**SEARCH-RANKING-EMBEDDINGS-1**, RESOLVED) all shipped. No remaining search-ranking debt | search | — | done |
 | Freelance commercial workflow incomplete — payments/refunds/webhooks/idempotency exist, but broader fulfillment and subscription automation are not end-to-end | freelance | M | before exposing freelance as a primary revenue path |
 | RippleTrace productization incomplete — execution-causality, graph edges, and UI exist; deeper insight generation, scenario coverage, and hardening do not | rippletrace | L | before using RippleTrace as a primary incident/audit surface |
 | Masterplan dependency cascade + execution automation incomplete — anchor/ETA debt is closed; dependency-cascade modeling and execution automation are not | masterplan | L | before treating Masterplan as an autonomous planner |

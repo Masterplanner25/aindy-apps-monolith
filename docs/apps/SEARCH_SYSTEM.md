@@ -257,6 +257,14 @@ every surface's `SearchResponse.results` carry one unified `score` (surface qual
 preserved under `metadata.quality_score`, relevance under `metadata.relevance`).
 Leadgen and research results are reordered by the composite; SEO is annotated
 without reordering (it is an analysis surface, not retrieval).
+
+**Semantic seam (SEARCH-RANKING-EMBEDDINGS-1, wired 2026-06-28):** relevance is
+pluggable. `rank_items` takes a `relevance_fn` and defaults to
+`default_relevance_provider()` — lexical unless `AINDY_SEARCH_EMBEDDING_RANKING`
+opts into the hybrid `EmbeddingRelevanceProvider`, which scores cosine similarity
+over the runtime embedding stack (`AINDY.memory.embedding_service`) and falls back
+to lexical automatically when the backend is unavailable. App-profile/CI runs stay
+lexical and deterministic (testing-mode embeddings return zero vectors → fallback).
 **Tests:** `tests/unit/test_search_ranking.py`.
 
 ---

@@ -16,7 +16,11 @@ from apps.search.schemas import (
     seo_to_search_response,
 )
 from apps.search.services.search_scoring import (
+    EmbeddingRelevanceProvider,
     composite_score,
+    default_relevance_provider,
+    embedding_ranking_enabled,
+    embedding_relevance,
     lexical_relevance,
     tokenize,
 )
@@ -93,6 +97,89 @@ def test_research_adapter_ranks_summary_above_bare_sources():
     # the on-topic summary outranks the bare source URL
     assert resp.results[0].snippet.startswith("Edge inference latency")
     assert resp.results[0].score >= resp.results[-1].score
+
+
+# --------------------------------------------------------------------------- #
+# Semantic (embedding-backed) ranking seam — SEARCH-RANKING-EMBEDDINGS-1
+# --------------------------------------------------------------------------- #
+def test_embedding_ranking_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("AINDY_SEARCH_EMBEDDING_RANKING", raising=False)
+    assert embedding_ranking_enabled() is False
+    # default provider is the bare lexical function when the seam is off
+    assert default_relevance_provider() is lexical_relevance
+
+
+def test_embedding_ranking_flag_selects_provider(monkeypatch):
+    monkeypatch.setenv("AINDY_SEARCH_EMBEDDING_RANKING", "1")
+    assert embedding_ranking_enabled() is True
+    assert isinstance(default_relevance_provider(), EmbeddingRelevanceProvider)
+
+
+def test_embedding_relevance_falls_back_to_lexical_when_unavailable(monkeypatch):
+    """Zero-vector backend (testing/CI, API down) must degrade to lexical."""
+    import AINDY.memory.embedding_service as es
+
+    monkeypatch.setattr(es, "generate_query_embedding", lambda text: [0.0, 0.0, 0.0])
+    q, t = "cloud security", "cloud security platform"
+    assert embedding_relevance(q, t) == pytest.approx(lexical_relevance(q, t))
+
+
+def test_embedding_relevance_uses_cosine_when_available(monkeypatch):
+    import AINDY.memory.embedding_service as es
+
+    def fake_embed(text):
+        return {
+            "query": [1.0, 0.0],
+            "near": [1.0, 0.0],   # identical direction -> cosine 1.0
+            "far": [0.0, 1.0],    # orthogonal -> cosine 0.0
+        }.get(text, [0.0, 0.0])
+
+    monkeypatch.setattr(es, "generate_query_embedding", fake_embed)
+    # real cosine_similarity (pure-Python fallback) is used
+    assert embedding_relevance("query", "near") == pytest.approx(1.0)
+    assert embedding_relevance("query", "far") == pytest.approx(0.0)
+
+
+def test_embedding_provider_caches_query_and_docs(monkeypatch):
+    import AINDY.memory.embedding_service as es
+
+    calls: list[str] = []
+
+    def fake_embed(text):
+        calls.append(text)
+        return {"query": [1.0, 0.0], "doc": [1.0, 0.0]}.get(text, [0.0, 0.0])
+
+    monkeypatch.setattr(es, "generate_query_embedding", fake_embed)
+    provider = EmbeddingRelevanceProvider()
+    provider("query", "doc")
+    provider("query", "doc")
+    # query embedded once for the pass; doc embedding cached after first call
+    assert calls.count("query") == 1
+    assert calls.count("doc") == 1
+
+
+def test_rank_items_uses_embeddings_when_enabled(monkeypatch):
+    import AINDY.memory.embedding_service as es
+
+    def fake_embed(text):
+        # the on-topic doc shares the query direction; the high-quality
+        # off-topic doc is orthogonal, so semantic ranking should flip them
+        return {
+            "cloud security": [1.0, 0.0],
+            "Cloud Security Inc cloud security platform": [1.0, 0.0],
+            "Generic Co general services": [0.0, 1.0],
+        }.get(text, [0.0, 0.0])
+
+    monkeypatch.setattr(es, "generate_query_embedding", fake_embed)
+    monkeypatch.setenv("AINDY_SEARCH_EMBEDDING_RANKING", "1")
+
+    items = [
+        SearchResultItem(title="Generic Co", snippet="general services", score=0.9),
+        SearchResultItem(title="Cloud Security Inc", snippet="cloud security platform", score=0.4),
+    ]
+    ranked = rank_items("cloud security", items)
+    assert ranked[0].title == "Cloud Security Inc"
+    assert ranked[0].metadata["relevance"] == pytest.approx(1.0)
 
 
 def test_seo_adapter_annotates_relevance_without_reordering():
