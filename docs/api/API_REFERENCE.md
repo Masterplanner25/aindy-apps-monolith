@@ -1,0 +1,1823 @@
+# API Reference
+
+## HTTP API Reference
+
+### ARM — Autonomous Reasoning
+
+#### POST /apps/arm/analyze
+Analyze Code
+
+**Body:** complexity: number | null, context: string | null, file_path: string (required), urgency: number | null
+
+**Response 200:** unspecified
+
+#### GET /apps/arm/config
+Get Config
+
+**Response 200:** unspecified
+
+#### PUT /apps/arm/config
+Update Config
+
+**Body:** updates: map[unspecified] (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/arm/config/suggest
+Get Config Suggestions
+
+**Parameters:** window (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/arm/generate
+Generate Code
+
+**Body:** analysis_id: string | null, complexity: number | null, generation_type: string | null, language: string | null, original_code: string | null, prompt: string (required), urgency: number | null
+
+**Response 200:** unspecified
+
+#### GET /apps/arm/logs
+Get Arm Logs
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/arm/metrics
+Get Arm Metrics
+
+**Parameters:** window (query): integer
+
+**Response 200:** unspecified
+
+### Agent
+
+#### POST /apps/agent/run
+Create Agent Run
+
+**Body:** goal: string (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/runs
+List Agent Runs
+
+**Parameters:** status (query): string | null, limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/runs/{run_id}
+Get Agent Run
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/agent/runs/{run_id}/approve
+Approve Agent Run
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/runs/{run_id}/events
+Get Run Events
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/agent/runs/{run_id}/recover
+Recover Agent Run
+
+**Parameters:** run_id (path): string, force (query): boolean
+
+**Response 200:** unspecified
+
+#### POST /apps/agent/runs/{run_id}/reject
+Reject Agent Run
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/agent/runs/{run_id}/replay
+Replay Agent Run
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/runs/{run_id}/steps
+Get Run Steps
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/suggestions
+Get Tool Suggestions
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/tools
+List Tools
+
+**Response 200:** unspecified
+
+#### GET /apps/agent/trust
+Get Trust Settings
+
+**Response 200:** unspecified
+
+#### PUT /apps/agent/trust
+Update Trust Settings
+
+**Body:** allowed_auto_grant_tools: array[string] | null, auto_execute_low: boolean | null, auto_execute_medium: boolean | null
+
+**Response 200:** unspecified
+
+### Authorship
+
+#### POST /apps/authorship/reclaim
+Reclaim Authorship Endpoint
+
+**Parameters:** content (query): string, author (query): string, motto (query): string
+
+**Response 200:** unspecified
+
+### Automation
+
+#### GET /apps/automation/logs
+Get Automation Logs
+
+**Parameters:** status (query): string | null, source (query): string | null, limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/automation/logs/{log_id}
+Get Automation Log
+
+**Parameters:** log_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/automation/logs/{log_id}/replay
+Replay Automation Log
+
+**Parameters:** log_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/automation/scheduler/status
+Get Scheduler Status
+
+**Response 200:** unspecified
+
+#### POST /apps/automation/tasks/{task_id}/trigger
+Trigger Task Automation
+
+**Parameters:** task_id (path): integer
+
+**Body:** automation_config: map[unspecified] | null, automation_type: string | null
+
+**Response 200:** unspecified
+
+### Autonomy
+
+#### GET /apps/autonomy/decisions
+Get Recent Autonomy Decisions
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+### Bridge
+
+#### POST /apps/bridge/link
+Create Link
+
+**Body:** link_type: string | null, permission: object | null, source_id: string (required), target_id: string (required)
+
+**Response 201:** created_at: string | null (required), id: string (required), link_type: string (required), source_node_id: string (required), strength: string (required), target_node_id: string (required)
+
+#### GET /apps/bridge/nodes
+Search Nodes
+
+**Parameters:** mode (query): string | null, limit (query): integer
+
+**Body:** array[string] | null
+
+**Response 200:** nodes: array[object] (required)
+
+#### POST /apps/bridge/nodes
+Create Node
+
+**Body:** content: string (required), extra: map[unspecified] | null, node_type: string | null, permission: object | null, source: string | null, source_agent: string | null, tags: array[string] | null, user_id: string | null
+
+**Response 201:** content: string (required), extra: map[unspecified] (required), id: string (required), node_type: string | null (required), tags: array[string] (required)
+
+#### POST /apps/bridge/user_event
+Bridge User Event
+
+**Body:** origin: string (required), timestamp: string | null, user: string (required)
+
+**Response 200:** unspecified
+
+### Compute
+
+#### POST /apps/compute/ai_productivity_boost
+Process Ai Productivity Boost
+
+**Body:** tasks_with_ai: number (required), tasks_without_ai: number (required), time_saved: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/attention_value
+Process Attention Value
+
+**Body:** content_output: number (required), platform_presence: number (required), time: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/batch_calculations
+Process Batch Calculations
+
+**Body:** ai_efficiencies: array[object], ai_productivity_boost: array[object], attention_values: array[object], business_growths: array[object], decision_efficiency: array[object], efficiencies: array[object], engagement_rates: array[object], engagements: array[object], execution_speeds: array[object], impacts: array[object], lost_potential: array[object], monetization_efficiencies: array[object], revenue_scalings: array[object], tasks: array[object]
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/business_growth
+Process Business Growth
+
+**Body:** expenses: number (required), revenue: number (required), scaling_friction: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_ai_efficiency
+Process Ai Efficiency
+
+**Body:** ai_contributions: integer (required), human_contributions: integer (required), total_tasks: integer (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_effort
+Process Effort
+
+**Body:** ai_utilization: integer (required), skill_level: integer (required), task_complexity: integer (required), task_difficulty: integer (required), task_name: string (required), time_spent: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_engagement
+Process Engagement
+
+**Body:** clicks: integer (required), comments: integer (required), likes: integer (required), shares: integer (required), time_on_page: number (required), total_views: integer (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_impact_score
+Process Impact Score
+
+**Body:** conversion: integer (required), engagement: integer (required), reach: integer (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_productivity
+Process Productivity
+
+**Body:** ai_utilization: integer (required), skill_level: integer (required), task_complexity: integer (required), task_difficulty: integer (required), task_name: string (required), time_spent: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_twr
+Process Task
+
+**Body:** ai_utilization: integer (required), skill_level: integer (required), task_complexity: integer (required), task_difficulty: integer (required), task_name: string (required), time_spent: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/calculate_virality
+Process Virality
+
+**Body:** conversion_rate: number (required), engagement_rate: number (required), share_rate: number (required), time_factor: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/create_masterplan
+Create Masterplan
+
+**Body:** books_required: integer (required), duration_years: integer (required), name: string (required), platform_required: boolean (required), playbooks_required: integer (required), revenue_target: number (required), start_date: string (required), studio_required: boolean (required), wcu_target: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/decision_efficiency
+Process Decision Efficiency
+
+**Body:** automated_decisions: number (required), manual_decisions: number (required), processing_time: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/engagement_rate
+Process Engagement Rate
+
+**Body:** total_interactions: number (required), total_views: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/execution_speed
+Process Execution Speed
+
+**Body:** ai_automations: number (required), decision_lag: number (required), systemized_workflows: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/income_efficiency
+Process Income Efficiency
+
+**Body:** ai_utilization: number (required), capital: number (required), focused_effort: number (required), time: number (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/lost_potential
+Process Lost Potential
+
+**Body:** gains_from_action: number (required), missed_opportunities: number (required), time_delayed: number (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/compute/masterplans
+Get Masterplans
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/monetization_efficiency
+Process Monetization Efficiency
+
+**Body:** audience_size: number (required), total_revenue: number (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/compute/results
+Get Results
+
+**Response 200:** unspecified
+
+#### POST /apps/compute/revenue_scaling
+Process Revenue Scaling
+
+**Body:** ai_leverage: number (required), audience_engagement: number (required), content_distribution: number (required), time: number (required)
+
+**Response 200:** unspecified
+
+### Coordination
+
+#### GET /apps/coordination/agents
+Get Agents
+
+**Response 200:** unspecified
+
+#### GET /apps/coordination/agents/status
+Get Agents Status
+
+**Response 200:** unspecified
+
+#### GET /apps/coordination/graph
+Get Coordination Graph
+
+**Response 200:** unspecified
+
+### Dashboard Overview
+
+#### GET /apps/dashboard/overview
+Get System Overview
+
+**Response 200:** map[unspecified]
+
+### Flow Engine
+
+#### GET /platform/flows/registry
+Get Flow Registry
+
+**Response 200:** unspecified
+
+#### GET /platform/flows/runs
+List Flow Runs
+
+**Parameters:** status (query): string | null, workflow_type (query): string | null, limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /platform/flows/runs/{run_id}
+Get Flow Run
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /platform/flows/runs/{run_id}/history
+Get Flow Run History
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /platform/flows/runs/{run_id}/resume
+Resume Flow Run
+
+**Parameters:** run_id (path): string
+
+**Body:** event_type: string (required), payload: map[unspecified]
+
+**Response 200:** unspecified
+
+### Freelance
+
+#### POST /apps/freelance/deliver/{order_id}
+Deliver Order
+
+**Parameters:** order_id (path): integer, ai_output (query): string | null
+
+**Response 200:** unspecified
+
+#### PUT /apps/freelance/delivery/{order_id}
+Update Delivery Configuration
+
+**Parameters:** order_id (path): integer
+
+**Body:** delivery_config: map[unspecified] | null, delivery_type: string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/freelance/feedback
+Get All Feedback
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/feedback
+Collect Feedback
+
+**Body:** feedback_text: string | null (required), order_id: integer (required), rating: integer | null (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/generate/{order_id}
+Generate Delivery
+
+**Parameters:** order_id (path): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/freelance/metrics/latest
+Get Latest Metrics
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/metrics/update
+Update Metrics
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/order
+Create Freelance Order
+
+**Body:** auto_generate_delivery: boolean, automation_config: map[unspecified] | null, automation_type: string | null, client_email: string (required), client_name: string (required), delivery_config: map[unspecified] | null, delivery_type: string | null, masterplan_id: integer | null, price: number | null, project_details: string | null, service_type: string (required), task_id: integer | null
+
+**Response 201:** unspecified
+
+#### GET /apps/freelance/orders
+Get All Orders
+
+**Response 200:** unspecified
+
+### Genesis
+
+#### POST /apps/genesis/audit
+Audit Genesis Draft
+
+**Body:** session_id: integer (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/genesis/draft/{session_id}
+Get Genesis Draft
+
+**Parameters:** session_id (path): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/genesis/lock
+Lock Masterplan Draft
+
+**Body:** map[unspecified]
+
+**Response 200:** unspecified
+
+#### POST /apps/genesis/message
+Send Genesis Message
+
+**Body:** map[unspecified]
+
+**Response 200:** unspecified
+
+#### POST /apps/genesis/session
+Create Genesis Session
+
+**Response 200:** unspecified
+
+#### GET /apps/genesis/session/{session_id}
+Get Genesis Session
+
+**Parameters:** session_id (path): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/genesis/synthesize
+Synthesize Genesis Draft
+
+**Body:** map[unspecified]
+
+**Response 200:** unspecified
+
+#### POST /apps/genesis/{plan_id}/activate
+Activate Masterplan
+
+**Parameters:** plan_id (path): integer
+
+**Response 200:** unspecified
+
+### Goals
+
+#### GET /apps/goals
+List Goals
+
+**Response 200:** unspecified
+
+#### POST /apps/goals
+Create Goal Route
+
+**Body:** description: string | null, goal_type: string, name: string (required), priority: number, status: string, success_metric: map[unspecified]
+
+**Response 201:** unspecified
+
+#### GET /apps/goals/state
+List Goal State
+
+**Response 200:** unspecified
+
+### Health
+
+#### GET /health
+Check Health
+
+**Response 200:** unspecified
+
+#### GET /health/
+Check Health (Legacy Alias)
+
+**Response 200:** unspecified
+
+#### GET /health/deep
+Check Deep Health
+
+**Response 200:** unspecified
+
+#### GET /health/detail
+Check Detailed Health
+
+**Response 200:** unspecified
+
+#### GET /health/details
+Check Detailed Health (Legacy Alias)
+
+**Response 200:** unspecified
+
+#### GET /ready
+Check Readiness
+
+**Response 200:** map[unspecified]
+
+### Health Dashboard
+
+#### GET /apps/dashboard/health
+Get Health Logs
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+### Identity Layer
+
+#### GET /apps/identity/
+Get Identity
+
+**Response 200:** unspecified
+
+#### PUT /apps/identity/
+Update Identity
+
+**Body:** avoided_tools: array[string] | null, communication_notes: string | null, decision_notes: string | null, detail_preference: string | null, learning_notes: string | null, learning_style: string | null, preferred_languages: array[string] | null, preferred_tools: array[string] | null, risk_tolerance: string | null, speed_vs_quality: string | null, tone: string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/identity/boot
+Boot Identity
+
+**Response 200:** unspecified
+
+#### GET /apps/identity/context
+Get Identity Context
+
+**Response 200:** unspecified
+
+#### GET /apps/identity/evolution
+Get Identity Evolution
+
+**Response 200:** unspecified
+
+### Infinity Score
+
+#### GET /apps/scores/feedback
+Get Score Feedback
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/scores/feedback
+Record Score Feedback
+
+**Body:** feedback_text: string | null, feedback_value: integer (required), loop_adjustment_id: string | null, source_id: string | null, source_type: enum(arm, agent, manual) (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/scores/me
+Get My Score
+
+**Response 200:** unspecified
+
+#### GET /apps/scores/me/history
+Get Score History
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/scores/me/recalculate
+Recalculate My Score
+
+**Response 200:** unspecified
+
+### Lead Generation
+
+#### GET /apps/leadgen/
+List All Leads
+
+**Response 200:** unspecified
+
+#### POST /apps/leadgen/
+Generate B2B Leads
+
+**Parameters:** query (query): string
+
+**Response 200:** unspecified
+
+#### GET /apps/leadgen/search
+Preview Lead Search
+
+**Parameters:** query (query): string
+
+**Response 200:** unspecified
+
+### Legacy Compatibility
+
+#### GET /apps/analyze_ripple/{drop_point_id}
+Analyze Ripple
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/build_playbook/{strategy_id}
+Build Playbook View
+
+**Parameters:** strategy_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/causal_chain/{drop_point_id}
+Causal Chain View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/causal_graph
+Causal Graph View
+
+**Response 200:** unspecified
+
+#### GET /apps/dashboard
+Proofboard Dashboard
+
+**Response 200:** unspecified
+
+#### GET /apps/emerging_drops
+Emerging Drops View
+
+**Response 200:** unspecified
+
+#### POST /apps/evaluate/{drop_point_id}
+Evaluate Drop Point
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/generate_content/{playbook_id}
+Generate Content View
+
+**Parameters:** playbook_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/generate_content_for_drop/{drop_point_id}
+Generate Content For Drop View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/generate_variations/{playbook_id}
+Generate Variations View
+
+**Parameters:** playbook_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/influence_chain/{drop_point_id}
+Influence Chain View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/influence_graph
+Influence Graph View
+
+**Response 200:** unspecified
+
+#### GET /apps/learning_stats
+Learning Stats View
+
+**Response 200:** unspecified
+
+#### GET /apps/narrative/{drop_point_id}
+Narrative View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/narrative_summary
+Narrative Summary View
+
+**Response 200:** unspecified
+
+#### GET /apps/playbook/{playbook_id}
+Playbook View
+
+**Parameters:** playbook_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/playbook_match/{drop_point_id}
+Playbook Match View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/playbooks
+Playbooks View
+
+**Response 200:** unspecified
+
+#### GET /apps/predict/{drop_point_id}
+Predict Drop Point View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/prediction_summary
+Prediction Summary View
+
+**Response 200:** unspecified
+
+#### GET /apps/recommend/{drop_point_id}
+Recommend Drop Point
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/recommendations_summary
+Recommendations Summary View
+
+**Response 200:** unspecified
+
+#### GET /apps/ripple_deltas/{drop_point_id}
+Ripple Deltas
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/strategies
+Strategies View
+
+**Response 200:** unspecified
+
+#### GET /apps/strategy/{strategy_id}
+Strategy View
+
+**Parameters:** strategy_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/strategy_match/{drop_point_id}
+Strategy Match View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/top_drop_points
+Top Drop Points
+
+**Response 200:** unspecified
+
+### MasterPlans
+
+#### GET /apps/masterplans/
+List Masterplans
+
+**Response 200:** unspecified
+
+#### POST /apps/masterplans/lock
+Lock From Genesis
+
+**Body:** map[unspecified]
+
+**Response 200:** unspecified
+
+#### GET /apps/masterplans/{plan_id}
+Get Masterplan
+
+**Parameters:** plan_id (path): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/masterplans/{plan_id}/activate
+Activate Masterplan
+
+**Parameters:** plan_id (path): integer
+
+**Response 200:** unspecified
+
+#### PUT /apps/masterplans/{plan_id}/anchor
+Set Masterplan Anchor
+
+**Parameters:** plan_id (path): integer
+
+**Body:** anchor_date: string | null, goal_description: string | null, goal_unit: string | null, goal_value: number | null
+
+**Response 200:** unspecified
+
+#### POST /apps/masterplans/{plan_id}/lock
+Lock Plan
+
+**Parameters:** plan_id (path): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/masterplans/{plan_id}/projection
+Get Masterplan Projection
+
+**Parameters:** plan_id (path): integer
+
+**Response 200:** unspecified
+
+### Memory
+
+#### GET /apps/memory/agents
+List Agents
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/agents/{namespace}/recall
+Recall From Agent Endpoint
+
+**Parameters:** namespace (path): string, query (query): string | null, limit (query): integer | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/execute
+Execute With Memory
+
+**Body:** auto_feedback: boolean | null, input: map[unspecified] (required), recall_before: boolean | null, remember_after: boolean | null, session_tags: array[string] | null, workflow: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/execute/complete
+Complete Memory Loop
+
+**Body:** context: map[unspecified] | null, outcome: enum(success, failure, neutral) (required), outcome_content: string (required), recalled_node_ids: array[string] | null, session_tags: array[string] | null, workflow: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/federated/recall
+Federated Recall
+
+**Body:** agent_namespaces: array[string] | null, limit: integer | null, query: string | null, tags: array[string] | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/links
+Create Link
+
+**Body:** link_type: string | null, source_id: string (required), target_id: string (required), weight: number | null
+
+**Response 201:** unspecified
+
+#### GET /apps/memory/metrics
+Get Memory Metrics
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/metrics/dashboard
+Get Memory Metrics Dashboard
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/metrics/detail
+Get Memory Metrics Detail
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/nodes
+Search Nodes By Tags
+
+**Parameters:** tags (query): string, mode (query): string, limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/nodes
+Create Node
+
+**Body:** content: string (required), extra: map[unspecified] | null, node_type: enum(decision, outcome, insight, relationship) | null, source: string | null, tags: array[string] | null
+
+**Response 201:** unspecified
+
+#### POST /apps/memory/nodes/expand
+Expand Nodes
+
+**Body:** include_linked: boolean | null, include_similar: boolean | null, limit_per_node: integer | null, node_ids: array[string] (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/nodes/search
+Search Similar Nodes
+
+**Body:** limit: integer | null, min_similarity: number | null, node_type: enum(decision, outcome, insight, relationship) | null, query: string (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/nodes/{node_id}
+Get Node
+
+**Parameters:** node_id (path): string
+
+**Response 200:** unspecified
+
+#### PUT /apps/memory/nodes/{node_id}
+Update Node
+
+**Parameters:** node_id (path): string
+
+**Body:** content: string | null, node_type: enum(decision, outcome, insight, relationship) | null, source: string | null, tags: array[string] | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/nodes/{node_id}/feedback
+Record Node Feedback
+
+**Parameters:** node_id (path): string
+
+**Body:** context: string | null, outcome: enum(success, failure, neutral) (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/nodes/{node_id}/history
+Get Node History
+
+**Parameters:** node_id (path): string, limit (query): integer | null
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/nodes/{node_id}/links
+Get Linked Nodes
+
+**Parameters:** node_id (path): string, direction (query): string
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/nodes/{node_id}/performance
+Get Node Performance
+
+**Parameters:** node_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/nodes/{node_id}/share
+Share Memory Node
+
+**Parameters:** node_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/nodes/{node_id}/traverse
+Traverse From Node
+
+**Parameters:** node_id (path): string, max_depth (query): integer | null, link_type (query): string | null, min_strength (query): number | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/nodus/execute
+Execute Nodus Task
+
+**Body:** allowed_operations: array[string] | null, capability_token: map[unspecified] | null, context: map[unspecified] | null, execution_id: string | null, operation_code: string | null, operation_name: string | null, session_tags: array[string] | null, task_code: string | null, task_name: string | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/recall
+Recall Memories
+
+**Body:** limit: integer | null, node_type: enum(decision, outcome, insight, relationship) | null, query: string | null, tags: array[string] | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/recall/v3
+Recall V3
+
+**Body:** expand_results: boolean | null, limit: integer | null, node_type: enum(decision, outcome, insight, relationship) | null, query: string | null, tags: array[string] | null
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/suggest
+Get Suggestions
+
+**Body:** context: string | null, limit: integer | null, query: string | null, tags: array[string] | null
+
+**Response 200:** unspecified
+
+#### GET /apps/memory/traces
+List Traces
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/traces
+Create Trace
+
+**Body:** description: string | null, extra: map[unspecified] | null, source: string | null, title: string | null
+
+**Response 201:** unspecified
+
+#### GET /apps/memory/traces/{trace_id}
+Get Trace
+
+**Parameters:** trace_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/memory/traces/{trace_id}/append
+Append Trace Node
+
+**Parameters:** trace_id (path): string
+
+**Body:** node_id: string (required), position: integer | null
+
+**Response 201:** unspecified
+
+#### GET /apps/memory/traces/{trace_id}/nodes
+Get Trace Nodes
+
+**Parameters:** trace_id (path): string, limit (query): integer, include_nodes (query): boolean
+
+**Response 200:** unspecified
+
+### Network Bridge
+
+#### GET /apps/network_bridge/authors
+List Authors
+
+**Parameters:** platform (query): string | null, limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/network_bridge/connect
+Connect External Author
+
+**Body:** author_name: string (required), connection_type: string, notes: string | null, platform: string (required)
+
+**Response 200:** map[unspecified]
+
+#### POST /apps/network_bridge/user_event
+Log User Event
+
+**Body:** action: string, name: string (required), platform: string, tagline: string (required)
+
+**Response 200:** unspecified
+
+### Observability
+
+#### GET /platform/observability/dashboard
+Get Observability Dashboard
+
+**Parameters:** window_hours (query): integer, request_limit (query): integer, event_limit (query): integer, agent_limit (query): integer, health_limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /platform/observability/execution_graph/{trace_id}
+Get Execution Graph
+
+**Parameters:** trace_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /platform/observability/llm/status
+Get Llm Status
+
+**Response 200:** unspecified
+
+#### POST /platform/observability/queue/dlq/drain
+Drain Queue Dlq
+
+**Body:** max_items: integer, requeue: boolean
+
+**Response 200:** unspecified
+
+#### GET /platform/observability/queue/metrics
+Get Queue Metrics
+
+**Response 200:** unspecified
+
+#### GET /platform/observability/requests
+Get Request Metrics
+
+**Parameters:** limit (query): integer, error_limit (query): integer, window_hours (query): integer
+
+**Response 200:** unspecified
+
+#### GET /platform/observability/scheduler/status
+Get Scheduler Status
+
+**Response 200:** unspecified
+
+### Platform
+
+#### GET /platform/flows
+List Flows
+
+**Response 200:** unspecified
+
+#### POST /platform/flows
+Create Flow
+
+**Body:** edges: map[array[string]], end: array[string] (required), name: string (required), nodes: array[string] (required), overwrite: boolean, start: string (required)
+
+**Response 201:** unspecified
+
+#### DELETE /platform/flows/{name}
+Delete Flow
+
+**Parameters:** name (path): string
+
+**Response 204:** unspecified
+
+#### GET /platform/flows/{name}
+Get Flow
+
+**Parameters:** name (path): string
+
+**Response 200:** unspecified
+
+#### POST /platform/flows/{name}/run
+Run Flow Endpoint
+
+**Parameters:** name (path): string
+
+**Body:** state: map[unspecified]
+
+**Response 200:** unspecified
+
+#### GET /platform/keys
+List Keys
+
+**Response 200:** unspecified
+
+#### POST /platform/keys
+Create Key
+
+**Body:** expires_at: string | null, name: string (required), scopes: array[string] (required)
+
+**Response 201:** unspecified
+
+#### DELETE /platform/keys/{key_id}
+Revoke Key
+
+**Parameters:** key_id (path): string
+
+**Response 204:** unspecified
+
+#### GET /platform/keys/{key_id}
+Get Key
+
+**Parameters:** key_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /platform/memory
+List Memory Path
+
+**Parameters:** path (query): string, limit (query): integer, query (query): string | null, tags (query): string | null
+
+**Response 200:** unspecified
+
+#### GET /platform/memory/trace
+Memory Trace
+
+**Parameters:** path (query): string, depth (query): integer
+
+**Response 200:** unspecified
+
+#### GET /platform/memory/tree
+Memory Tree
+
+**Parameters:** path (query): string, limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /platform/nodes
+List Nodes
+
+**Response 200:** unspecified
+
+#### POST /platform/nodes/register
+Register Node
+
+**Body:** handler: string (required), name: string (required), overwrite: boolean, secret: string | null, timeout_seconds: integer, type: string (required)
+
+**Response 201:** unspecified
+
+#### DELETE /platform/nodes/{name}
+Delete Node
+
+**Parameters:** name (path): string
+
+**Response 204:** unspecified
+
+#### GET /platform/nodes/{name}
+Get Node
+
+**Parameters:** name (path): string
+
+**Response 200:** unspecified
+
+#### POST /platform/nodus/flow
+Compile And Run Nodus Flow
+
+**Body:** flow_name: string (required), input: map[unspecified], register: boolean, run: boolean, script: string (required)
+
+**Response 200:** unspecified
+
+#### POST /platform/nodus/run
+Run Nodus Script
+
+**Body:** error_policy: string, input: map[unspecified], script: string | null, script_name: string | null
+
+**Response 200:** unspecified
+
+#### GET /platform/nodus/schedule
+List Nodus Schedules
+
+**Response 200:** unspecified
+
+#### POST /platform/nodus/schedule
+Create Nodus Schedule
+
+**Body:** cron: string (required), error_policy: string, input: map[unspecified], job_name: string | null, max_retries: integer, script: string | null, script_name: string | null
+
+**Response 201:** unspecified
+
+#### DELETE /platform/nodus/schedule/{job_id}
+Delete Nodus Schedule
+
+**Parameters:** job_id (path): string
+
+**Response 204:** unspecified
+
+#### GET /platform/nodus/scripts
+List Nodus Scripts
+
+**Response 200:** unspecified
+
+#### GET /platform/nodus/trace/{trace_id}
+Get Nodus Trace
+
+**Parameters:** trace_id (path): string, limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /platform/nodus/upload
+Upload Nodus Script
+
+**Body:** content: string (required), description: string | null, name: string (required), overwrite: boolean
+
+**Response 201:** unspecified
+
+#### POST /platform/syscall
+Dispatch Syscall
+
+**Body:** name: string (required), payload: map[unspecified]
+
+**Response 200:** unspecified
+
+#### GET /platform/syscalls
+List Syscalls
+
+**Parameters:** version (query): string | null
+
+**Response 200:** unspecified
+
+#### GET /platform/tenants/{tenant_id}/usage
+Get Tenant Usage
+
+**Parameters:** tenant_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /platform/webhooks
+List Webhook Subscriptions
+
+**Response 200:** unspecified
+
+#### POST /platform/webhooks
+Create Webhook
+
+**Body:** callback_url: string (required), event_type: string (required), secret: string | null
+
+**Response 201:** unspecified
+
+#### DELETE /platform/webhooks/{subscription_id}
+Delete Webhook Subscription
+
+**Parameters:** subscription_id (path): string
+
+**Response 204:** unspecified
+
+#### GET /platform/webhooks/{subscription_id}
+Get Webhook Subscription
+
+**Parameters:** subscription_id (path): string
+
+**Response 200:** unspecified
+
+### Research
+
+#### GET /apps/research/
+List Results
+
+**Response 200:** unspecified
+
+#### POST /apps/research/
+Create Result
+
+**Body:** query: string (required), summary: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/research/query
+Run Research Query
+
+**Body:** query: string (required), summary: string (required)
+
+**Response 200:** unspecified
+
+### RippleTrace
+
+#### POST /apps/rippletrace/drop_point
+Create Drop Point
+
+**Body:** core_themes: array[string] (required), date_dropped: string | null, id: string (required), intent: string (required), platform: string (required), tagged_entities: array[string] (required), title: string (required), url: string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/drop_points
+All Drop Points
+
+**Response 200:** unspecified
+
+#### POST /apps/rippletrace/event
+Log Ripple Event
+
+**Body:** drop_point_id: string | null, notes: string | null, ping_type: string (required), source_platform: string | null, summary: string | null, url: string | null
+
+**Response 200:** unspecified
+
+#### POST /apps/rippletrace/ping
+Create Ping
+
+**Body:** connection_summary: string | null, date_detected: string | null, drop_point_id: string (required), external_url: string | null, id: string (required), ping_type: string (required), reaction_notes: string | null, source_platform: string (required), strength: number | null
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/pings
+All Pings
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/recent
+Recent Ripples
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/ripples/{drop_point_id}
+Get Ripples
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/{trace_id}
+Get Trace Graph
+
+**Parameters:** trace_id (path): string
+
+**Response 200:** unspecified
+
+### SEO
+
+#### POST /apps/seo/analyze
+Analyze Seo
+
+**Body:** text: string (required), top_n: integer | null
+
+**Response 200:** unspecified
+
+#### POST /apps/seo/analyze_seo/
+Analyze Seo Compat
+
+**Body:** content: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/seo/generate_meta/
+Generate Meta Compat
+
+**Body:** content: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/seo/meta
+Generate Meta
+
+**Body:** limit: integer | null, text: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/seo/suggest
+Suggest Improvements
+
+**Body:** text: string (required), top_n: integer | null
+
+**Response 200:** unspecified
+
+#### POST /apps/seo/suggest_improvements/
+Suggest Improvements Compat
+
+**Body:** content: string (required)
+
+**Response 200:** unspecified
+
+### Search History
+
+#### GET /apps/search/history
+List Search History
+
+**Parameters:** limit (query): integer, search_type (query): string | null
+
+**Response 200:** unspecified
+
+#### DELETE /apps/search/history/{history_id}
+Delete Search History Detail
+
+**Parameters:** history_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/search/history/{history_id}
+Get Search History Detail
+
+**Parameters:** history_id (path): string
+
+**Response 200:** unspecified
+
+### Social Layer
+
+#### GET /apps/social/analytics
+Get Social Analytics
+
+**Response 200:** unspecified
+
+#### GET /apps/social/feed
+Get Feed
+
+**Parameters:** limit (query): integer, trust_filter (query): string | null
+
+**Response 200:** unspecified
+
+#### POST /apps/social/post
+Create Post
+
+**Body:** ai_context: map[unspecified] | null, author_id: string (required), author_username: string (required), boosts: integer, clicks: integer, comments_count: integer, content: string (required), conversion_signal: number, created_at: string, engagement_score: number, id: string, impressions: integer, likes: integer, media_url: string | null, tags: array[string], trust_tier_required: string
+
+**Response 200:** unspecified
+
+#### POST /apps/social/posts/{post_id}/interact
+Record Post Interaction
+
+**Parameters:** post_id (path): string
+
+**Body:** action: string (required), amount: integer
+
+**Response 200:** unspecified
+
+#### POST /apps/social/profile
+Upsert Profile
+
+**Body:** bio: string | null, id: string, joined_at: string, metrics_snapshot: map[number], tagline: string | null, tags: array[string], updated_at: string, username: string (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/social/profile/{username}
+Get Profile
+
+**Parameters:** username (path): string
+
+**Response 200:** unspecified
+
+### Tasks
+
+#### POST /apps/tasks/complete
+Complete Task
+
+**Body:** name: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/tasks/create
+Create Task
+
+**Body:** automation_config: map[unspecified] | null, automation_type: string | null, category: string | null, dependencies: array[object], dependency_type: string | null, due_date: string | null, masterplan_id: integer | null, name: string | null, parent_task_id: integer | null, priority: string | null, recurrence: string | null, reminder_time: string | null, scheduled_time: string | null, title: string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/tasks/list
+List Tasks
+
+**Response 200:** unspecified
+
+#### POST /apps/tasks/pause
+Pause Task
+
+**Body:** name: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/tasks/recurrence/check
+Trigger Recurrence
+
+**Response 200:** unspecified
+
+#### POST /apps/tasks/start
+Start Task
+
+**Body:** name: string (required)
+
+**Response 200:** unspecified
+
+### analytics
+
+#### POST /apps/analytics/linkedin/manual
+Ingest Linkedin Manual
+
+**Body:** audience_quality_score: number, comments: number, follows: number, impressions: number (required), likes: number, link_clicks: number, masterplan_id: integer (required), members_reached: number (required), new_followers: number, period_end: string (required), period_start: string (required), period_type: string (required), profile_views: number, scope_id: string | null, scope_type: string (required), search_appearances: number, shares: number, watch_time_minutes: number
+
+**Response 200:** unspecified
+
+#### GET /apps/analytics/masterplan/{masterplan_id}
+Get Masterplan Analytics
+
+**Parameters:** masterplan_id (path): integer, period_type (query): string | null, platform (query): string | null, scope_type (query): string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/analytics/masterplan/{masterplan_id}/summary
+Get Masterplan Summary
+
+**Parameters:** masterplan_id (path): integer, group_by (query): string | null
+
+**Response 200:** unspecified
+
+### auth
+
+#### POST /auth/login
+Login
+
+**Body:** email: string (required), password: string (required)
+
+**Response 200:** access_token: string (required), token_type: string
+
+#### POST /auth/register
+Register
+
+**Body:** email: string (required), password: string (required), username: string | null
+
+**Response 201:** access_token: string (required), token_type: string
+
+### root
+
+#### GET /
+Home
+
+**Response 200:** unspecified
+
+## Syscall Reference
+
+### agent
+
+#### sys.v1.agent.execute
+Execute an approved AgentRun via the deterministic runtime.
+
+**Status:** stable
+**Capabilities:** agent.execute
+**Input:** run_id: string (required)
+**Output:** run_result: dict (required)
+
+### event
+
+#### sys.v1.event.emit
+Emit a SystemEvent on the A.I.N.D.Y. event bus.
+
+**Status:** stable
+**Capabilities:** event.emit
+**Input:** event_type: string (required), payload: dict
+**Output:** unspecified
+
+### flow
+
+#### sys.v1.flow.execute_intent
+Top-level intent execution with learned strategy selection.
+
+**Status:** stable
+**Capabilities:** flow.execute
+**Input:** intent_data: dict (required)
+**Output:** intent_result: dict (required)
+
+#### sys.v1.flow.run
+Execute a registered flow by name.
+
+**Status:** stable
+**Capabilities:** flow.run
+**Input:** flow_name: string (required), initial_state: dict
+**Output:** unspecified
+
+### job
+
+#### sys.v1.job.submit
+Submit a named async job to the automation pipeline.
+
+**Status:** stable
+**Capabilities:** job.submit
+**Input:** max_attempts: int, payload: dict, source: string, task_name: string (required)
+**Output:** log_id: string (required), source: string, task_name: string
+
+### masterplan
+
+#### sys.v1.masterplan.assert_owned
+Assert that the given user owns the given MasterPlan.
+
+**Status:** experimental
+**Capabilities:** masterplan.read
+**Input:** masterplan_id: string (required), user_id: string (required)
+**Output:** masterplan_id: string, owned: bool (required)
+
+### memory
+
+#### sys.v1.memory.list
+List nodes at a MAS path prefix.
+
+**Status:** experimental
+**Capabilities:** memory.list
+**Input:** limit: int, path: string (required)
+**Output:** count: int (required), nodes: list (required)
+
+#### sys.v1.memory.read
+Recall memory nodes for the calling user.
+
+**Status:** stable
+**Capabilities:** memory.read
+**Input:** limit: int, node_type: string, path: string, query: string, tags: list
+**Output:** count: int (required), nodes: list (required)
+
+#### sys.v1.memory.search
+Semantic search over user memory nodes.
+
+**Status:** stable
+**Capabilities:** memory.search
+**Input:** limit: int, path: string, query: string (required)
+**Output:** count: int (required), nodes: list (required)
+
+#### sys.v1.memory.trace
+Follow the causal chain from a node at a path.
+
+**Status:** experimental
+**Capabilities:** memory.trace
+**Input:** depth: int, path: string (required)
+**Output:** chain: list (required), depth: int (required)
+
+#### sys.v1.memory.tree
+Return a hierarchical tree of nodes under a path.
+
+**Status:** experimental
+**Capabilities:** memory.tree
+**Input:** limit: int, path: string (required)
+**Output:** node_count: int (required), tree: dict (required)
+
+#### sys.v1.memory.write
+Persist a new memory node.
+
+**Status:** stable
+**Capabilities:** memory.write
+**Input:** content: string (required), node_type: string, path: string, tags: list
+**Output:** node: dict (required), path: string
+
+#### sys.v2.memory.read
+Enhanced memory recall with structured field filters (v2).
+
+**Status:** experimental
+**Capabilities:** memory.read
+**Input:** filters: dict, limit: int, node_type: string, path: string, query: string, tags: list
+**Output:** count: int (required), nodes: list (required), version: string
+
+### nodus
+
+#### sys.v1.nodus.execute
+Execute a Nodus script via flow-backed orchestration.
+
+**Status:** stable
+**Capabilities:** nodus.execute
+**Input:** error_policy: string, input_payload: dict, node_max_retries: int, script: string (required), trace_id: string, workflow_type: string
+**Output:** nodus_result: dict (required)
+
+### task
+
+#### sys.v1.task.get
+Get a task by ID for the current user.
+
+**Status:** experimental
+**Capabilities:** task.read
+**Input:** task_id: integer (required), user_id: string
+**Output:** task: dict (required)
+
+#### sys.v1.task.get_user_tasks
+Return the minimal task snapshot analytics needs for scoring.
+
+**Status:** experimental
+**Capabilities:** task.read
+**Input:** user_id: string
+**Output:** tasks: array[unspecified] (required)
+
+#### sys.v1.task.queue_automation
+Update task automation settings and queue task automation.
+
+**Status:** experimental
+**Capabilities:** task.write
+**Input:** automation_config: dict, automation_type: string, reason: string, task_id: integer (required), user_id: string
+**Output:** automation_task_trigger_result: dict (required)

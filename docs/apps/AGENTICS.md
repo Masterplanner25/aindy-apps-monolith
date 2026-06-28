@@ -25,14 +25,14 @@ Date basis: current workspace state.
 Agentics is no longer conceptual. A.I.N.D.Y. already has a functioning
 single-agent execution layer built from:
 
-- `services/agent_runtime.py`
-- `services/agent_tools.py`
-- `services/nodus_adapter.py`
-- `services/flow_engine.py`
+- `AINDY/agents/agent_runtime.py`
+- `AINDY/agents/agent_tools.py`
+- `AINDY/runtime/nodus_adapter.py`
+- `AINDY/runtime/flow_engine/runner.py`
 - `AINDY/routes/agent_router.py`
-- `db/models/agent_run.py`
-- `db/models/agent_event.py`
-- `services/capability_service.py`
+- `apps/agent/models/agent_run.py`
+- `apps/agent/models/agent_event.py`
+- `AINDY/agents/capability_service.py`
 
 The current lifecycle is:
 
@@ -41,22 +41,22 @@ The current lifecycle is:
 ### Production-ready or close to production-ready
 
 - Agent run creation, approval, rejection, replay, recovery, step inspection, and event timeline APIs are implemented in `AINDY/routes/agent_router.py`.
-- The agent planner is live in `services/agent_runtime.py` and uses GPT-generated structured plans over a fixed tool registry.
-- The execution path is deterministic in practice because approved plans are executed through `PersistentFlowRunner` in `services/flow_engine.py` via `services/nodus_adapter.py`.
-- Per-run scoped capability enforcement exists in `services/capability_service.py` and is checked both before flow execution and before tool execution.
+- The agent planner is live in `AINDY/agents/agent_runtime.py` and uses GPT-generated structured plans over a fixed tool registry.
+- The execution path is deterministic in practice because approved plans are executed through `PersistentFlowRunner` in `AINDY/runtime/flow_engine/runner.py` via `AINDY/runtime/nodus_adapter.py`.
+- Per-run scoped capability enforcement exists in `AINDY/agents/capability_service.py` and is checked both before flow execution and before tool execution.
 - Agent lifecycle audit persistence exists through `AgentRun`, `AgentStep`, `AgentEvent`, and `SystemEvent`.
-- Recovery and replay paths exist through `services/stuck_run_service.py` and `services/agent_runtime.py`.
+- Recovery and replay paths exist through `AINDY/agents/stuck_run_service.py` and `AINDY/agents/agent_runtime.py`.
 - The frontend has both an operator console and a dedicated approval inbox:
-  - `client/src/components/AgentConsole.jsx`
-  - `client/src/components/AgentApprovalInbox.jsx`
+  - `client/src/components/platform/AgentConsole.jsx`
+  - `client/src/components/platform/AgentApprovalInbox.jsx`
 
 ### Partially working or transitional
 
-- The execution backbone is A.I.N.D.Y.'s internal flow engine, not the real Nodus DSL/VM path. `services/nodus_adapter.py` is an adapter over `PersistentFlowRunner`, not an adapter over the installed Nodus compiler/VM.
-- The Infinity loop is integrated as post-execution orchestration in `services/infinity_orchestrator.py` and `services/infinity_loop.py`, but it is still heuristic and trigger-based rather than autonomous planning/execution.
+- The execution backbone is A.I.N.D.Y.'s internal flow engine, not the real Nodus DSL/VM path. `AINDY/runtime/nodus_adapter.py` is an adapter over `PersistentFlowRunner`, not an adapter over the installed Nodus compiler/VM.
+- The Infinity loop is integrated as post-execution orchestration in `apps/analytics/services/orchestration/infinity_orchestrator.py` and `apps/analytics/services/orchestration/infinity_loop.py`, but it is still heuristic and trigger-based rather than autonomous planning/execution.
 - Flow execution exists for ARM, task completion, leadgen, genesis message, genesis conversation, memory execution, and watcher ingest, but strategy learning is mostly structural. `select_strategy()` and `update_strategy_score()` exist, yet there is no broad learned strategy corpus driving the system.
-- Async execution exists in `services/async_job_service.py`, but it is an in-process thread-pool queue, not a durable distributed worker system.
-- The installed Nodus runtime is used only for restricted ad hoc execution through `services/nodus_execution_service.py` and `POST /memory/nodus/execute`, not as the primary execution path for agents or flows.
+- Async execution exists in `AINDY/platform_layer/async_job_service.py`, but it is an in-process thread-pool queue, not a durable distributed worker system.
+- The installed Nodus runtime is used only for restricted ad hoc execution through `AINDY/runtime/nodus_execution_service.py` and `POST /memory/nodus/execute`, not as the primary execution path for agents or flows.
 
 ### Not implemented
 
@@ -75,21 +75,21 @@ The current lifecycle is:
 ```text
 User / API / UI
   -> Agent Runtime
-     (`services/agent_runtime.py`)
+     (`AINDY/agents/agent_runtime.py`)
   -> Tool Registry + Capability Enforcement
-     (`services/agent_tools.py`, `services/capability_service.py`)
+     (`AINDY/agents/agent_tools.py`, `AINDY/agents/capability_service.py`)
   -> Internal Flow Engine
-     (`services/flow_engine.py`)
+     (`AINDY/runtime/flow_engine/runner.py`)
   -> Agent Flow Adapter
-     (`services/nodus_adapter.py`)
+     (`AINDY/runtime/nodus_adapter.py`)
   -> Domain Services / Tools
      (tasks, memory, ARM, Genesis, LeadGen, watcher)
   -> Event Persistence
      (`AgentEvent`, `SystemEvent`, `FlowRun`, `FlowHistory`)
   -> Memory Capture
-     (`services/memory_capture_engine.py`)
+     (`AINDY/memory/memory_capture_engine.py`)
   -> Infinity Follow-up
-     (`services/infinity_orchestrator.py`, `services/infinity_loop.py`)
+     (`apps/analytics/services/orchestration/infinity_orchestrator.py`, `apps/analytics/services/orchestration/infinity_loop.py`)
 ```
 
 ### Intended corrected architecture
@@ -112,30 +112,30 @@ Planner / Runtime policy
 
 - Agent Runtime
   - Current role: plan generation, approval, capability minting, run lifecycle management.
-  - Primary files: `services/agent_runtime.py`, `AINDY/routes/agent_router.py`.
+  - Primary files: `AINDY/agents/agent_runtime.py`, `AINDY/routes/agent_router.py`.
 
 - Nodus Execution Layer
   - Intended role: declarative workflow language, compiler, bytecode/VM execution, deterministic traces.
-  - Current reality: only partially present through the installed `nodus` package and `services/nodus_execution_service.py`.
+  - Current reality: only partially present through the installed `nodus` package and `AINDY/runtime/nodus_execution_service.py`.
   - Not yet the default execution substrate for Agentics.
 
 - Flow Engine
   - Current role: A.I.N.D.Y.'s actual execution backbone.
-  - Primary files: `services/flow_engine.py`, `services/flow_definitions.py`, `routes/flow_router.py`.
+  - Primary files: `AINDY/runtime/flow_engine/runner.py`, `apps/automation/flows/flow_definitions.py`, `AINDY/routes/flow_router.py`.
   - Supports DB-backed state, WAIT/RESUME, flow history, and completion capture.
 
 - Infinity Loop
   - Current role: post-execution score recalculation and next-action suggestion.
-  - Primary files: `services/infinity_orchestrator.py`, `services/infinity_loop.py`.
+  - Primary files: `apps/analytics/services/orchestration/infinity_orchestrator.py`, `apps/analytics/services/orchestration/infinity_loop.py`.
   - Not yet an autonomous agent controller.
 
 - Memory Bridge
   - Current role: recall, capture, federated memory, feedback weighting, and Nodus memory helpers.
-  - Primary files: `services/memory_capture_engine.py`, `bridge/nodus_memory_bridge.py`, `routes/memory_router.py`.
+  - Primary files: `AINDY/memory/memory_capture_engine.py`, `AINDY/memory/nodus_memory_bridge.py`, `AINDY/routes/memory_router.py`.
 
 - RippleTrace / SystemEvent layer
   - Current role: partially split.
-  - Durable execution/event ledger exists in `db/models/system_event.py` and `services/system_event_service.py`.
+  - Durable execution/event ledger exists in `AINDY/db/models/system_event.py` and `AINDY/core/system_event_service.py`.
   - RippleTrace as a higher-order pattern/graph/insight layer remains incomplete.
 
 ## 3. Gap Analysis
@@ -153,8 +153,8 @@ Planner / Runtime policy
 ### Broken or partial flows
 
 - The naming around "Nodus" is architecturally misleading today:
-  - `services/nodus_adapter.py` does not use the installed Nodus VM.
-  - the real installed Nodus runtime is only used by `services/nodus_execution_service.py`
+  - `AINDY/runtime/nodus_adapter.py` does not use the installed Nodus VM.
+  - the real installed Nodus runtime is only used by `AINDY/runtime/nodus_execution_service.py`
 - The current agent plan format is JSON from GPT, not a declarative Nodus workflow.
 - Memory-side Nodus execution is isolated from the flow engine and agent runtime.
 - `select_strategy()` and `update_strategy_score()` exist, but the broader adaptive strategy loop is not yet driving runtime behavior across Agentics.
@@ -190,15 +190,15 @@ Required components:
 - stronger execution ownership and observability
 
 Exact files/modules affected:
-- `services/agent_runtime.py`
-- `services/nodus_adapter.py`
-- `services/flow_engine.py`
-- `services/async_job_service.py`
-- `services/stuck_run_service.py`
+- `AINDY/agents/agent_runtime.py`
+- `AINDY/runtime/nodus_adapter.py`
+- `AINDY/runtime/flow_engine/runner.py`
+- `AINDY/platform_layer/async_job_service.py`
+- `AINDY/agents/stuck_run_service.py`
 - `AINDY/routes/agent_router.py`
-- `routes/flow_router.py`
-- `client/src/components/AgentConsole.jsx`
-- `client/src/components/AgentApprovalInbox.jsx`
+- `AINDY/routes/flow_router.py`
+- `client/src/components/platform/AgentConsole.jsx`
+- `client/src/components/platform/AgentApprovalInbox.jsx`
 
 Success criteria:
 - every agent run has one authoritative execution record path
@@ -218,13 +218,13 @@ Required components:
 - checkpoint and trace mapping
 
 Exact files/modules affected:
-- `services/nodus_execution_service.py`
-- `services/nodus_adapter.py`
-- `services/flow_engine.py`
-- `services/system_event_service.py`
-- `services/agent_event_service.py`
-- `bridge/nodus_memory_bridge.py`
-- `routes/memory_router.py`
+- `AINDY/runtime/nodus_execution_service.py`
+- `AINDY/runtime/nodus_adapter.py`
+- `AINDY/runtime/flow_engine/runner.py`
+- `AINDY/core/system_event_service.py`
+- `AINDY/agents/agent_event_service.py`
+- `AINDY/memory/nodus_memory_bridge.py`
+- `AINDY/routes/memory_router.py`
 - `AINDY/routes/agent_router.py`
 - new Nodus workflow asset location in-repo
 
@@ -246,11 +246,11 @@ Required components:
 - bounded loop scheduling
 
 Exact files/modules affected:
-- `services/infinity_orchestrator.py`
-- `services/infinity_loop.py`
-- `services/agent_runtime.py`
-- `services/system_event_service.py`
-- `routes/observability_router.py`
+- `apps/analytics/services/orchestration/infinity_orchestrator.py`
+- `apps/analytics/services/orchestration/infinity_loop.py`
+- `AINDY/agents/agent_runtime.py`
+- `AINDY/core/system_event_service.py`
+- `AINDY/routes/observability_router.py`
 - scheduler integration under `services/`
 
 Success criteria:
@@ -271,12 +271,12 @@ Required components:
 - inter-agent event and approval model
 
 Exact files/modules affected:
-- `db/models/agent.py`
-- `routes/memory_router.py`
-- `bridge/nodus_memory_bridge.py`
-- `services/agent_runtime.py`
-- `services/capability_service.py`
-- `services/flow_engine.py`
+- `AINDY/db/models/agent.py`
+- `AINDY/routes/memory_router.py`
+- `AINDY/memory/nodus_memory_bridge.py`
+- `AINDY/agents/agent_runtime.py`
+- `AINDY/agents/capability_service.py`
+- `AINDY/runtime/flow_engine/runner.py`
 - new coordination/orchestration service layer
 
 Success criteria:
@@ -297,9 +297,9 @@ Required components:
 - stronger event and trace retention
 
 Exact files/modules affected:
-- `services/async_job_service.py`
-- `services/system_event_service.py`
-- `routes/observability_router.py`
+- `AINDY/platform_layer/async_job_service.py`
+- `AINDY/core/system_event_service.py`
+- `AINDY/routes/observability_router.py`
 - deployment/runtime configuration
 - testing under `tests/`
 
@@ -319,23 +319,23 @@ compiler/runtime stack and an embedded execution API through
 
 Current A.I.N.D.Y. integration points are:
 
-- `services/nodus_execution_service.py`
+- `AINDY/runtime/nodus_execution_service.py`
   - executes source strings through `NodusRuntime.run_source()`
-- `services/nodus_security.py`
+- `AINDY/runtime/nodus_security.py`
   - restricts imports, file access, network access, and operation usage
-- `bridge/nodus_memory_bridge.py`
+- `AINDY/memory/nodus_memory_bridge.py`
   - exposes memory operations such as recall/remember/suggest/record_outcome
-- `routes/memory_router.py`
+- `AINDY/routes/memory_router.py`
   - exposes `POST /memory/nodus/execute`
 
 ### Missing integration points
 
 - Agent runtime does not generate or execute Nodus workflows.
-- `services/nodus_adapter.py` does not call the Nodus compiler or VM.
+- `AINDY/runtime/nodus_adapter.py` does not call the Nodus compiler or VM.
 - No repository-managed `.nd` modules or packages exist.
 - No bytecode artifacts or compiled workflow cache are stored by A.I.N.D.Y.
 - Nodus runtime events are not mapped into `AgentEvent` or `FlowHistory`.
-- Nodus is not registered as the execution substrate for flow definitions in `services/flow_definitions.py`.
+- Nodus is not registered as the execution substrate for flow definitions in `apps/automation/flows/flow_definitions.py`.
 
 ### Required work to make Nodus the primary execution path
 

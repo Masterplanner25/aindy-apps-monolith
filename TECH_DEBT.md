@@ -69,3 +69,73 @@ of these rules back to `error` (would pair well with `--max-warnings 0` in the C
 
 **Estimated effort:** `exhaustive-deps` and `immutability` are small (~1–2h). `set-state-in-effect`
 is the bulk (38 sites, each needs judgment); budget a half-day if driving to zero.
+
+---
+
+## DOCS-MIGRATION-1: app-owned docs recovered from pre-split archive
+
+**Status:** RESOLVED (2026-06-27). 18 docs moved + path-fixup sweep complete. Residuals noted below.
+
+**Context:** When `aindy-runtime` and `aindy-apps-monolith` were split out of the original combined
+repo (`masterplan-infiniteweave-monday-node-2025-0411`), 18 app-owned docs were left behind in the
+archive. They were copied into this repo on 2026-06-27, preserving subtree paths, per the ownership
+map in `aindy-runtime/docs/runtime/RUNTIME_DOCSET_BOUNDARY.md`:
+
+- `docs/apps/`: `RIPPLETRACE.md`, `AUTONOMOUS_REASONING_MODULE.md`, `SEARCH_SYSTEM.md`,
+  `SOCIAL_LAYER.md`, `FREELANCING_SYSTEM.md`, `INFINITY_ALGORITHM{,_CANONICAL,_FORMALIZATION,_SUPPORT_SYSTEM}.md`,
+  `ABSTRACTED_ALGORITHM_SPEC.md`, `FORMULA_AND_ALGORITHM_OVERVIEW.md`
+- `docs/architecture/`: `PUBLIC_SURFACE_AUDIT.md`, `PUBLIC_SURFACE_CONTRACTS.md`,
+  `PUBLIC_SURFACE_MIGRATION_GUIDE.md`, `USER_ID_AUDIT.md`
+- `docs/api/API_REFERENCE.md`, `docs/platform/engineering/IMPLEMENTATION_DOCS_AUDIT.md`,
+  `docs/platform/governance/MASTERPLAN_SAAS.md`
+
+**Fixup performed (2026-06-27):** The pre-split docs referenced a flat monolith layout
+(`services/foo.py`, `routes/foo.py`, `db/models/foo.py`, `AINDY/services/foo.py`). Every code-path
+token was Glob-verified against the current tree and rewritten:
+- app modules → `apps/<domain>/...` (e.g. `services/infinity_service.py` →
+  `apps/analytics/services/scoring/infinity_service.py`; the flat `apps/analytics/services/*.py`
+  files are compat shims — docs point at the canonical `scoring/`/`orchestration/`/`calculations/`
+  implementations).
+- runtime modules → confirmed in sibling `aindy-runtime` and written as their real `AINDY/...`
+  paths (e.g. `services/agent_runtime.py` → `AINDY/agents/agent_runtime.py`).
+- The architecture docs (`PUBLIC_SURFACE_*`, `USER_ID_AUDIT`) and `API_REFERENCE`,
+  `IMPLEMENTATION_DOCS_AUDIT`, `MASTERPLAN_SAAS`, `ABSTRACTED_ALGORITHM_SPEC` were already clean
+  (no stale flat paths) — left untouched.
+
+**Also fixed in the same pass — AGENTICS.md:** `docs/apps/AGENTICS.md` was already present before the
+migration (one of the original 3 app docs, not part of the 18 moved) but carried the same stale flat
+paths. It got the identical Glob-verified rewrite — mostly runtime-owned (`AINDY/agents/...`,
+`AINDY/routes/...`), with `db/models/agent_run.py`/`agent_event.py` → `apps/agent/models/...`.
+
+**Residuals (intentionally left, annotated inline in the docs):**
+- `services/deepseek_arm_service.py` (FORMULA) and `db/models/agent_run_event.py` (ARM) resolve to no
+  file in either repo (renamed/merged or never standalone) — carry `_(path unverified after split)_`.
+- "Files to create" / roadmap tokens (e.g. `services/freelance/intake_service.py`,
+  `services/reasoning/*`, `db/models/client_account.py`, `services/infinity_state_service.py`) carry
+  `_(planned; not yet present)_` or sit under explicit "Potential files to create" headings — they
+  describe future work, not moved code.
+- Note: `services/flow_engine.py` (the most common stale token, ~13 refs) WAS resolved — the flow
+  engine is a package, not a `flow_engine.py` basename; all refs now point at
+  `AINDY/runtime/flow_engine/runner.py` (home of `PersistentFlowRunner`).
+
+**Reopen trigger:** Any doc relying on an unverified residual token above, or live-code verification
+of the `deepseek_arm_service` / `agent_run_event` references.
+
+---
+
+## DOCS-MIGRATION-2: ~14 shared pre-split docs still need an editorial split
+
+**Status:** Tracked, deferred (intentionally not moved in the 2026-06-27 pass).
+
+**Context:** Beyond the 18 clearly app-owned docs (DOCS-MIGRATION-1), the archive holds ~14 docs that
+span both runtime and app concerns and were flagged by `RUNTIME_DOCSET_BOUNDARY.md` for a deliberate
+editorial split rather than a clean move: `architecture/{DATA_MODEL_MAP,ANALYTICS_BOUNDARY,MODEL_OWNERSHIP_POLICY,SYSTEM_SPEC}.md`,
+`api/CHANGELOG.md`, `tutorials/*` (4), and several `platform/governance/*` files
+(`AGENT_WORKING_RULES`, `CHANGELOG`, `ERROR_HANDLING_POLICY`, `EVOLUTION_PLAN`, `NEXT_PHASE_PLAN`,
+`release_notes`, `GOVERNANCE_INDEX`). Each needs its app-facing portion extracted into this repo and
+its runtime-facing portion left to / reconciled with `aindy-runtime`.
+
+**Reopen trigger:** When one of these surfaces is needed app-side (e.g. an app-owned data model map
+or analytics boundary reference), split that doc on demand rather than batch-migrating all 14.
+
+**Estimated effort:** Per-doc; varies. Not a single sitting.
