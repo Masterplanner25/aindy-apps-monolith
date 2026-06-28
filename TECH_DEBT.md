@@ -187,16 +187,30 @@ with `aindy-runtime`. Verify each against current code before acting; the source
 
 ### APP-DEBT-MIGRATED-1a: Genesis session locking enforced only in application logic (production-blocking)
 
+**Status:** RESOLVED — already fixed in this repo before migration; verified 2026-06-27.
 **Severity:** High  **Effort:** M  **Files:** `apps/masterplan/services/masterplan_factory.py`,
 `apps/masterplan/masterplan.py`
 
+**Original concern (from the pre-split triage, 2026-04-25):**
 `create_masterplan_from_genesis()` prevents double-locking by reading `GenesisSessionDB.status` in
 application code, but the schema enforces no DB-level uniqueness/lock invariant for the
 lock/plan-creation transition. Concurrent lock requests can create duplicate or inconsistent
 masterplan state from one genesis session — a correctness bug in a primary planning workflow.
-Fix: move the invariant into the DB transaction boundary (explicit constraint or row-locking).
-Note: the constraint/migration surface may touch runtime-owned tooling — coordinate the
-transaction-boundary contract with `aindy-runtime`.
+
+**Resolution:** The fix landed in this repo on 2026-04-26 (the day after the source triage) and was
+carried in unverified during the DOCS-MIGRATION-2 migration. Both transaction-boundary layers the
+item asked for are present:
+- DB backstop: partial unique index `uq_masterplan_genesis_session_id` on
+  `master_plans.linked_genesis_session_id` — declared in `apps/masterplan/masterplan.py` and created
+  by migration `2d4f6a8b0c1d_add_masterplan_genesis_session_uniqueness.py` (wired into the head chain;
+  PostgreSQL partial-index branch, plain unique index on other dialects).
+- Row-locking: `create_masterplan_from_genesis()` reads the session under `with_for_update()` and
+  catches `IntegrityError` on commit, surfacing a clean `ValueError`.
+
+Concurrent lock requests can no longer create duplicate masterplan state: the row lock serializes the
+common path and the unique index is the hard backstop if two transactions both pass the status check.
+Regression coverage added 2026-06-27 in `tests/unit/test_masterplan_genesis_locking.py` (asserts the
+application guard, the DB unique-index rejection, and that distinct sessions remain unconstrained).
 
 ### Deferred app-domain items
 
