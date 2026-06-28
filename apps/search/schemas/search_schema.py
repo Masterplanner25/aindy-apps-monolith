@@ -153,7 +153,13 @@ def enrich_lead_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def rank_items(query: str, items: list[SearchResultItem], *, reorder: bool = True) -> list[SearchResultItem]:
+def rank_items(
+    query: str,
+    items: list[SearchResultItem],
+    *,
+    reorder: bool = True,
+    relevance_fn: Any = None,
+) -> list[SearchResultItem]:
     """Score items by a shared relevance+quality composite and (optionally) sort.
 
     Each surface puts its own quality score in ``item.score``; this preserves it
@@ -161,15 +167,28 @@ def rank_items(query: str, items: list[SearchResultItem], *, reorder: bool = Tru
     ``item.score`` to the unified composite so every surface ranks on one axis
     (Evolution Plan — Phase v3). With no usable query the items pass through
     unchanged so callers never see scores deflated by a missing signal.
+
+    ``relevance_fn`` is the pluggable relevance signal — a callable
+    ``(query, text) -> float`` on 0..1. It defaults to
+    ``default_relevance_provider()``, which is lexical unless the embedding seam
+    is enabled (TECH_DEBT SEARCH-RANKING-EMBEDDINGS-1); the embedding provider
+    falls back to lexical on its own when the backend is unavailable, so the
+    default is always safe.
     """
     if not items or not (query or "").strip():
         return list(items)
-    from apps.search.services.search_scoring import composite_score, lexical_relevance
+    from apps.search.services.search_scoring import (
+        composite_score,
+        default_relevance_provider,
+    )
+
+    if relevance_fn is None:
+        relevance_fn = default_relevance_provider()
 
     ranked: list[SearchResultItem] = []
     for item in items:
         text = " ".join(part for part in (item.title, item.snippet) if part)
-        relevance = lexical_relevance(query, text)
+        relevance = relevance_fn(query, text)
         quality = item.score if item.score is not None else 0.0
         composite = composite_score(relevance, quality)
         metadata = dict(item.metadata or {})

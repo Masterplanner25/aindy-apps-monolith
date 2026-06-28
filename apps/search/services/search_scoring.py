@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import logging
+import os
 import re
+from collections.abc import Callable
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Small stop-word set so common glue words don't inflate query/result overlap.
 _STOPWORDS = frozenset(
@@ -47,6 +52,151 @@ def lexical_relevance(query: str, text: str) -> float:
     hits = sum(1 for tok in doc_tokens if tok in query_tokens)
     tf = min(1.0, (hits / len(doc_tokens)) * 3.0)
     return _clamp01(0.7 * coverage + 0.3 * tf)
+
+
+# --------------------------------------------------------------------------- #
+# Semantic (embedding-backed) relevance — Evolution Plan upgrade
+# (TECH_DEBT: SEARCH-RANKING-EMBEDDINGS-1)
+#
+# Lexical relevance captures token overlap but not synonyms / paraphrase /
+# intent. These helpers add a semantic signal on top of the *same* runtime
+# embedding stack the app already reaches via ``search_service.search_memory``
+# (``MemoryOrchestrator``) — no new external dependency on the app side.
+#
+# The seam is opt-in and self-healing:
+#   * Lexical stays the default (deterministic, dependency-free).
+#   * Embeddings are used only when AINDY_SEARCH_EMBEDDING_RANKING is enabled
+#     *and* the runtime embedding backend actually returns a usable vector.
+#   * Every failure mode (backend unimportable, API down, testing/CI zero
+#     vectors, empty text) falls back to lexical, so callers never crash and
+#     SQLite/app-profile runs stay lexical and deterministic.
+# --------------------------------------------------------------------------- #
+_EMBEDDING_FLAG = "AINDY_SEARCH_EMBEDDING_RANKING"
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+RelevanceFn = Callable[[str, str], float]
+
+
+def _is_zero_vector(vec: object) -> bool:
+    """True for the empty / all-zero vectors the embedding service returns
+    when it is unavailable (testing mode, API failure, empty input)."""
+    if not vec:
+        return True
+    try:
+        return not any(vec)  # type: ignore[arg-type]
+    except TypeError:
+        return True
+
+
+def embedding_relevance(query: str, text: str, *, fallback: RelevanceFn | None = None) -> float:
+    """Semantic query↔text relevance on 0..1 via runtime embeddings.
+
+    Falls back to ``lexical_relevance`` (or ``fallback``) whenever the embedding
+    backend is unavailable — it returns a zero vector under testing/CI or on API
+    failure — so callers always get a usable signal. Stateless: re-embeds on each
+    call. Use :class:`EmbeddingRelevanceProvider` when ranking many items against
+    one query so the query (and each document) is embedded only once.
+    """
+    fb = fallback or lexical_relevance
+    if not (query or "").strip() or not (text or "").strip():
+        return fb(query, text)
+    try:
+        from AINDY.memory.embedding_service import (
+            cosine_similarity,
+            generate_query_embedding,
+        )
+    except Exception as exc:  # pragma: no cover - import guard
+        logger.debug("embedding backend unavailable, using lexical: %s", exc)
+        return fb(query, text)
+
+    q_vec = generate_query_embedding(query)
+    if _is_zero_vector(q_vec):
+        return fb(query, text)
+    d_vec = generate_query_embedding(text)
+    if _is_zero_vector(d_vec):
+        return fb(query, text)
+    return _clamp01(cosine_similarity(q_vec, d_vec))
+
+
+class EmbeddingRelevanceProvider:
+    """Caching, hybrid relevance callable: embeddings with lexical fallback.
+
+    Designed to be constructed once per ranking pass and called as
+    ``provider(query, text)`` for each item. The query is embedded once and each
+    document text is cached, so :func:`rank_items` does not recompute embeddings
+    per item (TECH_DEBT SEARCH-RANKING-EMBEDDINGS-1, scope item 4). Availability
+    is decided once per query: if the query embeds to a zero vector (backend
+    down / testing mode), every item for that query falls back to lexical.
+    """
+
+    def __init__(self, *, fallback: RelevanceFn | None = None) -> None:
+        self._fallback: RelevanceFn = fallback or lexical_relevance
+        self._embed: Callable[[str], list] | None = None
+        self._cosine: Callable[[list, list], float] | None = None
+        self._backend_checked = False
+        self._query: str | None = None
+        self._query_vec: list | None = None
+        self._available = False
+        self._doc_cache: dict[str, list] = {}
+
+    def _ensure_backend(self) -> bool:
+        if self._backend_checked:
+            return self._embed is not None
+        self._backend_checked = True
+        try:
+            from AINDY.memory.embedding_service import (
+                cosine_similarity,
+                generate_query_embedding,
+            )
+        except Exception as exc:  # pragma: no cover - import guard
+            logger.debug("embedding backend unavailable, using lexical: %s", exc)
+            return False
+        self._embed = generate_query_embedding
+        self._cosine = cosine_similarity
+        return True
+
+    def _prime_query(self, query: str) -> None:
+        self._query = query
+        self._doc_cache = {}
+        if not (query or "").strip() or self._embed is None:
+            self._query_vec = None
+            self._available = False
+            return
+        self._query_vec = self._embed(query)
+        self._available = not _is_zero_vector(self._query_vec)
+
+    def __call__(self, query: str, text: str) -> float:
+        if not self._ensure_backend():
+            return self._fallback(query, text)
+        if query != self._query:
+            self._prime_query(query)
+        if not self._available or not (text or "").strip():
+            return self._fallback(query, text)
+        vec = self._doc_cache.get(text)
+        if vec is None:
+            vec = self._embed(text)  # type: ignore[misc]
+            self._doc_cache[text] = vec
+        if _is_zero_vector(vec):
+            return self._fallback(query, text)
+        return _clamp01(self._cosine(self._query_vec, vec))  # type: ignore[misc,arg-type]
+
+
+def embedding_ranking_enabled() -> bool:
+    """Whether semantic ranking is opted into via ``AINDY_SEARCH_EMBEDDING_RANKING``."""
+    return os.environ.get(_EMBEDDING_FLAG, "").strip().lower() in _TRUTHY
+
+
+def default_relevance_provider() -> RelevanceFn:
+    """Return the active relevance callable for ranking.
+
+    Lexical by default. Returns a hybrid :class:`EmbeddingRelevanceProvider`
+    (semantic similarity with automatic lexical fallback) when the embedding
+    seam is enabled — the provider degrades to lexical on its own if the backend
+    is unavailable, so this is always safe to call.
+    """
+    if embedding_ranking_enabled():
+        return EmbeddingRelevanceProvider()
+    return lexical_relevance
 
 
 def composite_score(
