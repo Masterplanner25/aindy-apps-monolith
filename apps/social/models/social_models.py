@@ -31,6 +31,11 @@ class SocialProfile(BaseModel):
     })
     
     tags: List[str] = []           # e.g., "AI Builder", "Solo Dev"
+
+    # True when `username` is bound to the canonical users.username (SQL source
+    # of truth). False means social-only / not yet canonical.
+    username_verified: bool = False
+
     joined_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

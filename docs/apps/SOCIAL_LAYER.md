@@ -201,7 +201,9 @@ Analytics + feedback:
 
 **Missing:**
 
-* social/system identity unification (Mongo profile vs SQL identity)
+* deferred identity-unification follow-ups: metrics projection (`metrics_snapshot`
+  ↔ analytics `UserScore`), auto-creating a profile at signup, and the cross-repo
+  canonical profile (the username-binding slice is done)
 
 ---
 
@@ -216,6 +218,7 @@ Analytics + feedback:
 | Interaction capture (view/click/like/boost/comment counts) | Social layer intent | `POST /social/posts/{post_id}/interact` persists `$inc` counters and refreshes engagement signals | Implemented | `apps/social/routes/social_router.py` |
 | Bridge event persistence | Bridge integration notes | `/bridge/user_event` persists to `bridge_user_events` | Implemented | `apps/bridge/routes/bridge_router.py`, `apps/automation/bridge_user_event.py` |
 | Bridge events surfaced in feed | Roadmap intent | System/public-origin events read via automation's public API and exposed in the feed's `events` channel; origin-gated by `SOCIAL_FEED_BRIDGE_ORIGINS` | Implemented | `apps/social/services/bridge_feed_service.py`, `apps/social/routes/social_router.py`, `apps/automation/public.py` |
+| Canonical username binding | Roadmap intent | Profile + post `author_username` sourced from canonical `users.username` (lazy reconcile on write); null → social-only `username_verified=false` | Implemented | `apps/social/services/identity_binding_service.py`, `apps/social/routes/social_router.py` |
 | Memory logging | Social layer notes | Posts logged via Memory Bridge with DB session | Implemented | `apps/social/routes/social_router.py` |
 | Comment / reply threads | Social layer intent | `POST`/`GET /social/posts/{post_id}/comments` persist comment text with `parent_comment_id` threading; bump `comments_count` | Implemented | `apps/social/services/comment_service.py`, `apps/social/routes/social_router.py`, `apps/social/models/social_models.py` |
 | Durable metrics history | Roadmap intent | Per-(post, day) delta snapshots in `social_metrics_history`; trend rebuilt from history (legacy creation-day bucketing kept as fallback) | Implemented | `apps/social/services/social_metrics_history_service.py`, `apps/social/services/social_performance_service.py` |
@@ -227,9 +230,11 @@ Analytics + feedback:
 
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
-| Identity split between social and system identity | Profile state can drift across Mongo social profiles and SQL identity profiles | `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files |
+| Metrics duplication | `metrics_snapshot` (Mongo, written by `task_service`) duplicates analytics `UserScore` | `apps/social/routes/social_router.py`, `apps/tasks/services/task_service.py`, `apps/analytics/public.py` |
+| No profile at signup | A user has a system identity (`users`, `UserIdentity`) but no `SocialProfile` until manual upsert | `apps/identity/services/signup_initialization_service.py` (runtime-coordinated), `apps/social/*` |
+| Full canonical profile | A single canonical profile both social and identity project from (cross-repo) | `aindy-runtime` |
 
-_Closed: comment/reply content model, durable analytics history, and bridge-event surfacing are implemented (see Parity Table)._
+_Closed: comment/reply content model, durable analytics history, bridge-event surfacing, and canonical username binding are implemented (see Parity Table). Username drift between the Mongo social profile and the SQL `users.username` is resolved; remaining identity work is metrics/lifecycle/cross-repo (see `TECH_DEBT.md` SOCIAL-IDENTITY-1)._
 
 ---
 
@@ -377,12 +382,30 @@ The core phases (v1–v5) are complete. The following are enhancements beyond v5
   the dependency is `APP_DEPENDS_ON: ['automation']` (not `bridge`).
   _(See `apps/social/services/bridge_feed_service.py`.)_ Frontend rendering of the
   `events` channel remains a follow-up.
+* **Canonical username binding** — `SocialProfile.username` and post
+  `author_username` are sourced from the canonical `users.username` (source of
+  truth) at write time, with lazy reconcile; when `users.username` is null the
+  social username is kept and flagged `username_verified=false`. The runtime
+  `users` table is never written from the social app.
+  _(See `apps/social/services/identity_binding_service.py`.)_
 
-### Remaining
+### Remaining (identity follow-ups — see `TECH_DEBT.md` SOCIAL-IDENTITY-1)
 
-#### Step 1 — Unify social profile with system identity
-**Files:** `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files
-**Outcome:** Mongo social profiles and SQL identity profiles stop drifting as separate user identity systems. _(Cross-app: requires `APP_DEPENDS_ON: ['identity']`.)_
+#### Metrics projection
+Make `SocialProfile.metrics_snapshot` a read-through projection of analytics
+`UserScore` and retire `task_service`'s direct Mongo metric write.
+
+#### Profile lifecycle at signup
+Ensure a `SocialProfile` exists for every user (coordinate with the runtime
+signup path), rather than creating it lazily on first upsert.
+
+#### Full canonical profile (cross-repo)
+A runtime-owned canonical profile that both social and identity project from —
+requires changes in `aindy-runtime`.
+
+#### Per-user bridge-event scoping
+Now unblocked by username binding: scope feed bridge events to the viewer when
+desired, beyond the current system/public-origin gate.
 
 ---
 
