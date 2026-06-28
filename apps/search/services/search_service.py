@@ -348,9 +348,15 @@ def search_leads(query: str, db=None, user_id: str | None = None, max_results: i
                 }
             ]
 
+        # Additively expose the shared item fields (title/url/snippet/score) so
+        # lead rows conform to SearchResultItem without dropping legacy keys.
+        from apps.search.schemas.search_schema import enrich_lead_row
+
+        enriched = [enrich_lead_row(dict(row)) for row in leads[:max_results]]
+
         return {
             "query": query,
-            "results": leads[:max_results],
+            "results": enriched,
             "memory": memory,
             "raw_excerpt": (raw or "")[:1000],
         }
@@ -397,7 +403,7 @@ def unified_query(
             summary=summary or raw or query,
             memory_context_count=memory["count"],
         )
-        return {
+        payload = {
             "query": query,
             "summary": summary,
             "source": source,
@@ -405,6 +411,14 @@ def unified_query(
             "memory": memory,
             "search_score": search_score,
         }
+        # Attach the unified ranked structure so research returns the same
+        # shape as the other search surfaces (Evolution Plan — Step 2).
+        from apps.search.schemas.search_schema import research_to_search_response
+
+        payload["results"] = [
+            item.model_dump() for item in research_to_search_response(payload).results
+        ]
+        return payload
 
     return execute_durable_search(
         db=db,

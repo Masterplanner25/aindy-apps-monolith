@@ -23,6 +23,7 @@ from apps.search.routes._route_helpers import (
 )
 from AINDY.services.auth_service import get_current_user
 from AINDY.platform_layer.rate_limiter import limiter
+from apps.search.schemas.search_schema import enrich_lead_row, leadgen_to_search_response
 from apps.search.services.search_service import build_learning_context, get_cached_search_result
 
 router = APIRouter(prefix="/leadgen", tags=["Lead Generation"])
@@ -89,14 +90,20 @@ def _do_generate_b2b_leads(db: Session, user_id: str, query: str):
     )
     if cached:
         cached_results = cached.get("results") or []
-        return {
+        results_payload = [
+            enrich_lead_row(LeadGenItem(**row).model_dump()) for row in cached_results
+        ]
+        payload = {
             "query": query,
             "count": len(cached_results),
-            "results": [LeadGenItem(**row).model_dump() for row in cached_results],
+            "results": results_payload,
+            "search_type": "leadgen",
             "learning_context": cached.get("learning_context")
             or build_learning_context(cached, default_search_type="leadgen"),
             "_execution_meta": {"cached": True, "count": len(cached_results)},
         }
+        payload["search_score"] = leadgen_to_search_response(payload).search_score
+        return payload
 
     from AINDY.runtime.flow_engine import run_flow
 
@@ -128,16 +135,21 @@ def _do_generate_b2b_leads(db: Session, user_id: str, query: str):
         search_results = flow_data
     duration_ms = (time.perf_counter() - start) * 1000
     logger.info("LeadGen generated %s results in %.2fms", len(search_results), duration_ms)
-    results_payload = [LeadGenItem(**item).model_dump() for item in search_results]
-    return {
+    results_payload = [
+        enrich_lead_row(LeadGenItem(**item).model_dump()) for item in search_results
+    ]
+    payload = {
         "query": query,
         "count": len(search_results),
         "results": results_payload,
+        "search_type": "leadgen",
         "_execution_meta": {
             "count": len(search_results),
             "duration_ms": round(duration_ms, 2),
         },
     }
+    payload["search_score"] = leadgen_to_search_response(payload).search_score
+    return payload
 
 
 @router.post("/")

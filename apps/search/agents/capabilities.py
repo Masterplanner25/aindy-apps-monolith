@@ -13,5 +13,6 @@ def register() -> None:
             "risk_level": "medium",
         },
     )
+    register_tool_capabilities("search.query", ["external_api_call"])
     register_tool_capabilities("leadgen.search", ["external_api_call"])
     register_tool_capabilities("research.query", ["external_api_call"])

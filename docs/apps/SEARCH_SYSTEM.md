@@ -313,9 +313,13 @@ It is NOT:
 **Files:** `apps/search/services/search_service.py`  
 **Outcome:** external, internal, semantic, and hybrid search requests route through one reusable interface.
 
-### Step 2 - Standardize search request and result schemas
-**Files:** `apps/search/schemas/`, `apps/search/routes/leadgen_router.py`, `apps/search/routes/research_results_router.py`  
-**Outcome:** leadgen and research return compatible ranked result structures instead of feature-specific payloads.
+### Step 2 - Standardize search request and result schemas - DONE
+**Files:** `apps/search/schemas/search_schema.py`, `apps/search/schemas/__init__.py`, `apps/search/services/search_service.py`, `apps/search/routes/leadgen_router.py`, `apps/search/flows/search_flows.py`  
+**Outcome:** A shared `SearchRequest` / `SearchResultItem` / `SearchResponse` contract plus per-surface adapters (`leadgen_to_search_response`, `research_to_search_response`, `seo_to_search_response`, dispatcher `to_search_response`) now normalize every surface into one ranked shape. Leadgen and research emit compatible `results` items (`title`, `url`, `snippet`, `score`, `metadata`) and consistent top-level fields (`query`, `search_type`, `search_score`, `memory`, `learning_context`, `history_id`).
+
+**Backward compatibility:** changes are additive — leadgen rows keep `company` / `reasoning` / `overall_score` (consumed by `client/src/components/app/LeadGen.jsx`); the shared keys are added alongside them. Research, which previously returned no result list, now also returns a normalized `results` array.
+
+**Tests:** `tests/unit/test_search_schema_contract.py` (`-m app_profile`).
 
 ### Step 3 - Move hybrid retrieval into the shared search layer
 **Files:** `apps/search/services/leadgen_service.py`, `apps/search/routes/research_results_router.py`, `apps/search/services/search_service.py`  
@@ -325,13 +329,19 @@ It is NOT:
 **Files:** `apps/search/models/leadgen_model.py`, `apps/search/models/research_results.py`, `apps/search/services/research_results_service.py`, `apps/search/services/search_service.py`  
 **Outcome:** search outcomes become reusable across the system instead of staying siloed by feature.
 
-### Step 5 - Integrate unified search into agent tools
-**Files:** `AINDY/agents/agent_tools.py`, `AINDY/agents/agent_runtime.py`  
-**Outcome:** agents use one search contract instead of separate ad-hoc wrappers for leadgen, research, and memory recall.
+### Step 5 - Integrate unified search into agent tools - DONE
+**Files:** `apps/search/agents/tools.py`, `apps/search/agents/capabilities.py`, `apps/search/syscalls.py`
+(runtime registration surfaces are consumed, not owned: `AINDY.agents.tool_registry`, `AINDY.kernel.syscall_registry`)
+**Outcome:** A single `search.query` agent tool now backs all surfaces. It dispatches the new `sys.v1.search.query` syscall, which routes by `search_type` (`research` | `leadgen` | `seo_analysis` | `memory`) through `search_service` and returns the normalized `SearchResponse` (Step 2 contract). The legacy `leadgen.search` / `research.query` tools remain for backward compatibility.
 
-### Step 6 - Expose unified search to workflow execution
-**Files:** `apps/automation/flows/flow_definitions.py`, `AINDY/runtime/nodus_execution_service.py`  
-**Outcome:** search becomes a reusable workflow capability rather than a research-only utility.
+**Tests:** `tests/unit/test_search_unified_tool_and_flow.py`.
+
+### Step 6 - Expose unified search to workflow execution - DONE
+**Files:** `apps/automation/flows/flow_definitions.py`, `apps/search/bootstrap.py`
+(runtime execution surface consumed, not owned: `AINDY.runtime.flow_engine`)
+**Outcome:** The `unified_search` workflow (`search_validate` → `search_query_execute`) dispatches `sys.v1.search.query` and surfaces the ranked `SearchResponse` under the `search_result` state key. Search is now a reusable workflow capability rather than a research-only utility. The flow is registered by reference (string syscall dispatch), so no new cross-app import dependency is introduced.
+
+**Tests:** `tests/unit/test_search_unified_tool_and_flow.py`.
 
 ---
 

@@ -143,6 +143,34 @@ def leadgen_store(state, context):
     return _syscall_node("sys.v1.leadgen.store", payload, context, "leadgen.store")
 
 
+# ── Unified Search Flow ────────────────────────────────────────────────────────
+
+
+@register_node("search_validate")
+def search_validate(state, context):
+    """Validate unified search input."""
+    if not state.get("query"):
+        return {"status": "FAILURE", "error": "query required"}
+    return {"status": "SUCCESS", "output_patch": {"validated": True}}
+
+
+@register_node("search_query_execute")
+def search_query_execute(state, context):
+    """Run a unified search via sys.v1.search.query syscall.
+
+    Exposes the one search contract (leadgen / research / SEO / memory) as a
+    reusable workflow capability (Evolution Plan — Step 6). The normalized
+    SearchResponse is surfaced under the ``search_result`` state key.
+    """
+    result = _syscall_node("sys.v1.search.query", state, context, "search.query")
+    if result.get("status") == "SUCCESS":
+        return {
+            "status": "SUCCESS",
+            "output_patch": {"search_result": result.get("output_patch", {})},
+        }
+    return result
+
+
 
 
 # ── Genesis Conversation Flow ──────────────────────────────────────────────────
@@ -653,6 +681,17 @@ def register_all_flows() -> None:
                 "leadgen_search": ["leadgen_store"],
             },
             "end": ["leadgen_store"],
+        },
+    )
+
+    register_flow(
+        "unified_search",
+        {
+            "start": "search_validate",
+            "edges": {
+                "search_validate": ["search_query_execute"],
+            },
+            "end": ["search_query_execute"],
         },
     )
 
