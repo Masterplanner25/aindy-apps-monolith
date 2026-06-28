@@ -1,6 +1,6 @@
 """
 Public contract for the automation app.
-Consumers: analytics, bridge, freelance, masterplan, rippletrace, tasks
+Consumers: analytics, bridge, freelance, masterplan, rippletrace, social, tasks
 """
 
 from __future__ import annotations
@@ -239,6 +239,27 @@ def create_bridge_user_event(
     )
 
 
+def list_bridge_user_events(
+    db: Session,
+    *,
+    origins: list[str] | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return recent bridge user events as plain dicts, most recent first.
+
+    ``origins`` optionally restricts to a set of origin values.
+    """
+    from apps.automation.services.public_surface_service import (
+        list_bridge_user_events as _list_bridge_user_events,
+        row_to_dict,
+    )
+
+    return [
+        row_to_dict(row)
+        for row in _list_bridge_user_events(db, origins=origins, limit=limit)
+    ]
+
+
 def list_automation_logs(
     db: Session,
     *,
@@ -423,6 +444,7 @@ __all__ = [
     "create_loop_adjustment",
     "update_loop_adjustment",
     "create_bridge_user_event",
+    "list_bridge_user_events",
     "list_automation_logs",
     "list_watcher_signals",
     "persist_watcher_signals",

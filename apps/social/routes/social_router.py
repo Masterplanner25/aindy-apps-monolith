@@ -21,6 +21,7 @@ from apps.social.services.comment_service import (
     create_comment,
     list_comments,
 )
+from apps.social.services.bridge_feed_service import get_bridge_feed_events
 from apps.social.services.social_metrics_history_service import record_metric_deltas
 from apps.social.services.social_performance_service import (
     compute_conversion_signal,
@@ -176,6 +177,50 @@ def _with_execution_envelope(payload):
         result.setdefault("execution_envelope", envelope)
         return result
     return {"data": payload, "execution_envelope": envelope}
+
+
+def social_feed_response_adapter(*, route_name, canonical, status_code, trace_headers):
+    """Exact response adapter for `social.feed.get`.
+
+    Mirrors the legacy social envelope so existing clients are unaffected (`data`
+    stays the post list), but exposes the bridge-event channel in the top-level
+    `events` field. The feed handler returns `data={"posts": [...], "events": [...]}`;
+    this splits them. Errors are handled here because `adapt_response` invokes the
+    exact adapter before its own error branch.
+    """
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+
+    meta = canonical.get("metadata", {}) or {}
+    if canonical.get("status") == "error":
+        return JSONResponse(
+            status_code=int(meta.get("status_code") or status_code),
+            content={"detail": jsonable_encoder(meta.get("error", "Execution failed"))},
+            headers=trace_headers,
+        )
+
+    payload = canonical.get("data")
+    if isinstance(payload, dict) and "posts" in payload:
+        posts = payload.get("posts") or []
+        events = payload.get("events") or []
+    else:
+        # Degraded / unexpected payloads fall back to the legacy shape.
+        posts = payload if payload is not None else []
+        events = []
+
+    body = {
+        "status": "SUCCESS",
+        "data": posts,
+        "result": posts,
+        "events": events,
+        "next_action": meta.get("next_action"),
+        "trace_id": str(canonical.get("trace_id") or ""),
+    }
+    return JSONResponse(
+        status_code=status_code,
+        content=jsonable_encoder(body),
+        headers=trace_headers,
+    )
 
 
 def _mongo_degraded_payload(reason: str, *, data=None):
@@ -423,8 +468,11 @@ def get_feed(
                 continue
 
         feed_items.sort(key=lambda item: item.relevance_score, reverse=True)
+        # System/public bridge events ride alongside posts in a separate
+        # `events` channel (see social_feed_response_adapter). Best-effort.
+        bridge_events = get_bridge_feed_events(sql_db, limit=20)
         return {
-            "data": feed_items[:limit],
+            "data": {"posts": feed_items[:limit], "events": bridge_events},
             "execution_hints": {"memory": memory_hints},
         }
 
