@@ -46,6 +46,35 @@ def create_bridge_user_event(
     return record
 
 
+def list_bridge_user_events(
+    db: Session,
+    *,
+    origins: list[str] | None = None,
+    limit: int = 50,
+) -> list:
+    """Return recent bridge user events, most recent first.
+
+    ``origins`` optionally restricts to a set of origin values (used by the
+    social feed to surface only system/public-origin events).
+    """
+    from sqlalchemy import func
+
+    from apps.automation.models import BridgeUserEvent
+
+    query = db.query(BridgeUserEvent)
+    if origins is not None:
+        if not origins:
+            return []
+        query = query.filter(BridgeUserEvent.origin.in_(list(origins)))
+    return (
+        query.order_by(
+            func.coalesce(BridgeUserEvent.occurred_at, BridgeUserEvent.created_at).desc()
+        )
+        .limit(limit)
+        .all()
+    )
+
+
 def list_automation_logs(
     db: Session,
     *,

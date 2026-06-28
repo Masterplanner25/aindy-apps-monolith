@@ -115,8 +115,8 @@ Analytics + feedback:
 
 **Missing:**
 
-* none at the Posts + Feed component level — remaining work is cross-component
-  (bridge-event surfacing, social/system identity unification)
+* none at the Posts + Feed component level — the remaining work is cross-component
+  (social/system identity unification)
 
 ---
 
@@ -131,11 +131,9 @@ Analytics + feedback:
 
 * Node → FastAPI bridge exists
 * `/bridge/user_event` persists to SQL audit table (`bridge_user_events`)
-
-**Missing:**
-
-* bridge / system-origin events are not surfaced in the social feed — they remain
-  isolated SQL audit rows
+* system/public-origin bridge events are surfaced in the social feed's `events`
+  channel (`apps/social/services/bridge_feed_service.py`), origin-gated via
+  `SOCIAL_FEED_BRIDGE_ORIGINS`
 
 ---
 
@@ -203,7 +201,6 @@ Analytics + feedback:
 
 **Missing:**
 
-* social narrative / event-driven feed surfaces (bridge + system-origin events)
 * social/system identity unification (Mongo profile vs SQL identity)
 
 ---
@@ -218,6 +215,7 @@ Analytics + feedback:
 | Trust-tier weighting | Roadmap intent | Trust tier weighted relevance scoring in feed | Implemented | `apps/social/routes/social_router.py` |
 | Interaction capture (view/click/like/boost/comment counts) | Social layer intent | `POST /social/posts/{post_id}/interact` persists `$inc` counters and refreshes engagement signals | Implemented | `apps/social/routes/social_router.py` |
 | Bridge event persistence | Bridge integration notes | `/bridge/user_event` persists to `bridge_user_events` | Implemented | `apps/bridge/routes/bridge_router.py`, `apps/automation/bridge_user_event.py` |
+| Bridge events surfaced in feed | Roadmap intent | System/public-origin events read via automation's public API and exposed in the feed's `events` channel; origin-gated by `SOCIAL_FEED_BRIDGE_ORIGINS` | Implemented | `apps/social/services/bridge_feed_service.py`, `apps/social/routes/social_router.py`, `apps/automation/public.py` |
 | Memory logging | Social layer notes | Posts logged via Memory Bridge with DB session | Implemented | `apps/social/routes/social_router.py` |
 | Comment / reply threads | Social layer intent | `POST`/`GET /social/posts/{post_id}/comments` persist comment text with `parent_comment_id` threading; bump `comments_count` | Implemented | `apps/social/services/comment_service.py`, `apps/social/routes/social_router.py`, `apps/social/models/social_models.py` |
 | Durable metrics history | Roadmap intent | Per-(post, day) delta snapshots in `social_metrics_history`; trend rebuilt from history (legacy creation-day bucketing kept as fallback) | Implemented | `apps/social/services/social_metrics_history_service.py`, `apps/social/services/social_performance_service.py` |
@@ -229,10 +227,9 @@ Analytics + feedback:
 
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
-| Bridge / system events not surfaced in feed | Audit-origin events stay isolated from the social surface | `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx` |
 | Identity split between social and system identity | Profile state can drift across Mongo social profiles and SQL identity profiles | `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files |
 
-_Closed: comment/reply content model and durable analytics history are implemented (see Parity Table)._
+_Closed: comment/reply content model, durable analytics history, and bridge-event surfacing are implemented (see Parity Table)._
 
 ---
 
@@ -374,14 +371,16 @@ The core phases (v1–v5) are complete. The following are enhancements beyond v5
   `social_metrics_history`; trends are rebuilt from real history rather than
   collapsing lifetime totals onto a post's creation day.
   _(See `apps/social/services/social_metrics_history_service.py`.)_
+* **Bridge-event surfacing** — system/public-origin bridge events read via
+  automation's public contract and exposed in the feed's `events` channel,
+  origin-gated by `SOCIAL_FEED_BRIDGE_ORIGINS`. The data is automation-owned, so
+  the dependency is `APP_DEPENDS_ON: ['automation']` (not `bridge`).
+  _(See `apps/social/services/bridge_feed_service.py`.)_ Frontend rendering of the
+  `events` channel remains a follow-up.
 
 ### Remaining
 
-#### Step 1 — Surface bridge and system-origin events where intended
-**Files:** `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`
-**Outcome:** bridge-origin or system-origin events can appear in the social layer instead of remaining isolated audit rows. _(Cross-app: requires `APP_DEPENDS_ON: ['bridge']`.)_
-
-#### Step 2 — Unify social profile with system identity
+#### Step 1 — Unify social profile with system identity
 **Files:** `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files
 **Outcome:** Mongo social profiles and SQL identity profiles stop drifting as separate user identity systems. _(Cross-app: requires `APP_DEPENDS_ON: ['identity']`.)_
 

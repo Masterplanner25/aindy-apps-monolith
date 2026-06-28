@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 BOOTSTRAP_DEPENDS_ON: list[str] = ["analytics"]
-APP_DEPENDS_ON: list[str] = ["analytics"]
+APP_DEPENDS_ON: list[str] = ["analytics", "automation"]
 
 
 def register() -> None:
@@ -23,7 +23,11 @@ def _register_router() -> None:
 def _register_response_adapters() -> None:
     from AINDY.platform_layer.registry import register_response_adapter
     from AINDY.platform_layer.response_adapters import legacy_envelope_adapter
+    from apps.social.routes.social_router import social_feed_response_adapter
     register_response_adapter("social", legacy_envelope_adapter)
+    # Exact-route adapter takes precedence for the feed: adds the bridge-event
+    # `events` channel while keeping `data` as the post list.
+    register_response_adapter("social.feed.get", social_feed_response_adapter)
 
 
 def _register_syscalls() -> None:
