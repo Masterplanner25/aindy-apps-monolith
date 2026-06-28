@@ -106,12 +106,17 @@ Analytics + feedback:
 * track impressions and interaction signals
 * record explicit interactions (`view`, `click`, `like`, `boost`, `comment`) via
   `POST /social/posts/{post_id}/interact`
+* comment/reply **content** model with threading via
+  `POST` / `GET /social/posts/{post_id}/comments`
+  (`apps/social/services/comment_service.py`)
+* durable per-day metrics history feeding real trend analysis
+  (`apps/social/services/social_metrics_history_service.py`)
 * expose social analytics summaries
 
 **Missing:**
 
-* comment/reply **content** model — `comments_count` is an integer counter only;
-  there is no stored comment text or threaded discussion
+* none at the Posts + Feed component level — remaining work is cross-component
+  (bridge-event surfacing, social/system identity unification)
 
 ---
 
@@ -189,6 +194,8 @@ Analytics + feedback:
 * post creation
 * feed listing + visibility scoring
 * explicit interaction capture (view/click/like/boost/comment counters)
+* comment/reply content model with threading
+* durable per-day metrics history (real trend analysis, not creation-day buckets)
 * Node → FastAPI bridge
 * analytics summaries and trend output
 * memory-backed performance feedback
@@ -196,9 +203,8 @@ Analytics + feedback:
 
 **Missing:**
 
-* comment/reply **content** model (threaded discussion)
 * social narrative / event-driven feed surfaces (bridge + system-origin events)
-* durable analytics history (metrics are flattened onto post documents)
+* social/system identity unification (Mongo profile vs SQL identity)
 
 ---
 
@@ -213,7 +219,8 @@ Analytics + feedback:
 | Interaction capture (view/click/like/boost/comment counts) | Social layer intent | `POST /social/posts/{post_id}/interact` persists `$inc` counters and refreshes engagement signals | Implemented | `apps/social/routes/social_router.py` |
 | Bridge event persistence | Bridge integration notes | `/bridge/user_event` persists to `bridge_user_events` | Implemented | `apps/bridge/routes/bridge_router.py`, `apps/automation/bridge_user_event.py` |
 | Memory logging | Social layer notes | Posts logged via Memory Bridge with DB session | Implemented | `apps/social/routes/social_router.py` |
-| Comment / reply threads | Social layer intent | Only a `comments_count` integer counter exists — no stored comment text or threading | Missing | `apps/social/models/social_models.py`, `apps/social/routes/social_router.py` |
+| Comment / reply threads | Social layer intent | `POST`/`GET /social/posts/{post_id}/comments` persist comment text with `parent_comment_id` threading; bump `comments_count` | Implemented | `apps/social/services/comment_service.py`, `apps/social/routes/social_router.py`, `apps/social/models/social_models.py` |
+| Durable metrics history | Roadmap intent | Per-(post, day) delta snapshots in `social_metrics_history`; trend rebuilt from history (legacy creation-day bucketing kept as fallback) | Implemented | `apps/social/services/social_metrics_history_service.py`, `apps/social/services/social_performance_service.py` |
 | Analytics dashboard | Roadmap intent | Analytics summaries, trends, and top content are exposed in API/UI | Implemented | `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx` |
 
 ---
@@ -222,10 +229,10 @@ Analytics + feedback:
 
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
-| No comment/reply content model | Social layer still lacks threaded discussion | `apps/social/routes/social_router.py`, `apps/social/models/social_models.py`, `client/src/components/app/*` |
 | Bridge / system events not surfaced in feed | Audit-origin events stay isolated from the social surface | `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx` |
-| Analytics history embedded in post documents | Trend analysis is rebuilt from current counters, not durable snapshots | `apps/social/models/social_models.py`, `apps/social/services/social_performance_service.py` |
 | Identity split between social and system identity | Profile state can drift across Mongo social profiles and SQL identity profiles | `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files |
+
+_Closed: comment/reply content model and durable analytics history are implemented (see Parity Table)._
 
 ---
 
@@ -324,11 +331,14 @@ It is NOT:
 
 ### Structural
 
-* analytics persistence is currently embedded in post documents rather than a separate history model
+* _Resolved:_ analytics now writes per-(post, day) deltas to `social_metrics_history`;
+  trend analysis reads durable history (legacy creation-day bucketing kept only as a
+  fallback when no history exists yet).
 
 ### Functional
 
-* comment/reply content is not implemented (only a counter exists)
+* _Resolved:_ comment/reply content is implemented (`comment_service`); the
+  `comments_count` field is now a denormalized count alongside stored comment text.
 
 ### Conceptual
 
@@ -356,25 +366,24 @@ The core phases (v1–v5) are complete. The following are enhancements beyond v5
 
 * **Interaction endpoints** — likes, boosts, and comment counts are persisted
   interactions via `POST /social/posts/{post_id}/interact` rather than dormant
-  fields on posts. _(Done — see `apps/social/routes/social_router.py`.)_
+  fields on posts. _(See `apps/social/routes/social_router.py`.)_
+* **Comment & reply content model** — stored comment text with `parent_comment_id`
+  threading via `POST`/`GET /social/posts/{post_id}/comments`.
+  _(See `apps/social/services/comment_service.py`.)_
+* **Durable analytics history** — per-(post, day) metric deltas in
+  `social_metrics_history`; trends are rebuilt from real history rather than
+  collapsing lifetime totals onto a post's creation day.
+  _(See `apps/social/services/social_metrics_history_service.py`.)_
 
 ### Remaining
 
-#### Step 1 — Add a comment and reply content model
-**Files:** `apps/social/models/social_models.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`
-**Outcome:** the social layer supports actual discussion threads (stored comment text, author, optional parent reply) instead of a bare `comments_count` integer.
-
-#### Step 2 — Surface bridge and system-origin events where intended
+#### Step 1 — Surface bridge and system-origin events where intended
 **Files:** `apps/bridge/routes/bridge_router.py`, `apps/social/routes/social_router.py`, `client/src/components/app/Feed.jsx`
-**Outcome:** bridge-origin or system-origin events can appear in the social layer instead of remaining isolated audit rows.
+**Outcome:** bridge-origin or system-origin events can appear in the social layer instead of remaining isolated audit rows. _(Cross-app: requires `APP_DEPENDS_ON: ['bridge']`.)_
 
-#### Step 3 — Expand analytics history and retention
-**Files:** `apps/social/models/social_models.py`, `apps/social/services/social_performance_service.py`, analytics UI components
-**Outcome:** trend analysis is based on durable history rather than only current post-document counters.
-
-#### Step 4 — Unify social profile with system identity
+#### Step 2 — Unify social profile with system identity
 **Files:** `apps/social/routes/social_router.py`, `apps/identity/routes/identity_router.py`, identity service/model files
-**Outcome:** Mongo social profiles and SQL identity profiles stop drifting as separate user identity systems.
+**Outcome:** Mongo social profiles and SQL identity profiles stop drifting as separate user identity systems. _(Cross-app: requires `APP_DEPENDS_ON: ['identity']`.)_
 
 ---
 

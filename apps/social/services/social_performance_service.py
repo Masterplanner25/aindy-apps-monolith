@@ -93,9 +93,23 @@ def summarize_social_performance(*, user_id: str | None = None, limit: int = 50)
             }
             for doc in top_posts
         ],
-        "trend": _build_trend(docs),
+        "trend": _resolve_trend(social_db, docs, user_id),
         "signals": _build_social_signals(top_posts, docs),
     }
+
+
+def _resolve_trend(social_db: Any, docs: list[dict[str, Any]], user_id: str | None) -> list[dict[str, Any]]:
+    """Prefer durable per-day history; fall back to legacy creation-day bucketing.
+
+    The fallback keeps trends populated for posts created before history existed
+    (or before any interaction has been recorded for the current window).
+    """
+    from apps.social.services.social_metrics_history_service import build_trend_from_history
+
+    history_trend = build_trend_from_history(db=social_db, user_id=user_id, days=7)
+    if history_trend:
+        return history_trend
+    return _build_trend(docs)
 
 
 def get_social_performance_signals(*, user_id: str | None = None, limit: int = 3) -> list[dict[str, Any]]:

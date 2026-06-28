@@ -21,6 +21,7 @@ from apps.social.services.comment_service import (
     create_comment,
     list_comments,
 )
+from apps.social.services.social_metrics_history_service import record_metric_deltas
 from apps.social.services.social_performance_service import (
     compute_conversion_signal,
     compute_engagement_score,
@@ -392,6 +393,14 @@ def get_feed(
                 post_docs = [item[0] for item in refreshed_docs]
                 for _, hints in refreshed_docs:
                     memory_hints.extend(hints)
+                # Record the impression delta per post into durable history,
+                # attributed to the post owner. Best-effort — never breaks feed.
+                for post_doc in post_docs:
+                    record_metric_deltas(
+                        post_id=post_doc.get("id"),
+                        deltas={"impressions": 1},
+                        user_id=post_doc.get("user_id"),
+                    )
 
         author_ids = list({doc.get("author_id") for doc in post_docs if doc.get("author_id")})
         from apps.social.services.social_service import get_user_scores
@@ -475,6 +484,13 @@ def record_post_interaction(
             return _mongo_degraded_payload("mongodb_unavailable")
         except PyMongoError as exc:
             return _mongo_degraded_payload(str(exc))
+        # Record the interaction delta into durable history, attributed to the
+        # post owner. Best-effort — never breaks the interaction.
+        record_metric_deltas(
+            post_id=post_id,
+            deltas={field: amount},
+            user_id=updated.get("user_id"),
+        )
         try:
             updated, memory_hints = _maybe_capture_performance_signal(
                 db=db,
@@ -550,6 +566,12 @@ def create_post_comment(
         try:
             post_doc = db["posts"].find_one({"id": post_id})
             if post_doc:
+                # Record the comment delta into durable history (post owner).
+                record_metric_deltas(
+                    post_id=post_id,
+                    deltas={"comments_count": 1},
+                    user_id=post_doc.get("user_id"),
+                )
                 _, memory_hints = _maybe_capture_performance_signal(
                     db=db,
                     user_id=user_id,
