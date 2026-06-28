@@ -33,6 +33,8 @@ App code and docs must conform to these and must not contradict or redefine them
   **override default agent behavior**. First read before any change.
 
 ### Level 2 — Architecture & integration contract (app-owned)
+- `docs/platform/governance/INVARIANTS.md` — app-domain invariants (non-negotiable
+  constraints enforced by `apps/`); runtime invariants are owned by `aindy-runtime`.
 - `docs/architecture/ARCHITECTURE_MAP.md` — app architecture overview.
 - `docs/architecture/PLUGIN_REGISTRY_PATTERN.md` — runtime↔app registration contract.
 - `docs/architecture/BOOT_PROFILES.md` — boot profiles and manifest selection.

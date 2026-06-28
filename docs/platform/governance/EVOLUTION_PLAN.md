@@ -16,8 +16,9 @@ This plan defines controlled evolution aligned with current architecture and gov
 > repos. Phases 6–7 and the named phases (Autonomous Intelligence, Productization, Advanced
 > Intelligence) are app-facing and live in this repo's domains.
 >
-> **Cross-repo references.** Links below to `docs/governance/INVARIANTS.md`,
-> `docs/governance/ERROR_HANDLING_POLICY.md`, `docs/governance/AGENT_WORKING_RULES.md`,
+> **Cross-repo references.** `INVARIANTS.md` is **split**: app-domain invariants live in this repo at
+> `docs/platform/governance/INVARIANTS.md`, while runtime invariants are owned by `aindy-runtime`.
+> Links below to `docs/governance/ERROR_HANDLING_POLICY.md`, `docs/governance/AGENT_WORKING_RULES.md`,
 > `docs/architecture/MEMORY_BRIDGE.md`, and `docs/deployment/DEPLOYMENT_MODEL.md` are **runtime-owned**
 > and live in the `aindy-runtime` docset, not this repo. Debt links of the form "Section N" / "§16.x"
 > point to the historical pre-split register; the app-domain items from it are now tracked in this

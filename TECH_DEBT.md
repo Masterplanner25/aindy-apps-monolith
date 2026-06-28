@@ -160,10 +160,21 @@ not app-owned — the apps-monolith slice was small. Disposition:
     cross-repo reference hygiene (runtime-owned governance links flagged; moved app-doc paths fixed)
     and an ownership preamble.
 
-**Status:** DOCS-MIGRATION-2 complete (apps side). Only open item is the **Bucket A** relocation task
-on `aindy-runtime`, handed off separately.
+- **`platform/governance/INVARIANTS.md` (late finding — was pre-classified runtime-only, actually
+  mixed ~50/50):** the app-domain invariants were extracted to
+  `docs/platform/governance/INVARIANTS.md` — masterplan/genesis (single-active, locking,
+  synthesis-ready gate, audit-draft gate, atomic creation, non-null columns), analytics canonical-
+  metrics uniqueness, rippletrace DropPoint-before-Ping, freelance non-null columns, and the
+  JWT/API-key/rate-limit invariants whose protected surfaces are app routers (enforcement mechanism
+  stays runtime-owned). Original section numbers preserved for traceability. The runtime invariants
+  (PostgreSQL/UTC/session-isolation/memory-graph/embedding/schema-drift) remain runtime-owned —
+  **author the runtime half in `aindy-runtime`** (fold into the Bucket A handoff).
 
-**Reopen trigger:** Follow-up on Bucket A, or a future re-triage of `EVOLUTION_PLAN` phases as they complete.
+**Status:** DOCS-MIGRATION-2 complete (apps side). Open items, both on `aindy-runtime`: the **Bucket A**
+relocation and the **runtime half of `INVARIANTS.md`**.
+
+**Reopen trigger:** Follow-up on the `aindy-runtime` items, or a re-triage of `EVOLUTION_PLAN` phases
+as they complete.
 
 ---
 
