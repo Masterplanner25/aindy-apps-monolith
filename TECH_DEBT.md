@@ -145,11 +145,22 @@ not app-owned — the apps-monolith slice was small. Disposition:
   3. `docs/api/CHANGELOG.md` → app-route (`/apps/*`, `/masterplans/*`, `/bridge/*`) history extracted
      into this repo's `docs/api/CHANGELOG.md`; runtime routes (`/platform/*`, `/agent/*`,
      `/observability/*`) left to the runtime changelog.
-- **Bucket D — living governance, defer (author fresh per-repo, don't copy-split):**
-  `architecture/SYSTEM_SPEC.md`, `platform/governance/EVOLUTION_PLAN.md`,
-  `platform/GOVERNANCE_INDEX.md`, `platform/governance/release_notes.md`.
+- **Bucket D — living governance (triaged 2026-06-27; author fresh, not copy-split):**
+  - `platform/GOVERNANCE_INDEX.md` → **AUTHORED** fresh as `docs/GOVERNANCE_INDEX.md` (indexes
+    only docs this repo owns; runtime contracts referenced as upstream authority).
+  - `architecture/SYSTEM_SPEC.md` → **SKIP (redundant)** — app-facing content already covered by
+    `ARCHITECTURE_MAP` + `BOOT_PROFILES` + `PLUGIN_REGISTRY_PATTERN` + `APPS_MONOLITH_REPO_SHAPE`;
+    runtime content belongs to `aindy-runtime`.
+  - `platform/governance/release_notes.md` → **ARCHIVE-ONLY** — completed pre-split sprint history;
+    app release tracking starts fresh from the split (git history + `docs/api/CHANGELOG.md`).
+  - `platform/governance/EVOLUTION_PLAN.md` → **PRODUCT CALL, deferred** — an app-domain roadmap is
+    a human prioritization decision, not something to synthesize from a stale archive. Author fresh
+    when app priorities are set.
 
-**Reopen trigger:** Bucket D surfacing app-side, or the `aindy-runtime` task to relocate Bucket A.
+**Status:** DOCS-MIGRATION-2 complete except the deferred **app EVOLUTION_PLAN** (product call) and the
+**Bucket A** relocation task on `aindy-runtime` (handed off separately).
+
+**Reopen trigger:** Deciding to author the app evolution plan/roadmap, or follow-up on Bucket A.
 
 ---
 

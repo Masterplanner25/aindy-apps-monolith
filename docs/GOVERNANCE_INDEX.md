@@ -1,0 +1,125 @@
+---
+title: "Governance Index (apps-monolith)"
+last_verified: "2026-06-27"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
+# Governance Index
+
+Authoritative registry of documentation scope and authority for
+`aindy-apps-monolith`. Defines the doc hierarchy, change protocol, and agent
+obligations for this repo. Authored fresh during DOCS-MIGRATION-2 (the pre-split
+monolith index was monolith-centric and referenced runtime-owned docs this repo
+does not own).
+
+This repo owns app domain code (`apps/<domain>/...`), the React client
+(`client/`), the app plugin manifest, app-owned migrations, and the app docs
+below. It does **not** own `AINDY/` — runtime contracts are *referenced* upstream
+authority, not redefined here. See
+[apps/RUNTIME_DEPENDENCY.md](./apps/RUNTIME_DEPENDENCY.md) and the runtime repo's
+`docs/runtime/RUNTIME_DOCSET_BOUNDARY.md`.
+
+## 1. Documentation Hierarchy
+
+### Level 0 — Upstream runtime authority (referenced, owned by `aindy-runtime`)
+App code and docs must conform to these and must not contradict or redefine them:
+- Runtime Public API Contract — the only `AINDY.*` surface apps may import.
+- Runtime DB Ownership Contract — runtime-owned vs app-owned tables/migrations.
+- `RUNTIME_DOCSET_BOUNDARY.md` — the doc ownership map between the two repos.
+
+### Level 1 — Repo operating instructions
+- `CLAUDE.md` (repo root) — conventions, commands, and boundary rules that
+  **override default agent behavior**. First read before any change.
+
+### Level 2 — Architecture & integration contract (app-owned)
+- `docs/architecture/ARCHITECTURE_MAP.md` — app architecture overview.
+- `docs/architecture/PLUGIN_REGISTRY_PATTERN.md` — runtime↔app registration contract.
+- `docs/architecture/BOOT_PROFILES.md` — boot profiles and manifest selection.
+- `docs/architecture/CROSS_DOMAIN_COUPLING.md` — cross-domain dependency rules.
+- `docs/apps/APPS_MONOLITH_REPO_SHAPE.md` — target repo shape.
+- `docs/apps/RUNTIME_DEPENDENCY.md` — runtime dependency contract.
+- `docs/apps/CLIENT_OWNERSHIP.md` — frontend ownership.
+
+### Level 3 — Public surface & interface authority (app-owned)
+- `docs/architecture/PUBLIC_SURFACE_CONTRACTS.md` — cross-domain public surfaces.
+- `docs/architecture/PUBLIC_SURFACE_AUDIT.md`, `PUBLIC_SURFACE_MIGRATION_GUIDE.md`.
+- `docs/platform/interfaces/API_CONTRACTS.md` — HTTP route inventory.
+- `docs/api/API_REFERENCE.md`, `docs/api/CHANGELOG.md` — app REST surface + history.
+- `docs/architecture/ANALYTICS_BOUNDARY.md` — analytics ownership boundary.
+- `docs/architecture/USER_ID_AUDIT.md` — per-user scoping audit.
+
+### Level 4 — Engineering & collaboration
+- `docs/platform/engineering/TESTING_STRATEGY.md`
+- `docs/deployment/MIGRATION_POLICY.md`
+- `docs/apps/CI_OWNERSHIP.md`, `docs/apps/GITHUB_SETTINGS_CHECKLIST.md`
+- `docs/platform/engineering/IMPLEMENTATION_DOCS_AUDIT.md`
+
+### Level 5 — Evolution, risk & domain guides
+- `TECH_DEBT.md` (repo root) — debt register.
+- `LIVE_VERIFICATION_SCOPE.md` — live-stack verification scope.
+- Domain guides under `docs/apps/`: `AGENTICS`, `AUTONOMOUS_REASONING_MODULE`,
+  `INFINITY_ALGORITHM*`, `RIPPLETRACE`, `SEARCH_SYSTEM`, `SOCIAL_LAYER`,
+  `FREELANCING_SYSTEM`, `ABSTRACTED_ALGORITHM_SPEC`,
+  `FORMULA_AND_ALGORITHM_OVERVIEW`; `docs/platform/governance/MASTERPLAN_SAAS.md`.
+
+## 2. Authority Rules
+- Upstream runtime contracts (Level 0) are authoritative; app docs may depend on
+  them but must not redefine runtime ownership or imply app bootstrap is part of
+  the runtime baseline.
+- `CLAUDE.md` overrides default agent behavior within this repo.
+- Import-boundary rules are **hard constraints**, enforced by CI:
+  `AINDY/` must never import `apps.*`; apps reach `AINDY.*` only through declared
+  public contracts; cross-app imports must be declared in `APP_DEPENDS_ON`. See
+  `scripts/check_app_imports.py` and `tests/unit/test_import_boundaries.py`.
+- No lower-level document may contradict a higher-level one. Conflict order:
+  Level 0 → CLAUDE.md → architecture → interface → domain.
+
+## 3. Change Protocol
+A structural change must update the docs it affects, in the same change:
+- App architecture change → `docs/architecture/ARCHITECTURE_MAP.md`.
+- Registration/bootstrap change → `docs/architecture/PLUGIN_REGISTRY_PATTERN.md`.
+- New/changed cross-domain coupling → `docs/architecture/CROSS_DOMAIN_COUPLING.md`
+  and `PUBLIC_SURFACE_CONTRACTS.md`.
+- Route behavior change → `docs/platform/interfaces/API_CONTRACTS.md`,
+  `docs/api/API_REFERENCE.md`, and `docs/api/CHANGELOG.md` (breaking/additive).
+- Schema/migration discipline change → `docs/deployment/MIGRATION_POLICY.md`.
+- Test/validation discipline change → `docs/platform/engineering/TESTING_STRATEGY.md`.
+- New deferred risk → `TECH_DEBT.md`.
+
+## 4. Agent Interaction Protocol
+AI agents working in this repo must:
+- Read `CLAUDE.md` first; treat its instructions as overriding defaults.
+- Treat the import-boundary rules (§2) as hard constraints and run
+  `python scripts/check_app_imports.py` before proposing a PR.
+- Consult the relevant domain guide before changing a domain's behavior.
+- Treat `AINDY.*` as runtime-owned: import only documented public contracts;
+  never add `apps.*` imports to runtime code.
+- Verify claims on Linux CI — green local Windows runs do not prove integration.
+
+## 5. Governance Stability Principle
+- Documentation must reflect implementation reality.
+- Docs are updated before or alongside the code change, not after.
+- Documentation drift is technical debt and belongs in `TECH_DEBT.md`.
+
+## 6. Entry Point
+This file is the first document to read before architectural or cross-domain
+modifications. For runtime behavior, defer to the runtime repo's authority docs.
+
+## 7. Docs Changes Checklist
+- Update `last_verified` in any doc you materially change.
+- Ensure the change does not contradict a higher-level authority.
+- Apply the §3 Change Protocol to related docs.
+- For a new doc, add it to the appropriate Level above.
+
+## 8. Doc Ownership
+- Governance documents require explicit human sign-off by the project owner or
+  designated maintainer.
+- Designated maintainer: Shawn Knight.
+
+## 9. Out of Scope (owned elsewhere)
+- Runtime behavior, execution/retry semantics, memory bridge, syscalls,
+  invariants, deployment model → `aindy-runtime` (`docs/runtime/`).
+- A product roadmap / evolution plan for the app domains is intentionally **not**
+  carried over from the pre-split archive; author one fresh when app priorities
+  are set (tracked under DOCS-MIGRATION-2, Bucket D, in `TECH_DEBT.md`).
