@@ -28,6 +28,8 @@ def register() -> None:
     _register_flows()
     _register_flow_results()
     _register_flow_strategies()
+    _register_agent_capabilities()
+    _register_agent_tools()
     _register_health_check()
 
 
@@ -167,6 +169,18 @@ def _register_flow_results() -> None:
     }
     for flow_name, result_key in result_keys.items():
         register_flow_result(flow_name, result_key=result_key)
+
+
+def _register_agent_capabilities() -> None:
+    from apps.analytics.agents.capabilities import register as register_capabilities
+
+    register_capabilities()
+
+
+def _register_agent_tools() -> None:
+    from apps.analytics.agents.tools import register as register_tools
+
+    register_tools()
 
 
 def _register_flow_strategies() -> None:

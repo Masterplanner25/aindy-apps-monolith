@@ -569,11 +569,16 @@ formatting/empty-fallbacks.
 Success criteria — met: plan generation uses reasoning outputs; post-run feedback
 flows into the reasoning layer; the reasoning rationale is observable as events.
 
-**Deferred (optional follow-up):** a `reasoning.evaluate` *agent tool* so an agent
-can query reasoning mid-run. Skipped for now because a new tool requires a granted
-capability (per `apps/agent/agents/capabilities.py`); without a grant, plans
-referencing it would fail validation. This is a small, additive follow-up, still
-app-side (`register_tool` + a capability grant).
+**Follow-up shipped (2026-06-29):** the `reasoning.evaluate` *agent tool* now lets
+an agent query reasoning mid-run. Registered app-side via `register_tool`
+(`apps/analytics/agents/tools.py`), backed by `recommend_next_action`, with its
+capability wired in `apps/analytics/agents/capabilities.py`
+(`register_capability_definition("read_reasoning", ...)` +
+`register_tool_capabilities("reasoning.evaluate", ["read_reasoning"])`). No agent
+grant change was needed — the runtime adds a tool's capabilities to the capability
+token per plan, so a plan using `reasoning.evaluate` resolves
+`["execute_flow", "read_reasoning"]` and auto-approves at low risk. Tests:
+`tests/unit/test_reasoning_tool.py` (incl. a capability-resolution check).
 
 ### Phase 4. Integrate with Nodus workflows - DONE (app-side); Nodus-native deferred to runtime
 
