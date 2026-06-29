@@ -80,10 +80,27 @@ Still true:
 
 ## 6. Next Steps
 
-### Step 1 - Add end-to-end validation for causal graph generation
+### Step 1 - Add end-to-end validation for causal graph generation - DONE
 **Files:** test coverage around `AINDY/core/system_event_service.py`, `apps/rippletrace/services/rippletrace_service.py`, `AINDY/memory/memory_capture_engine.py`  
 **Outcome:** a single execution can be verified to produce reconstructable event and memory causality. Trace propagation fix makes this verifiable — a single `trace_id` now appears across all `SYSCALL_EXECUTED` events for a given run.
 
-### Step 2 - Expand execution graph validation in the frontend
+**Validation:** `tests/unit/test_rippletrace_causality.py` (app_profile) proves a single
+execution's event **and** memory causality is reconstructable through the app-owned
+`rippletrace_service`. One case builds a branched trace (an `async_child` branch plus a
+`stored_as_memory` memory-node target) from `system_events` + `link_events` /
+`link_event_to_memory`, then asserts node/edge counts, root + terminal detection, the
+dominant path, ripple span, the event→memory edge, and user-scoped `count_trace_events`.
+A second case drives the *real* `emit_system_event` and
+`MemoryCaptureEngine.evaluate_and_capture` paths and asserts the same reconstruction —
+covering `system_event_service` and `memory_capture_engine`. The harness compiles the
+Postgres types (JSONB/UUID/Vector) to SQLite equivalents, so this runs in the fast lane.
+
+### Step 2 - Expand execution graph validation in the frontend - DONE
 **Files:** `client/src/components/platform/RippleTraceViewer.jsx`, supporting API consumers  
 **Outcome:** the proofboard surface remains aligned with the newer execution-side RippleTrace graph, including memory-node targets and async branches.
+
+**Validation:** `client/src/test/rippletrace-viewer.test.jsx` renders the RippleTrace
+Proofboard against an execution graph that mixes system events, a memory-node target, and
+an async branch, asserting the graph surfaces the memory node, the `stored_as_memory` and
+`async_child` edges, and that the Trace Summary reflects `ripple_span` / root / terminal —
+keeping the proofboard aligned with the execution-side graph.
