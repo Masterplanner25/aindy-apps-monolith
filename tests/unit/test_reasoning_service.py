@@ -141,12 +141,18 @@ def test_reason_summarizes_feedback_rows():
 
 
 def test_reason_matches_engine_plus_strategy_selector():
-    # The service must equal: decide(evaluate_state(...)) then strategy selection.
+    # The service must equal: decide(evaluate_state(...)), then strategy selection,
+    # then the attached execution intent (Phase 4).
+    from apps.analytics.services.reasoning import build_execution_intent
+
     snap = {**_STABLE, "focus_quality": 5.0}
     accuracy_map = {"review_plan": 0.9}
 
     base = decide(evaluate_state(snap))
-    expected = apply_strategy_accuracy(base.decision_type, base.payload, accuracy_map.get(base.decision_type))
+    decision_type, payload = apply_strategy_accuracy(
+        base.decision_type, base.payload, accuracy_map.get(base.decision_type)
+    )
+    payload = {**payload, "execution_intent": build_execution_intent(decision_type, payload)}
 
     result = reason(snap, strategy_accuracy=accuracy_map)
-    assert result.to_tuple() == expected
+    assert result.to_tuple() == (decision_type, payload)

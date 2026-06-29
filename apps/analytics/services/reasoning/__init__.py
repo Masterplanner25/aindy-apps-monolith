@@ -15,7 +15,9 @@ Public API:
 
 from apps.analytics.services.reasoning.autonomous_reasoning_service import reason
 from apps.analytics.services.reasoning.decision_engine import decide
+from apps.analytics.services.reasoning.execution_intent import build_execution_intent
 from apps.analytics.services.reasoning.feedback_analyzer import summarize_feedback
+from apps.analytics.services.reasoning.flow_strategy import select_reasoning_flow
 from apps.analytics.services.reasoning.reasoning_events import (
     REASONING_EVENT_TYPES,
     build_reasoning_records,
@@ -32,6 +34,8 @@ __all__ = [
     "decide",
     "apply_strategy_accuracy",
     "summarize_feedback",
+    "build_execution_intent",
+    "select_reasoning_flow",
     "build_reasoning_records",
     "emit_reasoning_records",
     "REASONING_EVENT_TYPES",

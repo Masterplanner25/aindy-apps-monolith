@@ -27,6 +27,7 @@ def register() -> None:
     _register_required_syscalls()
     _register_flows()
     _register_flow_results()
+    _register_flow_strategies()
     _register_health_check()
 
 
@@ -162,9 +163,20 @@ def _register_flow_results() -> None:
         "analytics_linkedin_ingest": "analytics_linkedin_ingest_result",
         "analytics_masterplan_get": "analytics_masterplan_get_result",
         "analytics_masterplan_summary": "analytics_masterplan_summary_result",
+        "reasoning_apply": "reasoning_apply_result",
     }
     for flow_name, result_key in result_keys.items():
         register_flow_result(flow_name, result_key=result_key)
+
+
+def _register_flow_strategies() -> None:
+    # Reasoning-driven flow selection (ARM/Reasoning Phase 4): lets a reasoning
+    # outcome execute through the runtime's intent-execution path without runtime
+    # edits. Keyed on the "reasoning" flow_type (distinct from other strategies).
+    from AINDY.platform_layer.registry import register_flow_strategy
+    from apps.analytics.services.reasoning import select_reasoning_flow
+
+    register_flow_strategy("reasoning", select_reasoning_flow)
 
 
 def _get_user_kpi_snapshot(*args, **kwargs):
