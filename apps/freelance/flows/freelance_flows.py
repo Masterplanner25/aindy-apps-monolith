@@ -259,9 +259,83 @@ def freelance_subscription_cancel_node(state, context):
         return {"status": "FAILURE", "error": f"HTTP_500:Subscription cancel failed: {e}"}
 
 
+def freelance_clients_list_node(state, context):
+    try:
+        from apps.freelance.services import intake_service
+
+        db = context.get("db")
+        user_id = str(context.get("user_id"))
+        clients = intake_service.list_clients(db, user_id)
+        return {"status": "SUCCESS", "output_patch": {"freelance_clients_list_result": clients}}
+    except Exception as e:
+        return {"status": "FAILURE", "error": str(e)}
+
+
+def freelance_client_lineage_node(state, context):
+    try:
+        from apps.freelance.services import intake_service
+
+        db = context.get("db")
+        user_id = str(context.get("user_id"))
+        try:
+            lineage = intake_service.get_client_lineage(db, user_id, state.get("client_id"))
+        except ValueError as e:
+            return {"status": "FAILURE", "error": f"HTTP_404:{e}"}
+        return {"status": "SUCCESS", "output_patch": {"freelance_client_lineage_result": {"data": lineage}}}
+    except Exception as e:
+        return {"status": "FAILURE", "error": f"HTTP_500:Failed to load client lineage: {e}"}
+
+
+def freelance_intake_from_lead_node(state, context):
+    try:
+        from apps.freelance.schemas.freelance import (
+            ClientAccountResponse,
+            FreelanceOrderResponse,
+        )
+        from apps.freelance.services import intake_service
+
+        db = context.get("db")
+        user_id = str(context.get("user_id"))
+        intake = state.get("intake", {})
+        try:
+            result = intake_service.convert_lead_to_order(
+                db,
+                user_id,
+                lead_id=intake.get("lead_id"),
+                client_email=intake.get("client_email"),
+                service_type=intake.get("service_type"),
+                client_name=intake.get("client_name"),
+                price=intake.get("price") or 0.0,
+                project_details=intake.get("project_details"),
+                delivery_type=intake.get("delivery_type") or "manual",
+                delivery_config=intake.get("delivery_config"),
+                auto_generate_delivery=bool(intake.get("auto_generate_delivery")),
+                idempotency_key=state.get("idempotency_key"),
+            )
+        except ValueError as e:
+            return {"status": "FAILURE", "error": f"HTTP_404:{e}"}
+        return {
+            "status": "SUCCESS",
+            "output_patch": {
+                "freelance_intake_from_lead_result": {
+                    "data": {
+                        "lead_id": result["lead_id"],
+                        "client": ClientAccountResponse.model_validate(result["client"]).model_dump(mode="json"),
+                        "order": FreelanceOrderResponse.model_validate(result["order"]).model_dump(mode="json"),
+                    },
+                }
+            },
+        }
+    except Exception as e:
+        return {"status": "FAILURE", "error": f"HTTP_500:Failed to convert lead to order: {e}"}
+
+
 def register() -> None:
     register_nodes(
         {
+            "freelance_clients_list_node": freelance_clients_list_node,
+            "freelance_client_lineage_node": freelance_client_lineage_node,
+            "freelance_intake_from_lead_node": freelance_intake_from_lead_node,
             "freelance_order_create_node": freelance_order_create_node,
             "freelance_order_deliver_node": freelance_order_deliver_node,
             "freelance_delivery_update_node": freelance_delivery_update_node,
@@ -277,6 +351,9 @@ def register() -> None:
     )
     register_single_node_flows(
         {
+            "freelance_clients_list": "freelance_clients_list_node",
+            "freelance_client_lineage": "freelance_client_lineage_node",
+            "freelance_intake_from_lead": "freelance_intake_from_lead_node",
             "freelance_order_create": "freelance_order_create_node",
             "freelance_order_deliver": "freelance_order_deliver_node",
             "freelance_delivery_update": "freelance_delivery_update_node",

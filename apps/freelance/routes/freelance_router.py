@@ -15,6 +15,7 @@ from apps.freelance.schemas.freelance import (
     FeedbackCreate,
     FreelanceDeliveryConfigUpdate,
     FreelanceOrderCreate,
+    LeadIntakeRequest,
     RefundRequest,
     SubscriptionCancelRequest,
 )
@@ -237,6 +238,21 @@ def _do_cancel_subscription(db, order_id, reason, user_id):
     )
 
 
+def _do_client_lineage(db: Session, client_id: int, user_id: str):
+    result = _run_flow_freelance("freelance_client_lineage", {"client_id": client_id}, db, user_id)
+    return result.get("data") if isinstance(result, dict) and "data" in result else result
+
+
+def _do_intake_from_lead(db: Session, intake: "LeadIntakeRequest", user_id: str, idempotency_key: str):
+    result = _run_flow_freelance(
+        "freelance_intake_from_lead",
+        {"intake": intake.model_dump(), "idempotency_key": idempotency_key},
+        db,
+        user_id,
+    )
+    return result.get("data") if isinstance(result, dict) and "data" in result else result
+
+
 @router.post("/order", status_code=201)
 @limiter.limit("30/minute")
 def create_freelance_order(
@@ -352,6 +368,69 @@ def get_all_orders(
             "orders": orders if isinstance(orders, list) else [],
         }
     return _execute_freelance(request, "freelance.orders.list", handler, db=db, user_id=user_id)
+
+
+@router.get("/clients")
+@limiter.limit("60/minute")
+def list_clients(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["sub"])
+    def handler(_ctx):
+        clients = _run_flow_freelance("freelance_clients_list", {}, db, user_id)
+        return {
+            "status": "SUCCESS",
+            "clients": clients if isinstance(clients, list) else [],
+        }
+    return _execute_freelance(request, "freelance.clients.list", handler, db=db, user_id=user_id)
+
+
+@router.get("/clients/{client_id}")
+@limiter.limit("60/minute")
+def get_client_lineage(
+    request: Request,
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["sub"])
+    def handler(_ctx):
+        return _do_client_lineage(db, client_id, user_id)
+    return _execute_freelance(
+        request,
+        "freelance.clients.lineage",
+        handler,
+        db=db,
+        user_id=user_id,
+        input_payload={"client_id": client_id},
+    )
+
+
+@router.post("/intake/from-lead", status_code=201)
+@limiter.limit("30/minute")
+def intake_from_lead(
+    request: Request,
+    intake: LeadIntakeRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["sub"])
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
+    def handler(_ctx):
+        return _do_intake_from_lead(db, intake, user_id, idempotency_key)
+    return _execute_freelance(
+        request,
+        "freelance.intake.from_lead",
+        handler,
+        db=db,
+        user_id=user_id,
+        input_payload={**intake.model_dump(), "idempotency_key": idempotency_key},
+        success_status_code=201,
+    )
 
 
 @router.get("/feedback")
