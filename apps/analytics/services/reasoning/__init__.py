@@ -16,6 +16,11 @@ Public API:
 from apps.analytics.services.reasoning.autonomous_reasoning_service import reason
 from apps.analytics.services.reasoning.decision_engine import decide
 from apps.analytics.services.reasoning.feedback_analyzer import summarize_feedback
+from apps.analytics.services.reasoning.reasoning_events import (
+    REASONING_EVENT_TYPES,
+    build_reasoning_records,
+    emit_reasoning_records,
+)
 from apps.analytics.services.reasoning.state_evaluator import evaluate_state
 from apps.analytics.services.reasoning.strategy_selector import apply_strategy_accuracy
 from apps.analytics.services.reasoning.types import ReasoningResult, StateSnapshot
@@ -26,6 +31,9 @@ __all__ = [
     "decide",
     "apply_strategy_accuracy",
     "summarize_feedback",
+    "build_reasoning_records",
+    "emit_reasoning_records",
+    "REASONING_EVENT_TYPES",
     "StateSnapshot",
     "ReasoningResult",
 ]
