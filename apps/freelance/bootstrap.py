@@ -87,6 +87,9 @@ def _register_flow_results() -> None:
     from AINDY.platform_layer.registry import register_flow_result
 
     result_keys = {
+        "freelance_clients_list": "freelance_clients_list_result",
+        "freelance_client_lineage": "freelance_client_lineage_result",
+        "freelance_intake_from_lead": "freelance_intake_from_lead_result",
         "freelance_order_create": "freelance_order_create_result",
         "freelance_order_deliver": "freelance_order_deliver_result",
         "freelance_delivery_update": "freelance_delivery_update_result",

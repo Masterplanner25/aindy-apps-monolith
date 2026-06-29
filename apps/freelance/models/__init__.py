@@ -1,5 +1,6 @@
 """Freelance app models."""
 
+from apps.freelance.models.client_account import ClientAccount
 from apps.freelance.models.freelance import (
     ClientFeedback,
     FreelanceOrder,
@@ -10,6 +11,7 @@ from apps.freelance.models.freelance import (
 )
 
 __all__ = [
+    "ClientAccount",
     "ClientFeedback",
     "FreelanceOrder",
     "PaymentRecord",

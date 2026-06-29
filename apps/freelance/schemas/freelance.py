@@ -23,6 +23,32 @@ class FreelanceDeliveryConfigUpdate(BaseModel):
     delivery_config: Optional[dict] = None
 
 
+class LeadIntakeRequest(BaseModel):
+    """Convert a discovered lead into a client + freelance order (Phase 1)."""
+
+    lead_id: int
+    client_email: str
+    service_type: str
+    client_name: Optional[str] = None
+    price: Optional[float] = 0.0
+    project_details: Optional[str] = None
+    delivery_type: Optional[str] = "manual"
+    delivery_config: Optional[dict] = None
+    auto_generate_delivery: bool = False
+
+
+class ClientAccountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    name: Optional[str] = None
+    company: Optional[str] = None
+    source: Optional[str] = None
+    lead_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
 class RefundRequest(BaseModel):
     reason: Optional[str] = None
 

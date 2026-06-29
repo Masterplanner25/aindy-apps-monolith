@@ -73,12 +73,25 @@ def create_order(
                 f"delivery_type '{delivery_type}' is not supported. "
                 f"Supported types: {sorted(_SUPPORTED_DELIVERY_TYPES)}"
             )
+        # Resolve (or create) the commercial client up front so the order is
+        # attributed to a ClientAccount at insert time — lead -> client -> order
+        # lineage (Freelancing evolution, Phase 1).
+        from apps.freelance.services.intake_service import get_or_create_client
+
+        client = get_or_create_client(
+            db,
+            user_id,
+            email=order_data.client_email,
+            name=order_data.client_name,
+            source="order",
+        )
+        client_id = client.id
         if idempotency_key:
             order, was_created = check_or_create(
                 db,
                 FreelanceOrder,
                 idempotency_key,
-                lambda: _build_order_from_create(order_data, user_uuid, delivery_type),
+                lambda: _build_order_from_create(order_data, user_uuid, delivery_type, client_id),
             )
             if was_created:
                 _finalize_created_order(
@@ -97,6 +110,7 @@ def create_order(
                 return order, was_created
             return order
         order = FreelanceOrder(
+            client_id=client_id,
             client_name=order_data.client_name,
             client_email=order_data.client_email,
             service_type=order_data.service_type,
@@ -155,8 +169,10 @@ def _build_order_from_create(
     order_data: FreelanceOrderCreate,
     user_uuid,
     delivery_type: str,
+    client_id: int | None = None,
 ) -> FreelanceOrder:
     return FreelanceOrder(
+        client_id=client_id,
         client_name=order_data.client_name,
         client_email=order_data.client_email,
         service_type=order_data.service_type,

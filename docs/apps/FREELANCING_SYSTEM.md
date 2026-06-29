@@ -1,5 +1,17 @@
 # FREELANCING SYSTEM
 
+> **Status update (2026-06-28).** This roadmap was written against an earlier
+> state and is partly stale. Already shipped since: Stripe webhook payment
+> fulfillment, refunds, subscription billing/renewal/cancellation, idempotency
+> on all create/payment/refund operations, 11 freelance flow definitions, 11
+> freelance `SystemEvent` types, and populated delivery/efficiency metrics —
+> i.e. much of Phases 3–4 and the observability gaps. **Phase 1 (lead → client →
+> order lineage) is now implemented** (see Phase 1 below). Remaining real gaps:
+> agent-driven execution (Phase 2, touches runtime-owned `AINDY/`) and the
+> autonomous optimization loop (Phase 5, depends on the Autonomous Reasoning
+> Module). Treat the per-section "Not implemented" lists below as historical
+> except where corrected.
+
 ## 1. System Reality
 
 ### What this system is intended to be
@@ -34,9 +46,18 @@ That makes it a business application layer, not core infrastructure.
   - Memory Bridge logging for order, delivery, and feedback events
 
 - `apps/freelance/models/freelance.py`
-  - `FreelanceOrder`
+  - `FreelanceOrder` (now carries `client_id` linking to a `ClientAccount`)
   - `ClientFeedback`
   - `RevenueMetrics`
+  - `PaymentRecord`, `RefundRecord`, `WebhookEvent`
+
+- `apps/freelance/models/client_account.py`
+  - `ClientAccount` — commercial client/account entity (Phase 1)
+
+- `apps/freelance/services/intake_service.py`
+  - lead → client → order intake: `get_or_create_client`,
+    `link_order_to_client`, `convert_lead_to_order`, `get_client_lineage`,
+    `list_clients` (Phase 1)
 
 - `client/src/components/app/FreelanceDashboard.jsx`
   - dashboard for orders, ratings, and latest revenue snapshot
@@ -53,7 +74,10 @@ That makes it a business application layer, not core infrastructure.
 - Lead intake
   - lead generation exists
   - freelance orders exist
-  - there is no unified lead -> client -> order pipeline
+  - **lead → client → order lineage now exists** (Phase 1): a `ClientAccount`
+    entity, orders auto-linked to a client on creation, and
+    `intake_service.convert_lead_to_order` to turn a discovered lead into a
+    linked client + order without re-entering commercial context
 
 - AI-assisted delivery
   - orders support generated `ai_output`
@@ -73,13 +97,18 @@ That makes it a business application layer, not core infrastructure.
 
 #### Not implemented
 
-- client/project workflow automation
-- proposal generation, outreach, quoting, invoicing, webhook-based payment fulfillment, refunds, and subscription billing
-- freelance-specific agent execution flows
+_(Corrected 2026-06-28 — several previously-listed items now exist.)_
+
+- proposal generation, outreach, and quoting
+- freelance-specific **agent** execution flows (Phase 2)
 - Nodus-backed freelance workflows
-- autonomous client prioritization or pricing decisions
-- full event-level observability for freelance operations through `SystemEvent`
-- a closed feedback loop that changes execution based on freelance outcomes
+- autonomous client prioritization or pricing decisions (Phase 5)
+- a closed feedback loop that changes execution based on freelance outcomes (Phase 5)
+
+Already shipped (no longer "not implemented"): webhook-based payment
+fulfillment, refunds, subscription billing, freelance flow definitions, and
+freelance `SystemEvent` emission for order/delivery/payment/refund/subscription
+actions.
 
 ### Payment Links
 
@@ -394,35 +423,43 @@ Business Workflows
 
 ## 7. Implementation Plan
 
-### Phase 1. Lead Intake + Storage
+### Phase 1. Lead Intake + Storage - DONE
 
 Objective:
 
 - unify lead discovery and freelance intake into one commercial entry path
 
-Files to modify:
+**What shipped (2026-06-28):**
 
-- `apps/search/services/leadgen_service.py`
-- `apps/search/routes/leadgen_router.py`
-- `apps/freelance/services/freelance_service.py`
-- `apps/freelance/routes/freelance_router.py`
-- `apps/search/models/leadgen_model.py`
-- `apps/freelance/models/freelance.py`
+- New `ClientAccount` model (`apps/freelance/models/client_account.py`,
+  table `freelance_client_accounts`) — a commercial client owned by a freelancer
+  `user_id`, identified by client email, recording `source`
+  (`manual`/`order`/`leadgen`) and a soft `lead_id` reference to the originating
+  leadgen result (no cross-app FK).
+- `FreelanceOrder.client_id` FK → `ClientAccount`; `freelance_service.create_order`
+  now resolves/creates the client and links every order at insert time.
+- `apps/freelance/services/intake_service.py`: `get_or_create_client` (never
+  downgrades a richer origin), `link_order_to_client`, `convert_lead_to_order`
+  (carries the lead's company/url/context/reasoning into the order so commercial
+  context is not re-entered), `get_client_lineage`, `list_clients`.
+- `apps/search/public.get_lead_by_id` — public accessor so freelance reads leads
+  through the search contract, not its internals.
+- Routes/flows: `GET /freelance/clients`, `GET /freelance/clients/{id}` (lineage),
+  `POST /freelance/intake/from-lead` (+ matching flow nodes/results).
+- Migration `a1c2e3f4b5d6_add_freelance_client_accounts` (idempotent, guarded).
 
-Files to create:
+**Tests:** `tests/unit/test_freelance_intake.py` (app_profile) — order→client
+linking, email→client reuse, no source downgrade, lineage + listing, the public
+lead accessor, and full lead→client→order conversion.
 
-- `db/models/client_account.py` _(planned; not yet present)_ or equivalent commercial account model
-- `services/freelance/intake_service.py` _(planned; not yet present)_
+Success criteria — met:
 
-Expected behavior:
+- system can track lead → client → order lineage (`get_client_lineage`)
+- user can query commercial state via the clients/lineage endpoints
 
-- leads, clients, and orders are linked instead of existing as separate isolated records
-- a lead can become a client/order without re-entry of core context
-
-Success criteria:
-
-- system can track lead -> client -> order lineage
-- user can query commercial state without joining unrelated ad hoc tables mentally
+**Deferred:** a dedicated clients view in `FreelanceDashboard.jsx` (UI is Phase 4
+territory); storing the reverse `client_id` on `leadgen_results` (lineage is held
+on the freelance side via `ClientAccount.lead_id`).
 
 ### Phase 2. Agent-driven Task Execution
 

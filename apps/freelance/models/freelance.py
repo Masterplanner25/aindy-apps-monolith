@@ -19,6 +19,7 @@ class FreelanceOrder(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("freelance_client_accounts.id"), nullable=True, index=True)
     client_name = Column(String, nullable=False)
     client_email = Column(String, nullable=False)
     service_type = Column(String, nullable=False)
@@ -55,6 +56,8 @@ class FreelanceOrder(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    client = relationship("ClientAccount", backref="orders")
 
 
 class ClientFeedback(Base):
