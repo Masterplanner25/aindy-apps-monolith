@@ -80,10 +80,44 @@ def _build_kpi_context_block(user_id, db) -> str:
         return ""
 
 
+def _build_reasoning_context_block(user_id, db) -> str:
+    """Append the autonomous-reasoning recommendation so plan generation is
+    informed by reasoning outputs (ARM/Reasoning Phase 3). Decoupled via the job
+    registry — no cross-app import. Best-effort."""
+    try:
+        from AINDY.platform_layer.registry import get_job
+
+        recommend = get_job("analytics.reasoning_recommendation")
+        if recommend is None:
+            return ""
+        recommendation = recommend(user_id=user_id, db=db)
+        if not recommendation:
+            return ""
+
+        lines = [
+            "",
+            "## Reasoning Recommendation (Autonomous Reasoning)",
+            f"Recommended next action: {recommendation.get('decision_type')}"
+            f" (because: {recommendation.get('reason')})",
+        ]
+        title = recommendation.get("next_action_title")
+        if title:
+            lines.append(f"- {title}")
+        suggested_goal = recommendation.get("suggested_goal")
+        if suggested_goal:
+            lines.append(f"- Suggested focus: {suggested_goal}")
+        lines.append("Prefer plans aligned with this recommendation when the goal allows.")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def build_planner_context(context: dict) -> dict:
     db = context.get("db")
     user_id = context.get("user_id")
     kpi_context = _build_kpi_context_block(user_id, db)
+    reasoning_context = _build_reasoning_context_block(user_id, db)
+    kpi_context = kpi_context + reasoning_context
     prompt = PLANNER_SYSTEM_PROMPT + kpi_context
     try:
         from AINDY.memory.memory_helpers import enrich_context, format_memories_for_prompt

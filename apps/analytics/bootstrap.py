@@ -107,6 +107,7 @@ def _register_jobs() -> None:
     register_job("analytics.infinity_execute", _execute_infinity_orchestrator)
     register_job("analytics.latest_adjustment", _get_latest_adjustment)
     register_job("analytics.latest_adjustment_payload", _get_latest_adjustment_payload)
+    register_job("analytics.reasoning_recommendation", _reasoning_recommendation)
     register_job("scheduler.infinity_scores", _scheduler_recalculate_all_scores)
 
 
@@ -169,6 +170,11 @@ def _register_flow_results() -> None:
 def _get_user_kpi_snapshot(*args, **kwargs):
     from apps.analytics.services.scoring.infinity_service import get_user_kpi_snapshot
     return get_user_kpi_snapshot(*args, **kwargs)
+
+
+def _reasoning_recommendation(*args, **kwargs):
+    from apps.analytics.services.reasoning import recommend_next_action
+    return recommend_next_action(*args, **kwargs)
 
 
 def _execute_infinity_orchestrator(*args, **kwargs):
