@@ -8,7 +8,12 @@ from AINDY.core.system_event_service import emit_error_event
 from AINDY.platform_layer.trace_context import get_current_trace_id
 from AINDY.platform_layer.user_ids import parse_user_id
 
-from apps.analytics.services.reasoning import decide, evaluate_state
+from apps.analytics.services.reasoning import (
+    decide,
+    evaluate_state,
+    reason,
+    summarize_feedback,
+)
 
 THRASH_GUARD_MINUTES = 60
 TASK_REPRIORITIZATION_LIMIT = 5
@@ -173,37 +178,6 @@ def _get_strategy_accuracy_context(user_id: str, db, limit: int = 20) -> dict[st
         return {}
 
 
-def _apply_strategy_accuracy_weighting(user_id: str, decision_type: str, payload: dict, db) -> tuple[str, dict]:
-    accuracy = _get_strategy_accuracy_context(user_id, db).get(decision_type)
-    if accuracy is None:
-        payload["strategy_accuracy"] = {"status": "unknown"}
-        return decision_type, payload
-    adjusted_payload = {
-        **payload,
-        "strategy_accuracy": {
-            "decision_type": decision_type,
-            "accuracy": accuracy,
-        },
-    }
-    if accuracy < 0.45 and decision_type != "review_plan":
-        adjusted_payload["strategy_accuracy"]["status"] = "penalized"
-        adjusted_payload["next_action"] = {
-            "type": "review_plan",
-            "title": "Review the plan because the current strategy has been inaccurate",
-            "suggested_goal": "Correct course using the most recent outcome deviations",
-        }
-        adjusted_payload["reason"] = f"{payload.get('reason', 'strategy')}|low_prediction_accuracy"
-        return "review_plan", adjusted_payload
-    if accuracy > 0.75:
-        adjusted_payload["strategy_accuracy"]["status"] = "boosted"
-        next_action = dict(adjusted_payload.get("next_action") or {})
-        next_action["strategy_boost"] = "high_prediction_accuracy"
-        adjusted_payload["next_action"] = next_action
-    else:
-        adjusted_payload["strategy_accuracy"]["status"] = "neutral"
-    return decision_type, adjusted_payload
-
-
 def evaluate_pending_adjustment(
     *,
     user_id: str,
@@ -291,23 +265,8 @@ def evaluate_pending_adjustment(
 def _get_recent_feedback_context(user_id: str, db, limit: int = 5) -> dict:
     try:
         rows = list_recent_feedback_rows(user_id=user_id, db=db, limit=limit)
-        if not rows:
-            return {"count": 0, "positive": 0, "negative": 0, "latest_feedback_text": None}
-        positives = sum(1 for row in rows if int(_adjustment_get(row, "feedback_value") or 0) > 0)
-        negatives = sum(1 for row in rows if int(_adjustment_get(row, "feedback_value") or 0) < 0)
-        return {
-            "count": len(rows),
-            "positive": positives,
-            "negative": negatives,
-            "latest_feedback_text": next(
-                (
-                    _adjustment_get(row, "feedback_text")
-                    for row in rows
-                    if _adjustment_get(row, "feedback_text")
-                ),
-                None,
-            ),
-        }
+        # Pure summarization is owned by the reasoning feedback analyzer (Phase 2).
+        return summarize_feedback(rows)
     except Exception as exc:
         logger.warning("[InfinityLoop] feedback context lookup failed for %s: %s", user_id, exc)
         return {"count": 0, "positive": 0, "negative": 0, "latest_feedback_text": None}
@@ -427,33 +386,21 @@ def run_loop(
             kpi_low = dict(policy.get("kpi_low") or {})
             adapted_offsets = dict(policy.get("offsets") or EXPECTED_SCORE_OFFSETS)
 
-            try:
-                decision_type, payload = _decide(
-                    score_snapshot,
-                    feedback_context=feedback_context,
-                    memory_signals=memory_signals,
-                    system_state=system_state,
-                    goals=goals,
-                    social_signals=social_signals,
-                    kpi_low=kpi_low,
-                )
-            except TypeError as exc:
-                if "kpi_low" not in str(exc):
-                    raise
-                decision_type, payload = _decide(
-                    score_snapshot,
-                    feedback_context=feedback_context,
-                    memory_signals=memory_signals,
-                    system_state=system_state,
-                    goals=goals,
-                    social_signals=social_signals,
-                )
-            decision_type, payload = _apply_strategy_accuracy_weighting(
-                user_id=owner_user_id,
-                decision_type=decision_type,
-                payload=payload,
-                db=db,
-            )
+            # The loop is a consumer of the reusable reasoning service (Phase 2):
+            # it gathers context + the DB-backed strategy-accuracy history, and the
+            # service composes state evaluation, the decision engine, and strategy
+            # selection into one normalized result.
+            strategy_accuracy = _get_strategy_accuracy_context(owner_user_id, db)
+            decision_type, payload = reason(
+                score_snapshot,
+                feedback_context=feedback_context,
+                memory_signals=memory_signals,
+                system_state=system_state,
+                goals=goals,
+                social_signals=social_signals,
+                kpi_low=kpi_low,
+                strategy_accuracy=strategy_accuracy,
+            ).to_tuple()
             now = datetime.now(timezone.utc)
 
             if supports_managed_transactions(db):

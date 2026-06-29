@@ -6,12 +6,15 @@
 > extracted into a reusable, normalized, tested reasoning engine at
 > `apps/analytics/services/reasoning/` (`state_evaluator` → `StateSnapshot`,
 > `decision_engine.decide` → `ReasoningResult`); `infinity_loop._decide` is now a
-> thin wrapper over it (behavior preserved). Phase 2 is partially app-ownable
-> (the dedicated service can live in analytics) but its listed edits touch
-> runtime memory engines. **Phases 3–5 are runtime-gated** — they modify
+> thin wrapper over it (behavior preserved). **Phase 2 is now done**: a dedicated
+> `reason()` service plus `strategy_selector` and `feedback_analyzer` compose the
+> engine into one reusable "what should happen next?" entry, and the Infinity
+> loop is now a *consumer* of it. **Phases 3–5 are runtime-gated** — they modify
 > `AINDY/agent_runtime`, `nodus_adapter`, `nodus_execution_service`,
-> `flow_engine`, and `system_event_service`, none owned by this repo. See Phase 1
-> below; treat later phases as the cross-repo roadmap.
+> `flow_engine`, and `system_event_service`, none owned by this repo (the Phase 2
+> memory-engine edits the original plan listed are likewise runtime-owned and out
+> of scope here). See Phases 1–2 below; treat later phases as the cross-repo
+> roadmap.
 
 ## 1. System Reality
 
@@ -473,32 +476,46 @@ lookup) — a candidate for the Phase 2 `strategy_selector`/`feedback_analyzer`.
 This engine is the foundation Freelancing Phase 5 and the broader reasoning layer
 were gated on.
 
-### Phase 2. Create a dedicated reasoning service
+### Phase 2. Create a dedicated reasoning service - DONE
 
 Objective:
 
 - establish Autonomous Reasoning as a first-class system layer
 
-Files to create:
+**What shipped (2026-06-28):**
 
-- `services/autonomous_reasoning_service.py`
-- `services/reasoning/strategy_selector.py`
-- `services/reasoning/feedback_analyzer.py`
+- `apps/analytics/services/reasoning/autonomous_reasoning_service.py` —
+  `reason(...)`, the dedicated, input-driven "what should happen next?" entry. It
+  composes `evaluate_state` + `decide` (Phase 1) with feedback analysis and
+  strategy selection, and is reusable by any caller (not tied to the loop).
+- `apps/analytics/services/reasoning/strategy_selector.py` —
+  `apply_strategy_accuracy(...)`, the pure strategy-accuracy adjustment
+  (penalize/boost/neutral) extracted from the loop's
+  `_apply_strategy_accuracy_weighting` (the DB lookup stays with the caller).
+- `apps/analytics/services/reasoning/feedback_analyzer.py` —
+  `summarize_feedback(...)`, recent feedback rows → the standardized feedback
+  context the engine reads.
+- The Infinity loop is now a **consumer**: `run_loop` fetches context + the
+  DB-backed strategy-accuracy history and calls `reason(...)`; the loop's
+  `_get_recent_feedback_context` delegates to `summarize_feedback`. The removed
+  `_apply_strategy_accuracy_weighting` now lives (pure) in `strategy_selector`.
 
-Files to modify:
+**Runtime-owned (out of scope here):** the originally-listed edits to
+`AINDY/runtime/memory/orchestrator.py` and `AINDY/memory/memory_capture_engine.py`
+belong to the runtime repo; standardizing memory-derived signals at that layer is
+deferred there.
 
-- `AINDY/runtime/memory/orchestrator.py`
-- `AINDY/memory/memory_capture_engine.py`
+**Tests:** `tests/unit/test_reasoning_service.py` — strategy selector
+(unknown/penalize/boost/neutral), feedback analyzer (polarity, latest text, ORM &
+dict rows), and the `reason()` service, including an equivalence test proving
+`reason(...)` equals `decide(...)` then `apply_strategy_accuracy(...)` (so routing
+the loop through the service is behavior-preserving).
 
-Expected behavior:
+Success criteria — met:
 
-- reasoning service can evaluate current state without being tied only to the Infinity loop
-- memory-derived signals become standardized reasoning inputs
-
-Success criteria:
-
-- one service can answer "what should happen next?" for multiple callers
-- memory, score, and event summaries are consumed through a common interface
+- one service (`reason`) answers "what should happen next?" for multiple callers
+- score, feedback, memory, system, goal, and social inputs are consumed through
+  one common interface (`StateSnapshot` via `evaluate_state`)
 
 ### Phase 3. Integrate with Agent Runtime
 
