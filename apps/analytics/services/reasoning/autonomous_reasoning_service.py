@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.analytics.services.reasoning.decision_engine import decide
+from apps.analytics.services.reasoning.execution_intent import build_execution_intent
 from apps.analytics.services.reasoning.feedback_analyzer import summarize_feedback
 from apps.analytics.services.reasoning.state_evaluator import evaluate_state
 from apps.analytics.services.reasoning.strategy_selector import apply_strategy_accuracy
@@ -61,4 +62,7 @@ def reason(
         decision_type, payload = apply_strategy_accuracy(result.decision_type, result.payload, accuracy)
         result = ReasoningResult(decision_type=decision_type, payload=payload)
 
-    return result
+    # Attach the normalized execution intent (Phase 4) to the final decision.
+    payload = dict(result.payload)
+    payload["execution_intent"] = build_execution_intent(result.decision_type, payload)
+    return ReasoningResult(decision_type=result.decision_type, payload=payload)

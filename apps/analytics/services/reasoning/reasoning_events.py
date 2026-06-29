@@ -19,12 +19,14 @@ REASONING_STATE_EVALUATED = "reasoning.state_evaluated"
 REASONING_FEEDBACK_APPLIED = "reasoning.feedback_applied"
 REASONING_STRATEGY_SELECTED = "reasoning.strategy_selected"
 REASONING_ACTION_SELECTED = "reasoning.action_selected"
+REASONING_EXECUTION_INTENT_SELECTED = "reasoning.execution_intent_selected"
 
 REASONING_EVENT_TYPES: tuple[str, ...] = (
     REASONING_STATE_EVALUATED,
     REASONING_FEEDBACK_APPLIED,
     REASONING_STRATEGY_SELECTED,
     REASONING_ACTION_SELECTED,
+    REASONING_EXECUTION_INTENT_SELECTED,
 )
 
 
@@ -104,6 +106,19 @@ def build_reasoning_records(
             },
         }
     )
+
+    execution_intent = payload.get("execution_intent")
+    if execution_intent:
+        records.append(
+            {
+                "event_type": REASONING_EXECUTION_INTENT_SELECTED,
+                "payload": {
+                    "intent_type": execution_intent.get("intent_type"),
+                    "dispatch": execution_intent.get("dispatch"),
+                    "decision_type": execution_intent.get("decision_type"),
+                },
+            }
+        )
     return records
 
 

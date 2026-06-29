@@ -37,4 +37,5 @@ def recommend_next_action(user_id: Any, db: Any) -> dict[str, Any] | None:
         "next_action_type": next_action.get("type"),
         "next_action_title": next_action.get("title"),
         "suggested_goal": next_action.get("suggested_goal") or result.suggested_goal,
+        "execution_intent": result.payload.get("execution_intent"),
     }

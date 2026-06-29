@@ -311,6 +311,25 @@ def analytics_masterplan_summary_node(state, context):
         return {"status": "FAILURE", "error": str(e)}
 
 
+def reasoning_apply_node(state, context):
+    """Execute a reasoning outcome through the flow engine (ARM/Reasoning Phase 4).
+
+    Computes the user's reasoning recommendation (incl. its execution_intent) and
+    returns it as the flow result — so a reasoning outcome runs through a flow with
+    durable traceability. Backs the ``reasoning_apply`` flow and the ``reasoning``
+    flow strategy.
+    """
+    try:
+        from apps.analytics.services.reasoning import recommend_next_action
+
+        db = context.get("db")
+        user_id = str(context.get("user_id"))
+        recommendation = recommend_next_action(user_id, db) or {}
+        return {"status": "SUCCESS", "output_patch": {"reasoning_apply_result": {"data": recommendation}}}
+    except Exception as e:
+        return {"status": "FAILURE", "error": f"HTTP_500:reasoning apply failed: {e}"}
+
+
 def register() -> None:
     register_nodes(
         {
@@ -320,6 +339,7 @@ def register() -> None:
             "analytics_linkedin_ingest_node": analytics_linkedin_ingest_node,
             "analytics_masterplan_get_node": analytics_masterplan_get_node,
             "analytics_masterplan_summary_node": analytics_masterplan_summary_node,
+            "reasoning_apply_node": reasoning_apply_node,
         }
     )
     register_single_node_flows(
@@ -330,5 +350,6 @@ def register() -> None:
             "analytics_linkedin_ingest": "analytics_linkedin_ingest_node",
             "analytics_masterplan_get": "analytics_masterplan_get_node",
             "analytics_masterplan_summary": "analytics_masterplan_summary_node",
+            "reasoning_apply": "reasoning_apply_node",
         }
     )

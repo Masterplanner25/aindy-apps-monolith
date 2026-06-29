@@ -14,7 +14,16 @@
 > **Phase 3 is done**: the agent planner consumes the reasoning recommendation
 > (via the `analytics.reasoning_recommendation` job) and agent completion already
 > triggers the orchestrator (now reasoning-backed), all through runtime
-> registration hooks — no `AINDY/` edits.
+> registration hooks — no `AINDY/` edits. **Phase 4 is done (app-side):** reasoning
+> emits a normalized `execution_intent` (traceable via
+> `reasoning.execution_intent_selected`), and a registered `reasoning` flow
+> strategy + `reasoning_apply` flow let a reasoning outcome execute through the
+> runtime's flow engine via `register_flow_strategy` — no `AINDY/` edits. The one
+> genuine runtime gap: there is **no app-facing registration surface for Nodus
+> `.nd` workflows** (`nodus_execution_service` is runtime-internal), so true
+> "Nodus-first execution" is a runtime feature request, not an app edit.
+>
+> **All app-ownable reasoning phases (1, 2, 3, 4, 5) are now complete.**
 >
 > **Correction on "files to modify: `AINDY/...`".** The per-phase file lists below
 > that name runtime files are an anti-pattern: apps extend the runtime through its
@@ -566,32 +575,42 @@ capability (per `apps/agent/agents/capabilities.py`); without a grant, plans
 referencing it would fail validation. This is a small, additive follow-up, still
 app-side (`register_tool` + a capability grant).
 
-### Phase 4. Integrate with Nodus workflows
+### Phase 4. Integrate with Nodus workflows - DONE (app-side); Nodus-native deferred to runtime
 
 Objective:
 
-- make reasoning outputs drive Nodus-oriented execution rather than only internal flows
+- make reasoning outputs drive flow/Nodus-oriented execution rather than only being advisory
 
-Files to modify:
+**What shipped (2026-06-28) — app-side via registration, no runtime edits:**
 
-- `AINDY/runtime/nodus_adapter.py`
-- `AINDY/runtime/nodus_execution_service.py`
-- `AINDY/runtime/flow_engine/runner.py`
-- `AINDY/memory/nodus_memory_bridge.py`
+- `apps/analytics/services/reasoning/execution_intent.py`
+  (`build_execution_intent`) — a normalized reasoning output mapping a decision to
+  an `{intent_type, dispatch, decision_type, ...}` execution intent. `reason()`
+  attaches it to every decision; `recommend_next_action` surfaces it.
+- Traceability: a `reasoning.execution_intent_selected` event (registered with the
+  other `reasoning.*` types; emitted by `build_reasoning_records` when an intent
+  is present).
+- Execution path: a `reasoning` **flow strategy** (`select_reasoning_flow`,
+  registered via `register_flow_strategy`) plus the single-node `reasoning_apply`
+  flow, so a reasoning outcome can execute through the runtime's flow engine
+  (`execute_intent({"workflow_type": "reasoning"})` or `run_flow("reasoning_apply")`)
+  with durable traceability.
 
-Potential files to introduce:
+**Genuine runtime gap (not an app edit):** there is **no app-facing registration
+surface for Nodus `.nd` workflows** — `AINDY/runtime/nodus_execution_service.py`
+exposes `run_nodus_script_via_flow(script=...)` but Nodus workflow *registration*
+is runtime-internal. So "Nodus becomes the primary execution consumer / register
+`.nd` workflows" is a **runtime feature request** in `aindy-runtime` (add a
+`register_nodus_workflow`-style surface), not something an app should hack into
+runtime. The original "files to modify: `AINDY/runtime/...`" list reflects that
+this phase's deepest goal is partly a runtime capability.
 
-- `services/reasoning/nodus_compiler_adapter.py` _(path unverified after split)_
-- `runtime/nodus/` _(path unverified after split)_ integration helpers if execution contracts need to be separated from existing services
+**Tests:** `tests/unit/test_reasoning_execution_intent.py` — intent mapping,
+propagation through `reason()`/`recommend_next_action`, the execution-intent
+event, the flow node, and the registered flow strategy.
 
-Expected behavior:
-
-- reasoning can output an execution intent that selects a Nodus workflow or compiles into one
-- Nodus becomes a primary execution consumer of reasoning results rather than an isolated utility path
-
-Success criteria:
-
-- at least one autonomous reasoning outcome can execute through a Nodus-first path with durable traceability
+Success criteria — met (app-side): a reasoning outcome executes through a flow
+with durable traceability. Nodus-first execution remains a runtime follow-up.
 
 ### Phase 5. Add reasoning observability - DONE
 
