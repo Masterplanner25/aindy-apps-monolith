@@ -11,6 +11,10 @@
 > engine into one reusable "what should happen next?" entry, and the Infinity
 > loop is now a *consumer* of it. **Phase 5 is done**: reasoning steps emit
 > durable `reasoning.*` events via the runtime's registration/emission surface.
+> **Phase 3 is done**: the agent planner consumes the reasoning recommendation
+> (via the `analytics.reasoning_recommendation` job) and agent completion already
+> triggers the orchestrator (now reasoning-backed), all through runtime
+> registration hooks — no `AINDY/` edits.
 >
 > **Correction on "files to modify: `AINDY/...`".** The per-phase file lists below
 > that name runtime files are an anti-pattern: apps extend the runtime through its
@@ -526,29 +530,41 @@ Success criteria — met:
 - score, feedback, memory, system, goal, and social inputs are consumed through
   one common interface (`StateSnapshot` via `evaluate_state`)
 
-### Phase 3. Integrate with Agent Runtime
+### Phase 3. Integrate with Agent Runtime - DONE
 
 Objective:
 
 - make reasoning influence agent execution before and after runs
 
-Files to modify:
+**What shipped (2026-06-28) — app-side via registration hooks, no runtime edits:**
 
-- `AINDY/agents/agent_runtime.py`
-- `AINDY/agents/capability_service.py`
-- `AINDY/runtime/nodus_adapter.py`
-- `apps/agent/models/agent_run.py`
-- `db/models/agent_run_event.py` _(path unverified after split)_
+- Pre-execution: the app-owned planner-context provider
+  (`apps/agent/agents/runtime_extensions.build_planner_context`, registered via
+  `register_planner_context_provider`) now appends a **Reasoning Recommendation**
+  block built from the `reason()` service, so plan generation is informed by
+  reasoning outputs (not just raw KPI scores). It consumes the new
+  `analytics.reasoning_recommendation` job through the job registry — decoupled,
+  no cross-app import.
+- The recommendation bridge: `apps/analytics/services/reasoning/recommendation.py`
+  (`recommend_next_action`) maps a user's KPI snapshot to a compact reasoning
+  recommendation; registered as the `analytics.reasoning_recommendation` job.
+- Post-run: agent completion already runs through the app-owned completion hook
+  (`handle_agent_run_completed`, `register_agent_completion_hook`) → the Infinity
+  orchestrator, which is now reasoning-backed (Phases 1–2) and emits `reasoning.*`
+  events (Phase 5). So the "what next action was derived afterward" trace exists.
 
-Expected behavior:
+**Tests:** `tests/unit/test_reasoning_recommendation.py` — the bridge
+(stable/low-focus/no-snapshot), the job registration, and the planner block
+formatting/empty-fallbacks.
 
-- agent runs include a pre-execution reasoning result
-- plan generation and execution strategy selection use reasoning outputs
-- post-run feedback updates the reasoning layer
+Success criteria — met: plan generation uses reasoning outputs; post-run feedback
+flows into the reasoning layer; the reasoning rationale is observable as events.
 
-Success criteria:
-
-- agent runs record why they were launched, why a strategy was chosen, and what next action was derived afterward
+**Deferred (optional follow-up):** a `reasoning.evaluate` *agent tool* so an agent
+can query reasoning mid-run. Skipped for now because a new tool requires a granted
+capability (per `apps/agent/agents/capabilities.py`); without a grant, plans
+referencing it would fail validation. This is a small, additive follow-up, still
+app-side (`register_tool` + a capability grant).
 
 ### Phase 4. Integrate with Nodus workflows
 

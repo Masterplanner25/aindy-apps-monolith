@@ -21,6 +21,7 @@ from apps.analytics.services.reasoning.reasoning_events import (
     build_reasoning_records,
     emit_reasoning_records,
 )
+from apps.analytics.services.reasoning.recommendation import recommend_next_action
 from apps.analytics.services.reasoning.state_evaluator import evaluate_state
 from apps.analytics.services.reasoning.strategy_selector import apply_strategy_accuracy
 from apps.analytics.services.reasoning.types import ReasoningResult, StateSnapshot
@@ -34,6 +35,7 @@ __all__ = [
     "build_reasoning_records",
     "emit_reasoning_records",
     "REASONING_EVENT_TYPES",
+    "recommend_next_action",
     "StateSnapshot",
     "ReasoningResult",
 ]
