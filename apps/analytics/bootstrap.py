@@ -75,6 +75,12 @@ def _register_events() -> None:
     register_event_handler(SystemEventTypes.EXECUTION_COMPLETED, _handle_execution_completed)
     register_event_handler(SystemEventTypes.MASTERPLAN_GOAL_STATE_CHANGED, _handle_goal_state_changed)
 
+    # Reasoning observability events (ARM/Reasoning Phase 5).
+    from apps.analytics.services.reasoning import REASONING_EVENT_TYPES
+
+    for reasoning_event_type in REASONING_EVENT_TYPES:
+        register_event_type(reasoning_event_type)
+
 
 def _handle_execution_completed(context: dict):
     db = context.get("db")

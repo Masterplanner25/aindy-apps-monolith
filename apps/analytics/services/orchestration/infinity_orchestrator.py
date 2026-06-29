@@ -385,6 +385,27 @@ def execute(user_id: str, trigger_event: str, db):
         )
 
         adjustment_payload = serialized.get("adjustment_payload") or {}
+
+        # Reasoning observability (ARM/Reasoning Phase 5): emit the
+        # state -> [feedback] -> [strategy] -> action reasoning trace as durable
+        # events. Best-effort; never affects the decision/persistence path.
+        try:
+            from ..reasoning import build_reasoning_records, emit_reasoning_records
+
+            emit_reasoning_records(
+                build_reasoning_records(
+                    decision_type=serialized.get("decision_type"),
+                    payload=adjustment_payload,
+                    score_snapshot=score_snapshot,
+                    loop_context=loop_context,
+                ),
+                db=db,
+                user_id=user_id,
+                trace_id=serialized.get("trace_id") or trace_id,
+            )
+        except Exception as _reasoning_evt_exc:
+            logger.debug("[Orchestrator] reasoning event emission skipped: %s", _reasoning_evt_exc)
+
         memory_summary = adjustment_payload.get("memory_summary") or {}
         memory_adjustment = adjustment_payload.get("memory_adjustment") or {}
         score_metadata = score.setdefault("metadata", {})

@@ -6,15 +6,24 @@
 > extracted into a reusable, normalized, tested reasoning engine at
 > `apps/analytics/services/reasoning/` (`state_evaluator` → `StateSnapshot`,
 > `decision_engine.decide` → `ReasoningResult`); `infinity_loop._decide` is now a
-> thin wrapper over it (behavior preserved). **Phase 2 is now done**: a dedicated
+> thin wrapper over it (behavior preserved). **Phase 2 is done**: a dedicated
 > `reason()` service plus `strategy_selector` and `feedback_analyzer` compose the
 > engine into one reusable "what should happen next?" entry, and the Infinity
-> loop is now a *consumer* of it. **Phases 3–5 are runtime-gated** — they modify
-> `AINDY/agent_runtime`, `nodus_adapter`, `nodus_execution_service`,
-> `flow_engine`, and `system_event_service`, none owned by this repo (the Phase 2
-> memory-engine edits the original plan listed are likewise runtime-owned and out
-> of scope here). See Phases 1–2 below; treat later phases as the cross-repo
-> roadmap.
+> loop is now a *consumer* of it. **Phase 5 is done**: reasoning steps emit
+> durable `reasoning.*` events via the runtime's registration/emission surface.
+>
+> **Correction on "files to modify: `AINDY/...`".** The per-phase file lists below
+> that name runtime files are an anti-pattern: apps extend the runtime through its
+> registration surface (`AINDY.platform_layer.registry` — ~40 `register_*`/`emit*`
+> hooks), they do not edit runtime code. Phases 3–5 are therefore **app-doable
+> without touching `AINDY/`**: Phase 5 used `register_event_type` +
+> `queue_system_event` (no `system_event_service.py` edit); Phase 3 uses
+> `register_agent_planner_context` / `register_agent_completion_hook` /
+> `register_agent_tool`; Phase 4 uses `register_flow` / `register_flow_strategy` /
+> `register_execution_adapter`. Only a genuinely missing extension point would be
+> a runtime feature request (added in `aindy-runtime`), never an app edit to
+> runtime. The originally-listed memory-engine edits (`AINDY/runtime/memory/…`,
+> `AINDY/memory/…`) are deferred to the runtime repo.
 
 ## 1. System Reality
 
@@ -568,35 +577,42 @@ Success criteria:
 
 - at least one autonomous reasoning outcome can execute through a Nodus-first path with durable traceability
 
-### Phase 5. Add reasoning observability
+### Phase 5. Add reasoning observability - DONE
 
 Objective:
 
 - make reasoning decisions inspectable through RippleTrace / SystemEvent
 
-Files to modify:
+**What shipped (2026-06-28) — app-side only, no runtime edits:**
 
-- `AINDY/core/system_event_service.py`
-- `apps/analytics/services/orchestration/infinity_orchestrator.py`
-- `AINDY/agents/agent_runtime.py`
-- `AINDY/runtime/nodus_adapter.py`
-- observability UI and routes that consume `SystemEvent`
-
-Potential DB changes:
-
-- extend `SystemEvent` payload conventions or add a dedicated reasoning event model if current payload shape becomes too loose
-
-Expected behavior:
-
-- reasoning steps emit standard events such as:
+- `apps/analytics/services/reasoning/reasoning_events.py`: reasoning event type
+  constants + `build_reasoning_records(...)` (pure) + `emit_reasoning_records(...)`
+  (best-effort, never raises into the decision path, injectable queue).
+- The four event types are registered via `register_event_type` in
+  `apps/analytics/bootstrap.py`:
   - `reasoning.state_evaluated`
+  - `reasoning.feedback_applied`
   - `reasoning.strategy_selected`
   - `reasoning.action_selected`
-  - `reasoning.feedback_applied`
+- The Infinity orchestrator emits the `state -> [feedback] -> [strategy] ->
+  action` reasoning trace via `queue_system_event` right after `loop.decision`
+  (no edit to `AINDY/core/system_event_service.py` — emission uses the runtime's
+  existing surface). `feedback_applied` / `strategy_selected` are emitted only
+  when those inputs shaped the decision.
 
-Success criteria:
+**Tests:** `tests/unit/test_reasoning_events.py` — record building (presence/order,
+loop-context summary, action fields), the injectable-queue emitter (kwargs,
+counts, defensive on failure), and that the event types are registered at
+bootstrap.
 
-- operators can trace state -> decision -> execution -> outcome through events
+Success criteria — met:
+
+- operators can trace state -> decision (-> execution -> outcome via the existing
+  `loop.decision` / execution events) through durable `reasoning.*` events.
+
+**Not done here (runtime repo):** richer reasoning emission from inside the agent
+runtime / Nodus adapter is part of Phases 3–4; a dedicated reasoning event *model*
+(vs. `SystemEvent` payload) is unnecessary for now.
 
 ## 8. Distinction Between Reasoning, Execution, Memory, and Events
 
