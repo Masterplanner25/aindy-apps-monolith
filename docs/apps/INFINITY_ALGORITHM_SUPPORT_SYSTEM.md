@@ -347,7 +347,10 @@ observe -> score -> adjust -> execute -> observe
 
 * Feedback persistence exists but weighting into score formulas is still limited
 * Loop decisions are rule-based rather than learned
-* Support state is distributed across task, watcher, memory, event, and observability services rather than centralized
+* Support inputs are now assembled into one snapshot for Infinity
+  (`support_state.gather_support_state`, Step 1); the underlying signals still live
+  in their own services (task, watcher, memory, event, observability), so the
+  centralization is at the consumption/assembly layer, not the storage layer
 
 ---
 
@@ -383,9 +386,23 @@ observe -> score -> adjust -> execute -> observe
 
 ## 10. Next Steps
 
-### Step 1 - Centralize support-system state
-**Files:** new support-state service, `apps/analytics/services/orchestration/infinity_orchestrator.py`, `apps/identity/services/identity_boot_service.py`  
-**Outcome:** Infinity receives one consistent state snapshot instead of assembling support inputs ad hoc.
+### Step 1 - Centralize support-system state - DONE
+**Files:** `apps/analytics/services/orchestration/support_state.py` (new), `apps/analytics/services/orchestration/infinity_orchestrator.py`  
+**Outcome:** Infinity receives one consistent state snapshot instead of assembling
+support inputs ad hoc. `support_state.gather_support_state(db, user_id, trigger_event)`
+assembles memory, KPI metrics, memory signals, system state, goals, task graph, and
+social signals once into a normalized `SupportState` (with a `loop_context` view and
+a `summary()` for the `loop.started` event). `infinity_orchestrator.execute` now
+consumes the snapshot instead of gathering inline — behavior-preserving (identical
+gathering order and the same propagate-vs-default failure semantics).
+
+**Tests:** `tests/unit/test_support_state.py` — snapshot assembly, `loop_context`
+shape, `summary()` counts, default fallbacks for optional inputs, and that core
+memory failures propagate.
+
+**Deferred:** folding `identity_boot_service` state into the snapshot (it is not
+part of the orchestrator's current support gathering) — a future extension, not a
+behavior change here.
 
 ### Step 2 - Feed more support metrics into loop decisions
 **Files:** `apps/analytics/services/orchestration/infinity_loop.py`, `apps/analytics/services/scoring/infinity_service.py`  
@@ -423,8 +440,8 @@ read failures are non-fatal, and unmappable feedback is ignored.
 Per the apps/runtime boundary, apps consume runtime primitives through registered
 syscalls/jobs; they do not edit runtime. Step ownership:
 
-- **App-owned:** Step 5 (done), Step 1 (centralize support-state snapshot,
-  structural), Step 2 (deeper loop weighting — the loop already threads
+- **App-owned:** Step 5 (done), Step 1 (done — `support_state.gather_support_state`),
+  Step 2 (deeper loop weighting — the loop already threads
   feedback/memory/system/goals/social into the decision engine), Step 6 (test work).
 - **Runtime-gated:** Step 3 (observability aggregates) and Step 4 (agent/async
   execution metrics) — their producers live in `AINDY/`
