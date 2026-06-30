@@ -188,9 +188,23 @@ fallback), and missing-plan handling.
 **Files:** `routes/masterplan_router.py`, `routes/analytics_router.py`, `client/src/components/MasterPlanDashboard.jsx`  
 **Outcome:** the MasterPlan surface shows execution metrics tied to the active plan rather than relying on generic dashboard views.
 
-### Step 3 - Return MasterPlan reprojection from task completion flows
-**Files:** `services/task_services.py`, `services/flow_definitions.py`, `routes/task_router.py`  
-**Outcome:** task completion visibly updates the MasterPlan execution surface with refreshed projection data.
+### Step 3 - Return MasterPlan reprojection from task completion flows - DONE
+**Files:** `apps/tasks/services/task_service.py`  
+**Outcome:** task completion now returns the refreshed MasterPlan projection.
+`orchestrate_task_completion` already recomputed the active plan's ETA but
+discarded it; it now captures the (cascade-aware, Step 1) projection via the
+extracted `_recalculate_active_masterplan_eta` helper and includes
+`masterplan_id` + `masterplan_projection` in its result. That result already
+propagates to the `/tasks/complete` response under `task_orchestration` (the
+`task_orchestrate` flow node merges the syscall data via `output_patch`, and
+`_flow_envelope` returns the full flow data), so **no flow/route changes were
+needed** — completing a task surfaces fresh projection data (velocity, ETA,
+days ahead/behind, critical_depth, projection_basis) for the MasterPlan surface
+to consume.
+
+**Tests:** `tests/unit/test_task_completion_reprojection.py` — the capture helper
+(active plan / no plan / no anchor / failure) and the orchestration return
+contract carrying the projection keys.
 
 ### Step 4 - Extend external automation connectors
 **Files:** `routes/automation_router.py`, related automation services/models  
