@@ -13,6 +13,10 @@ LOW_ACCURACY_THRESHOLD = 40
 LOOKBACK_WINDOW = 50
 ADAPTATION_COOLDOWN_MINUTES = 60
 MAX_SINGLE_STEP = 0.05
+# Explicit user feedback nudges KPI weights more gently than prediction accuracy
+# (Support System Step 5). The per-KPI cap (MAX_SINGLE_STEP) still bounds the
+# combined accuracy + feedback nudge.
+FEEDBACK_LEARNING_RATE_FACTOR = 0.5
 
 _DECISION_TO_KPI: dict[str, list[str]] = {
     "reprioritize_tasks": ["execution_speed", "decision_efficiency"],
@@ -92,7 +96,10 @@ def adapt_kpi_weights(db: Session, user_id) -> dict:
         KPI_WEIGHT_MIN,
         KPI_WEIGHT_MIN_SAMPLES,
     )
-    from apps.analytics.services.integration.dependency_adapter import list_strategy_accuracy_adjustments
+    from apps.analytics.services.integration.dependency_adapter import (
+        list_recent_feedback_rows,
+        list_strategy_accuracy_adjustments,
+    )
 
     try:
         uid = parse_user_id(user_id)
@@ -143,6 +150,38 @@ def adapt_kpi_weights(db: Session, user_id) -> dict:
                     nudges[kpi] -= KPI_WEIGHT_LEARNING_RATE
                     nudges_applied += 1
 
+        # Explicit user feedback nudges (Support System Step 5): feedback tied to
+        # a decision reinforces/penalizes the same KPIs that decision maps to —
+        # symmetric with the prediction-accuracy path, sourced from human thumbs.
+        # Additive and defensive: any failure leaves the accuracy-only behavior
+        # unchanged.
+        feedback_nudges_applied = 0
+        try:
+            decision_by_adjustment_id = {
+                str(adjustment.get("id")): adjustment.get("decision_type")
+                for adjustment in adjustments
+                if adjustment.get("id") is not None
+            }
+            feedback_step = KPI_WEIGHT_LEARNING_RATE * FEEDBACK_LEARNING_RATE_FACTOR
+            for feedback in list_recent_feedback_rows(user_id=str(uid), db=db, limit=LOOKBACK_WINDOW) or []:
+                adjustment_id = _fb_get(feedback, "loop_adjustment_id")
+                if not adjustment_id:
+                    continue
+                decision_type = decision_by_adjustment_id.get(str(adjustment_id))
+                if not decision_type:
+                    continue
+                value = int(_fb_get(feedback, "feedback_value") or 0)
+                if value == 0:
+                    continue
+                direction = feedback_step if value > 0 else -feedback_step
+                for kpi in _DECISION_TO_KPI.get(decision_type, []):
+                    nudges[kpi] += direction
+                    feedback_nudges_applied += 1
+        except Exception as feedback_exc:
+            logger.debug("[KpiWeights] feedback nudges skipped for %s: %s", user_id, feedback_exc)
+
+        nudges_applied += feedback_nudges_applied
+
         if nudges_applied == 0:
             return {
                 "status": "skipped",
@@ -178,6 +217,7 @@ def adapt_kpi_weights(db: Session, user_id) -> dict:
             "status": "adapted",
             "adapted_count": row.adapted_count,
             "nudges_applied": nudges_applied,
+            "feedback_nudges_applied": feedback_nudges_applied,
             "weights": _row_to_weights(row),
         }
     except Exception as exc:
@@ -187,6 +227,13 @@ def adapt_kpi_weights(db: Session, user_id) -> dict:
         except Exception:
             logger.debug("[KpiWeights] rollback failed during adaptation")
         return {"status": "error", "error": str(exc)}
+
+
+def _fb_get(row, key, default=None):
+    """Tolerant accessor for feedback rows (dicts or ORM/wrapped objects)."""
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
 
 
 def _row_to_weights(row) -> dict[str, float]:

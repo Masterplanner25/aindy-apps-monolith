@@ -152,6 +152,11 @@ Metrics:
 
   * advisory
   * not enforced
+* Correction (2026-06-29): `ARMMetricsService` KPI output is **not** consumed by
+  Infinity scoring. Infinity computes `decision_efficiency` /
+  `ai_productivity_boost` independently from raw `apps.arm.public.list_analysis_results`
+  rows, so ARM "system feedback" into the algorithm is weaker than implied — there
+  are two parallel, unconnected ARM-derived KPI computations.
 
 ---
 
@@ -313,10 +318,11 @@ It currently functions as:
 
 * Explicit thumbs feedback exists for ARM and agent outcomes
 * Implicit feedback signals now exist for retries, repeated failures, latency spikes, and abandonment
+* Explicit feedback now nudges per-user KPI **weights** (Step 5, `adapt_kpi_weights`)
 * Remaining work:
 
   * richer satisfaction signals
-  * weighting feedback directly into score formulas
+  * weighting feedback directly into the KPI **score formulas** (beyond weights)
 
 ---
 
@@ -347,9 +353,11 @@ observe -> score -> adjust -> execute -> observe
 
 ### Functional
 
-* Feedback is captured and evaluated, but does not yet alter KPI weights directly
-* Request metrics and system health are observable, but not yet used directly by Infinity decisions
-* The new memory-weighted loop path is heuristic and still lacks end-to-end behavioral test coverage
+* Explicit feedback now nudges per-user KPI **weights** (Step 5,
+  `adapt_kpi_weights`); remaining gap is weighting feedback directly into the KPI
+  **score formulas** and richer satisfaction signals
+* Request metrics and system health are observable, but not yet used directly by Infinity decisions (Step 3, runtime-gated)
+* The memory-weighted loop path is heuristic; decision-engine unit coverage exists, but real-execution end-to-end coverage (Step 6) is still thin
 
 ---
 
@@ -391,13 +399,39 @@ observe -> score -> adjust -> execute -> observe
 **Files:** `AINDY/agents/agent_event_service.py`, `AINDY/platform_layer/async_job_service.py`, `apps/analytics/services/scoring/infinity_service.py`  
 **Outcome:** agent and async execution behavior contributes to Infinity more systematically.
 
-### Step 5 - Weight explicit feedback into KPI calculations where appropriate
-**Files:** `apps/analytics/services/scoring/infinity_service.py`, `apps/analytics/services/orchestration/infinity_loop.py`  
-**Outcome:** user and system feedback affect score evolution, not just post-score decision selection.
+### Step 5 - Weight explicit feedback into KPI calculations where appropriate - DONE
+**Files:** `apps/analytics/services/scoring/kpi_weight_service.py`  
+**Outcome:** explicit `UserFeedback` now affects score evolution, not just post-score
+decision selection. `adapt_kpi_weights` previously learned from prediction accuracy
+only; it now also applies a conservative feedback nudge — feedback tied to a
+decision (via `loop_adjustment_id`) reinforces/penalizes the same KPIs that
+decision maps to (`_DECISION_TO_KPI`), at half the accuracy learning rate, bounded
+by the existing per-KPI `MAX_SINGLE_STEP` cap and re-normalized. The path is
+additive (no feedback → identical accuracy-only behavior) and defensive (a
+feedback-read failure never breaks accuracy adaptation).
+
+**Tests:** `tests/unit/test_kpi_weight_feedback.py` — positive/negative feedback
+shifts the decision's KPI weights, accuracy-only behavior is preserved, feedback
+read failures are non-fatal, and unmappable feedback is ignored.
 
 ### Step 6 - Validate the memory-weighted loop end to end
 **Files:** tests covering `AINDY/memory/memory_scoring_service.py`, `apps/analytics/services/orchestration/infinity_orchestrator.py`, `apps/analytics/services/orchestration/infinity_loop.py`, `AINDY/memory/memory_capture_engine.py`  
 **Outcome:** support-layer memory signals are proven to change subsequent Infinity decisions after real execution outcomes.
+
+### Ownership note (2026-06-29)
+
+Per the apps/runtime boundary, apps consume runtime primitives through registered
+syscalls/jobs; they do not edit runtime. Step ownership:
+
+- **App-owned:** Step 5 (done), Step 1 (centralize support-state snapshot,
+  structural), Step 2 (deeper loop weighting — the loop already threads
+  feedback/memory/system/goals/social into the decision engine), Step 6 (test work).
+- **Runtime-gated:** Step 3 (observability aggregates) and Step 4 (agent/async
+  execution metrics) — their producers live in `AINDY/`
+  (`observability_router`, `agent_event_service`, `async_job_service`) with no
+  app-facing aggregate syscall/job yet. The app lever would be a new
+  `dependency_adapter` fetch once the runtime exposes the aggregate; until then
+  these are runtime feature requests, not app edits.
 
 ---
 
