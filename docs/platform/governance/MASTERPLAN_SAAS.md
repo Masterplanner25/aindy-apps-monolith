@@ -1,6 +1,6 @@
 ---
 title: "Masterplan SaaS - Canonical Definition & Evolution Plan"
-last_verified: "2026-04-19"
+last_verified: "2026-06-30"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -85,7 +85,9 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 - basic dashboards
 
 **Missing or Drifted vs Masterplan Module docs:**
-- full dependency-aware projection/compression modeling is still partial
+- ETA projection is now plan-scoped and cascade/critical-path aware (2026-06-30);
+  the remaining gap is continuous-time / per-task-duration compression (tasks are
+  count-based today)
 - external automation connectors remain partial beyond the internal automation layer
 
 ---
@@ -97,7 +99,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | Genesis -> MasterPlan lifecycle | Masterplan Genesis Module | Implemented | Implemented | `routes/genesis_router.py`, `services/masterplan_factory.py` |
 | MasterPlan activation | Genesis Module | Implemented | Implemented | `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
 | Masterplan anchor / target state | Masterplan Plans doc | Anchor fields, endpoint, and UI are implemented | Implemented | `db/models/masterplan.py`, `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
-| ETA projection / timeline compression | Masterplan Plans doc | ETA projection exists, but only as task-velocity projection rather than full compression modeling | Partial | `services/eta_service.py`, `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
+| ETA projection / timeline compression | Masterplan Plans doc | Plan-scoped, cascade/critical-path-aware projection (critical-path depth imposes a sequential floor over flat velocity); continuous-time duration modeling is still simplified | Implemented (cascade-aware) | `apps/masterplan/services/eta_service.py`, `apps/masterplan/routes/masterplan_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 | Dependency cascade model | Masterplan Plans doc | Dependency metadata, DAG construction, blocked-task enforcement, and downstream unlock behavior exist | Implemented | `db/models/task.py`, `services/task_services.py` |
 | Execution automation layer | Masterplan SaaS docs | MasterPlan can generate tasks and dispatch bound automation through the execution layer; external connectors remain partial | Partial | `routes/masterplan_router.py`, `services/masterplan_execution_service.py`, `routes/automation_router.py` |
 | Execution analytics dashboard | SaaS docs | Partial (MasterPlan dashboard + analytics summary exist, but no dedicated execution/compression dashboard) | Partial | `routes/analytics_router.py`, `routes/dashboard_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
@@ -108,7 +110,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
-| ETA projection is flat velocity-based only | Masterplan can show ETA, but not dependency-aware compression or cascade effects | `services/eta_service.py`, `db/models/masterplan.py`, `services/infinity_service.py` |
+| ETA projection is flat velocity-based only — RESOLVED (2026-06-30): now plan-scoped + cascade/critical-path aware (`apps/masterplan/services/eta_service.py`). Remaining: continuous-time/duration-based compression (tasks are count-based today, no per-task durations) | Compression now reflects dependency depth, not just raw counts | `apps/masterplan/services/eta_service.py` |
 | External automation connectors are still partial | Internal automation exists, but external social/CRM/payment surfaces are not fully connected | `routes/automation_router.py`, related automation services |
 
 ---
@@ -119,7 +121,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | --- | --- | --- | --- | --- |
 | Masterplan drift | Product | Plans exist without dependency-aware trajectory signal | Core value missing | High |
 | Docs vs runtime mismatch | Product | SaaS docs understate implemented anchor/ETA features and overstate execution depth | Expectation gap | High |
-| Projection still under-models dependency cascade | Technical | Blocking-task impact is only partially reflected in ETA/compression output | Weak projection quality | Medium |
+| Projection still under-models dependency cascade | Technical | Mitigated (2026-06-30): ETA now uses critical-path depth (a sequential floor) and is plan-scoped; residual gap is per-task duration modeling | Weak projection quality | Low |
 | External automation connectors are partial | Business | Execution SaaS promise is only partly fulfilled | Revenue risk | High |
 
 ---
@@ -163,9 +165,24 @@ The Masterplan SaaS layer is currently:
 
 ## 10. Next Steps
 
-### Step 1 - Deepen cascade impact in projection
-**Files:** `services/eta_service.py`, `db/models/masterplan.py`, `services/infinity_service.py`  
-**Outcome:** completing a blocking task shifts projection with richer critical-path and compression impact than flat task velocity.
+### Step 1 - Deepen cascade impact in projection - DONE
+**Files:** `apps/masterplan/services/eta_service.py` (+ `apps/analytics/services/scoring/infinity_service.py` consumes the output)  
+**Outcome:** ETA is now **plan-scoped** (fixed a bug where it counted tasks
+user-wide) and **cascade-aware**. `calculate_eta` pulls the dependency graph via
+the existing `sys.v1.tasks.get_graph_context` syscall, scopes to the plan's tasks
+by `masterplan_id`, and projects with `_project_days` = `max(remaining/velocity,
+critical_depth / min(velocity, 1.0))` — so the longest remaining dependency chain
+imposes a sequential floor that flat throughput can't beat. Completing a blocking
+task shortens that chain (`critical_depth`) and shifts the projection earlier. The
+result now also surfaces `critical_depth`, `blocked_tasks`, `ready_tasks`, and
+`projection_basis` (`cascade` | `velocity` | `insufficient_data`). It degrades
+gracefully to the legacy flat-velocity estimate when the graph is unavailable.
+The infinity `masterplan_progress` KPI (which reads `plan.days_ahead_behind`)
+improves for free — no change needed there.
+
+**Tests:** `tests/unit/test_masterplan_eta_cascade.py` — cascade math, plan
+scoping + critical-depth derivation, the integration path (cascade vs velocity
+fallback), and missing-plan handling.
 
 ### Step 2 - Expose MasterPlan execution metrics directly
 **Files:** `routes/masterplan_router.py`, `routes/analytics_router.py`, `client/src/components/MasterPlanDashboard.jsx`  
@@ -201,8 +218,9 @@ Masterplan layer debt is tracked in:
 ## 13. Summary (Operational Truth)
 
 The Masterplan SaaS layer currently implements **planning, locking, activation,
-anchor setting, dependency-aware task execution, and internal automation
-binding**, but still does not implement **full cascade-based compression
-modeling** or complete external automation coverage. The system's core promise
-(execution as timeline compression) is now represented more concretely, but it
-is still not operational in full.
+anchor setting, dependency-aware task execution, plan-scoped cascade/critical-path
+ETA projection, and internal automation binding**. The remaining gaps are
+**continuous-time (per-task-duration) compression modeling** and complete external
+automation coverage. The system's core promise (execution as timeline
+compression) is now represented concretely through dependency-aware projection,
+though duration-based modeling and external connectors are not yet complete.
