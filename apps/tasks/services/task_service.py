@@ -634,6 +634,24 @@ def queue_task_automation(
     ).envelope
 
 
+def _recalculate_active_masterplan_eta(db: Session, owner_user_id) -> tuple[bool, Any, Any]:
+    """Recalculate the active MasterPlan's ETA after a task change.
+
+    Returns ``(eta_recalculated, masterplan_id, projection)``. The projection is
+    the (now cascade-aware) ETA payload so callers can surface refreshed
+    MasterPlan projection data on task completion (MASTERPLAN_SAAS Step 3).
+    Best-effort: any failure yields ``(False, None, None)``.
+    """
+    try:
+        active_plan = get_active_masterplan_via_syscall(str(owner_user_id), db)
+        if active_plan and active_plan.get("anchor_date"):
+            projection = get_eta_via_syscall(active_plan["id"], str(owner_user_id), db)
+            return True, active_plan.get("id"), projection
+    except Exception as exc:
+        logger.warning("Task completion ETA recalculation failed: %s", exc)
+    return False, None, None
+
+
 def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID | None) -> dict:
     owner_user_id = _user_uuid(user_id)
     task = find_task(db, name, user_id=user_id)
@@ -643,6 +661,8 @@ def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID
             "feedback_recorded": 0,
             "social_sync": False,
             "eta_recalculated": False,
+            "masterplan_id": None,
+            "masterplan_projection": None,
             "score_orchestrated": False,
             "next_action": None,
             "unlocked_tasks": [],
@@ -652,7 +672,6 @@ def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID
     memory_captured = False
     feedback_recorded = 0
     social_sync = False
-    eta_recalculated = False
     unlocked_tasks = _unlock_downstream_tasks(db, task, user_id=user_id)
     automation_runs: list[dict[str, Any]] = []
 
@@ -729,13 +748,9 @@ def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID
     except Exception as exc:
         logger.warning("[Velocity Engine] Failed to sync with Social Layer: %s", exc)
 
-    try:
-        active_plan = get_active_masterplan_via_syscall(str(owner_user_id), db)
-        if active_plan and active_plan.get("anchor_date"):
-            get_eta_via_syscall(active_plan["id"], str(owner_user_id), db)
-            eta_recalculated = True
-    except Exception as exc:
-        logger.warning("Task completion ETA recalculation failed: %s", exc)
+    eta_recalculated, masterplan_id, masterplan_projection = _recalculate_active_masterplan_eta(
+        db, owner_user_id
+    )
 
     orchestration = {"next_action": None}
     try:
@@ -800,6 +815,8 @@ def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID
         "feedback_recorded": feedback_recorded,
         "social_sync": social_sync,
         "eta_recalculated": eta_recalculated,
+        "masterplan_id": masterplan_id,
+        "masterplan_projection": masterplan_projection,
         "score_orchestrated": True,
         "next_action": orchestration["next_action"],
         "unlocked_tasks": unlocked_tasks,
