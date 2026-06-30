@@ -33,25 +33,13 @@ These are intentionally mocked or local-only in CI:
 - SQLite in-memory is used for Python smoke and app-profile tests
 - frontend build smoke uses a placeholder `VITE_API_BASE_URL`
 
-### Optional CI Secret / Variable For Runtime Checkout
+### Runtime Install (No Secret Required)
 
-App CI currently installs `aindy-runtime` from repo source in GitHub Actions
-until runtime publication is fully real.
-
-Optional GitHub configuration:
-
-- repository variable `AINDY_RUNTIME_REPO`
-  - override runtime checkout target
-- repository secret `AINDY_RUNTIME_CHECKOUT_TOKEN`
-  - token with read access to the runtime repo when default checkout access is
-    insufficient
-
-When these are not set, CI falls back to:
-
-- `${owner}/aindy-runtime`
-
-If the runtime repo is public and within accessible default GitHub checkout
-scope, no extra secret is required.
+App CI installs `aindy-runtime` from PyPI as a normal pinned dependency
+(`aindy-runtime>=1.4.3,<2.0`), so **no runtime-checkout secret or variable is
+needed**. The previously-used `AINDY_RUNTIME_REPO` / `AINDY_RUNTIME_CHECKOUT_TOKEN`
+config was for the pre-publication source-checkout strategy and is no longer
+referenced by the workflow (`PYPI-PUBLISH-1` is closed).
 
 ## App Deployment Secrets
 

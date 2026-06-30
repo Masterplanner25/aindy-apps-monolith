@@ -105,13 +105,9 @@ Apps CI scope in `.github/workflows/app-ci.yml` is intentionally repo-owned:
 
 GitHub Actions note:
 
-- until `aindy-runtime` is published to a package index, this workflow installs
-  runtime from repo source rather than from `pip install "aindy-runtime>=1.0,<2.0"`
-- if GitHub cannot read the runtime repo with the default token, set:
-  - repository variable `AINDY_RUNTIME_REPO`
-  - secret `AINDY_RUNTIME_CHECKOUT_TOKEN` with read access to that repo
-- once runtime publication is live and reachable from GitHub Actions, this CI
-  path should switch back to direct package installation by version range
+- `aindy-runtime` is published on PyPI, so this workflow installs it as a normal
+  pinned dependency (`aindy-runtime>=1.4.3,<2.0`) via `pip install -e .[test]`,
+  then verifies the installed version at boot. No runtime-repo checkout is needed.
 - Playwright E2E is not in the default push/PR workflow yet; those tests are
   product/integration heavy and should be added separately once the extracted
   apps repo has a stable CI backend/auth fixture story
