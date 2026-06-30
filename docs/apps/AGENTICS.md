@@ -18,6 +18,41 @@ per-step retry, recovery/replay, and state machine — see the runtime repo's
 
 Date basis: current workspace state.
 
+## App-side status (2026-06-29)
+
+This doc is the artifact whose work produced the `aindy-runtime` split — which is
+why Phases A–E below list mostly `AINDY/` files. Per the apps/runtime boundary,
+**apps do not edit runtime; they extend it through registration hooks**
+(`AINDY.platform_layer.registry`). App-ownable surface by phase:
+
+- **A — Execution Integrity:** *mixed.* App-owned: the client
+  `AgentConsole.jsx` / `AgentApprovalInbox.jsx`, the app router
+  `apps/agent/routes/agent_router.py`, and the completion hook. Runtime-owned: the
+  execution core (`agent_runtime`, `flow_engine/runner`, `async_job_service`,
+  `stuck_run_service`).
+- **B — Nodus Integration:** *runtime-owned.* No app lever — there is no
+  registration surface for the Nodus VM / `.nd` workflows; making Nodus the
+  primary substrate is a runtime feature request in `aindy-runtime` (same gap
+  noted in `AUTONOMOUS_REASONING_MODULE.md` Phase 4).
+- **C — Autonomous Loop:** *strong app lever.* The execute/defer/ignore decision
+  policy is app-owned (`apps/agent/agents/triggers.py` via
+  `register_trigger_evaluator`, used for every trigger type through the "default"
+  fallback), and app schedulers/flows drive the trigger→decide loop; the
+  autonomous-controller plumbing and bounded-loop primitives are runtime.
+- **D — Multi-Agent Coordination:** *mostly runtime.* The only registerable lever
+  is the agent ranking strategy (`apps/masterplan/agents/ranking.py` via
+  `register_agent_ranking_strategy`). Delegation, the agent registry, and conflict
+  resolution are runtime-internal.
+- **E — Production Hardening:** *runtime-owned* (durable workers, queue isolation,
+  event retention). Apps contribute tests and `register_async_job` usage only.
+
+**Hardened (2026-06-29):** the app-owned decision levers — previously untested —
+now have coverage in `tests/unit/test_agentics_app_levers.py`: the autonomy
+trigger evaluator (execute/defer/ignore policy), the agent ranking strategy, and
+the post-run completion hook that enforces the Infinity loop. The per-phase
+"Exact files/modules affected: `AINDY/...`" lists below should be read as the
+*runtime* work; the app-side levers are the registration hooks named here.
+
 ## 1. System Reality
 
 ### What Agentics currently does
