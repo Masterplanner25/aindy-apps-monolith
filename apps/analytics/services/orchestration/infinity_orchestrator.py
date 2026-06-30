@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 from AINDY.core.execution_signal_helper import queue_system_event
 emit_system_event = queue_system_event
 from AINDY.db.database import SessionLocal
-from AINDY.platform_layer.registry import get_job
 from AINDY.platform_layer.trace_context import get_current_trace_id
 
 logger = logging.getLogger(__name__)
@@ -201,8 +200,7 @@ def get_social_performance_signals(*args, **kwargs):
 def execute(user_id: str, trigger_event: str, db):
     from ..integration import dependency_adapter
     from .concurrency import LeaseHeartbeat, release_execution_lease
-
-    rank_goals = get_job("goals.rank")
+    from .support_state import gather_support_state
 
     trace_id = get_current_trace_id() or f"loop:{trigger_event}"
     execution_owner_id = make_execution_owner_id()
@@ -234,48 +232,17 @@ def execute(user_id: str, trigger_event: str, db):
         ):
             return _duplicate_inflight_response(user_id=user_id, trigger_event=trigger_event, db=db)
 
-        memory_nodes = get_recent_memory(user_id, db, context="infinity_loop")
-        metrics = get_user_metrics(user_id, db)
-        memory_signals = get_relevant_memories(
-            {
-                "user_id": user_id,
-                "trigger_event": trigger_event,
-                "current_state": "infinity_loop",
-                "goal": "select next_action",
-                "constraints": [],
-            },
-            db=db,
-        )
-        try:
-            system_state = compute_current_state(db)
-        except Exception as exc:
-            logger.warning("[InfinityOrchestrator] system state lookup failed for %s: %s", user_id, exc)
-            system_state = {}
-        try:
-            goals = rank_goals(db, user_id, system_state=system_state) if callable(rank_goals) else []
-        except Exception as exc:
-            logger.warning("[InfinityOrchestrator] goal ranking failed for %s: %s", user_id, exc)
-            goals = []
-        try:
-            task_graph = get_task_graph_context(db, user_id)
-        except Exception as exc:
-            logger.warning("[InfinityOrchestrator] task graph lookup failed for %s: %s", user_id, exc)
-            task_graph = {}
-        try:
-            social_signals = get_social_performance_signals(user_id=str(user_id))
-        except Exception as exc:
-            logger.warning("[InfinityOrchestrator] social signal lookup failed for %s: %s", user_id, exc)
-            social_signals = []
-        loop_context = {
-            "user_id": str(user_id),
-            "memory": memory_nodes,
-            "metrics": metrics,
-            "memory_signals": memory_signals,
-            "system_state": system_state,
-            "goals": goals,
-            "task_graph": task_graph,
-            "social_signals": social_signals,
-        }
+        # Support inputs are assembled once into a single normalized snapshot
+        # (Infinity Support System — Step 1) instead of ad-hoc gathering here.
+        support = gather_support_state(db, user_id, trigger_event)
+        memory_nodes = support.memory
+        metrics = support.metrics
+        memory_signals = support.memory_signals
+        system_state = support.system_state
+        goals = support.goals
+        task_graph = support.task_graph
+        social_signals = support.social_signals
+        loop_context = support.loop_context
         emit_system_event(
             db=db,
             event_type="loop.started",
