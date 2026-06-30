@@ -7,12 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install — runtime from sibling checkout (local paired-repo dev)
-python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
-python -m pip install -e . --no-build-isolation
+# Install — published runtime (default; aindy-runtime is published on PyPI)
+python -m pip install -e . --no-build-isolation   # resolves aindy-runtime>=1.4.3,<2.0 from PyPI
 
-# Install — published runtime (once PyPI publication is live)
-python -m pip install "aindy-runtime>=1.0,<2.0"
+# Install — runtime from a sibling checkout (local paired-repo dev only)
+python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
 python -m pip install -e . --no-build-isolation
 
 # Boot app-profile server (run from repo root so aindy_plugins.json is discovered)
@@ -179,8 +178,10 @@ python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
 `--no-deps` prevents pip from overwriting the runtime with a published version while
 still making the editable source importable.
 
-CI installs runtime from source until PyPI publication is complete (see
-`PYPI-PUBLISH-1` in `aindy-runtime/TECH_DEBT.md`).
+CI installs the published runtime from PyPI (the pinned `aindy-runtime>=1.4.3,<2.0`
+dependency) and verifies the installed version at boot. `aindy-runtime` is
+published (PYPI-PUBLISH-1 is closed); the sibling-checkout flow above is for local
+paired-repo development only.
 
 ---
 

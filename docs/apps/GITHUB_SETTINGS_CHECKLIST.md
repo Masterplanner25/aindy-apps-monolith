@@ -85,18 +85,12 @@ Recommended GitHub repo settings:
   write access
 - fork pull request approval policy: set according to org policy
 
-## Runtime Checkout Note
+## Runtime Install Note
 
-Current app CI installs `aindy-runtime` from repo source in GitHub Actions
-until runtime publication is fully live.
-
-If the workflow cannot read the runtime repo by default, configure:
-
-- repository variable `AINDY_RUNTIME_REPO`
-- repository secret `AINDY_RUNTIME_CHECKOUT_TOKEN`
-
-Do this before making `App Contracts` a required check if cross-repo runtime
-checkout would otherwise fail.
+App CI installs `aindy-runtime` from PyPI as a normal pinned dependency, so no
+runtime-checkout repository variable or secret is required. The former
+`AINDY_RUNTIME_REPO` / `AINDY_RUNTIME_CHECKOUT_TOKEN` config (for the
+pre-publication source checkout) is no longer used and can be removed if set.
 
 ## First-Run Note
 

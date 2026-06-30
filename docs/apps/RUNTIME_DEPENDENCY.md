@@ -1,6 +1,6 @@
 ---
 title: "Runtime Dependency"
-last_verified: "2026-05-11"
+last_verified: "2026-06-29"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -25,39 +25,31 @@ aindy-runtime>=1.0,<2.0
 The upper bound is required. The apps repo should not accept unbounded runtime
 upgrades.
 
-Validated on `2026-05-11`:
+Validated on `2026-06-29`:
 
-- installed runtime version: `1.0.0`
-- apps repo dependency: `aindy-runtime>=1.0,<2.0`
+- installed runtime version: `1.4.3`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.4.3,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
 
-This is a staged release/dependency contract. It is ready for use in CI and
-release preparation, but it does not imply that a new runtime release has
-already been published externally.
+`aindy-runtime` is published on PyPI (`PYPI-PUBLISH-1` is closed), so this is the
+live, published dependency contract — not a pre-publication staging arrangement.
 
-## Current CI Install Strategy
+## CI Install Strategy
 
-GitHub Actions in this repo must be runnable before `aindy-runtime` is
-published to an index that CI can install from.
+`aindy-runtime` is installed from PyPI as a normal pinned dependency:
 
-Current staged strategy:
-
-- keep the declared dependency contract in `pyproject.toml` as
-  `aindy-runtime>=1.0,<2.0`
-- in CI only, check out the runtime repo and install `aindy-runtime` from that
-  source tree
-- verify that the installed runtime still reports the expected compatibility
-  metadata through `/api/version`
+- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.4.3,<2.0`
+- CI installs it via `pip install -e .[test]` (no runtime-repo checkout, no source
+  install)
+- CI verifies the installed runtime version and that `/api/version` reports the
+  expected compatibility metadata
 
 GitHub workflow behavior:
 
-- default runtime checkout target: `${owner}/aindy-runtime`
-- optional override: repository variable `AINDY_RUNTIME_REPO`
-- optional explicit token for private/cross-repo checkout:
-  `AINDY_RUNTIME_CHECKOUT_TOKEN`
+- CI checks out only this repo and resolves `aindy-runtime` from PyPI within the
+  pinned range; there is no runtime-repo checkout or `AINDY_RUNTIME_*` token.
 
-This avoids pretending that runtime publication is complete while still
-preserving the long-term packaged-runtime contract.
+This is the published packaged-runtime contract in steady state.
 
 ## Startup Contract
 
@@ -94,9 +86,8 @@ When the runtime repo stages a new release:
 The apps repo should not move to an unbounded runtime dependency such as
 `aindy-runtime>=1.0`.
 
-Once runtime publication is fully real and GitHub Actions can install the
-intended version range directly, app CI should switch back from source checkout
-to normal package installation for `aindy-runtime>=1.0,<2.0`.
+App CI installs `aindy-runtime` directly from PyPI within the pinned range; bump
+the lower bound deliberately when adopting a newer runtime release.
 
 Canonical app-profile startup from this repo root:
 

@@ -28,19 +28,18 @@ These checks are app-owned and should live in `aindy-apps-monolith`:
 - frontend production build smoke
 - client container build smoke from `client/Dockerfile`
 
-## Temporary Runtime Install Strategy
+## Runtime Install Strategy
 
-Until `aindy-runtime` is published to an index that GitHub Actions can install
-from directly, app CI checks out the runtime repo and installs it from source.
+`aindy-runtime` is published on PyPI, so app CI installs it as a normal pinned
+dependency (`pip install -e .[test]`) and verifies the installed version at boot.
+No runtime-repo checkout or source install is involved.
 
-This is a CI-only staging strategy.
+The dependency contract is:
 
-The long-term dependency contract remains:
+- `aindy-runtime>=1.4.3,<2.0`
 
-- `aindy-runtime>=1.0,<2.0`
-
-When runtime publication is fully live, CI should switch back to direct package
-installation by version range.
+(The earlier source-checkout CI strategy was a pre-publication staging step and is
+no longer used; `PYPI-PUBLISH-1` is closed.)
 
 ## Checks That Do Not Belong Here
 
