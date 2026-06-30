@@ -360,7 +360,9 @@ observe -> score -> adjust -> execute -> observe
   `adapt_kpi_weights`); remaining gap is weighting feedback directly into the KPI
   **score formulas** and richer satisfaction signals
 * Request metrics and system health are observable, but not yet used directly by Infinity decisions (Step 3, runtime-gated)
-* The memory-weighted loop path is heuristic; decision-engine unit coverage exists, but real-execution end-to-end coverage (Step 6) is still thin
+* The memory-weighted loop path is heuristic; the support → decision seam now has
+  behavioral coverage (Step 6, `test_support_decision_loop.py`), but the full
+  DB-backed real-execution E2E remains integration-tier
 
 ---
 
@@ -431,9 +433,21 @@ feedback-read failure never breaks accuracy adaptation).
 shifts the decision's KPI weights, accuracy-only behavior is preserved, feedback
 read failures are non-fatal, and unmappable feedback is ignored.
 
-### Step 6 - Validate the memory-weighted loop end to end
-**Files:** tests covering `AINDY/memory/memory_scoring_service.py`, `apps/analytics/services/orchestration/infinity_orchestrator.py`, `apps/analytics/services/orchestration/infinity_loop.py`, `AINDY/memory/memory_capture_engine.py`  
-**Outcome:** support-layer memory signals are proven to change subsequent Infinity decisions after real execution outcomes.
+### Step 6 - Validate the memory-weighted loop end to end - DONE (app seam); full DB E2E is integration-tier
+**Files:** `tests/unit/test_support_decision_loop.py`  
+**Outcome:** support-layer signals are proven to change Infinity decisions. The
+test drives the app-testable seam `gather_support_state` (Step 1) → `loop_context`
+→ `reason()` (the same wiring `run_loop` uses) and asserts that a high-impact
+memory **failure** signal from the snapshot flips the decision to `review_plan`,
+a clean snapshot stays `continue_highest_priority_task`, a success signal does not
+flip it, and negative **feedback** summarized by the feedback analyzer (Step 5)
+flips to `recent_negative_feedback`. This ties Steps 1 + 5 + the decision engine
+into one regression guard over the support → decision pipeline.
+
+**Integration-tier (not app-profile):** the full DB-backed loop — real execution
+outcome → re-score → persisted `LoopAdjustment` whose `decision_type` reflects the
+signal — runs through `run_loop`/`infinity_orchestrator.execute` against Postgres
+(those paths are exercised in the integration suite, not the app-profile harness).
 
 ### Ownership note (2026-06-29)
 
@@ -441,8 +455,9 @@ Per the apps/runtime boundary, apps consume runtime primitives through registere
 syscalls/jobs; they do not edit runtime. Step ownership:
 
 - **App-owned:** Step 5 (done), Step 1 (done — `support_state.gather_support_state`),
-  Step 2 (deeper loop weighting — the loop already threads
-  feedback/memory/system/goals/social into the decision engine), Step 6 (test work).
+  Step 6 (done — app seam validated; full DB E2E is integration-tier), Step 2
+  (deeper loop weighting — the loop already threads feedback/memory/system/goals/
+  social into the decision engine).
 - **Runtime-gated:** Step 3 (observability aggregates) and Step 4 (agent/async
   execution metrics) — their producers live in `AINDY/`
   (`observability_router`, `agent_event_service`, `async_job_service`) with no
