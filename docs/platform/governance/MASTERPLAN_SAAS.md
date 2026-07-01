@@ -185,11 +185,13 @@ scoping + critical-depth derivation, the integration path (cascade vs velocity
 fallback), and missing-plan handling.
 
 ### Step 2 - Expose MasterPlan execution metrics directly - DONE
-**Files:** `client/src/components/app/MasterPlanDashboard.jsx`  
+**Files:** `client/src/components/app/MasterPlanDashboard.jsx`,
+`client/src/components/app/TaskDashboard.jsx`,
+`client/src/context/MasterplanProjectionContext.jsx`, `client/src/App.jsx`  
 **Outcome:** the active plan's ETA panel now surfaces the Step-1 cascade metrics
 directly on the MasterPlan surface rather than relying on generic dashboard views.
 The projection endpoint (`get_masterplan_projection` → `calculate_eta`
-pass-through) already returns the cascade fields, so this step is purely the
+pass-through) already returns the cascade fields, so surfacing them is purely the
 consuming UI: the `ETAProjectionPanel` renders a **`cascade`** basis chip when the
 projection is dependency-aware, a **critical-chain depth** line (`{critical_depth}
 deep`, shown only when the chain is longer than one), and a **`{ready} ready ·
@@ -197,9 +199,23 @@ deep`, shown only when the chain is longer than one), and a **`{ready} ready ·
 metrics. It degrades cleanly on the velocity fallback (no chip, no critical-chain
 line).
 
+The panel also consumes the **Step-3 completion-response projection reactively**.
+Task completion returns the recomputed cascade projection under
+`orchestration.masterplan_projection`, but the task surface and MasterPlan surface
+are separate lazily-loaded routes that never mount together, so that projection
+was previously discarded until the panel refetched on its own. A small
+`MasterplanProjectionProvider` context (mounted above the app shell, so it
+survives navigation between `/tasks` and `/masterplan`) now carries it: the task
+surface publishes the projection on completion, and the ETA panel adopts it — a
+pushed projection takes precedence over the panel's own fetched baseline, with no
+refetch.
+
 **Tests:** `client/src/test/masterplan-dashboard.test.jsx` — cascade metrics
 render on the active plan, and the chip + critical-chain line are omitted on the
-velocity fallback.
+velocity fallback. `client/src/test/masterplan-projection-reactive.test.jsx` —
+completing a task reactively updates the MasterPlan panel to the fresh cascade
+projection (no second projection fetch), and leaves it untouched when completion
+carries no reprojection.
 
 ### Step 3 - Return MasterPlan reprojection from task completion flows - DONE
 **Files:** `apps/tasks/services/task_service.py`  

@@ -11,6 +11,7 @@ import { LoadingPanel } from "../shared/LoadingPanel";
 import { EmptyState } from "../shared/EmptyState";
 import { safeMap } from "../../utils/safe";
 import { useToast } from "../../utils/useToast";
+import { useMasterplanProjection } from "../../context/MasterplanProjectionContext.jsx";
 
 const STATUS_BADGE = {
   active: { label: "ACTIVE", color: "#00ffaa" },
@@ -149,7 +150,9 @@ function AnchorModal({ planId, onClose, onSaved }) {
 }
 
 function ETAProjectionPanel({ planId }) {
-  const [projection, setProjection] = useState(null);
+  const { projections } = useMasterplanProjection();
+  const pushed = projections[planId];
+  const [fetched, setFetched] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -158,7 +161,7 @@ function ETAProjectionPanel({ planId }) {
     setError(null);
     try {
       const data = await getMasterplanProjection(planId);
-      setProjection(data);
+      setFetched(data);
     } catch {
       setError("ETA unavailable");
     } finally {
@@ -168,8 +171,15 @@ function ETAProjectionPanel({ planId }) {
 
   useEffect(() => {load();}, [planId]);
 
-  if (loading) return <p style={{ fontSize: "12px", color: "#52525b", margin: "8px 0 0" }}>Computing ETA...</p>;
-  if (error) return <p style={{ fontSize: "12px", color: "#52525b", margin: "8px 0 0" }}>{error}</p>;
+  // A projection pushed from a task completion elsewhere (fresher, cascade-aware)
+  // takes precedence over the panel's own fetched baseline — so the panel
+  // reflects the recomputed ETA reactively, without waiting for a refetch.
+  const projection = pushed ?? fetched;
+
+  // Keep showing available data while a refetch is in flight — only block on the
+  // very first load when nothing is available yet.
+  if (loading && !projection) return <p style={{ fontSize: "12px", color: "#52525b", margin: "8px 0 0" }}>Computing ETA...</p>;
+  if (error && !projection) return <p style={{ fontSize: "12px", color: "#52525b", margin: "8px 0 0" }}>{error}</p>;
   if (!projection) return null;
 
   const confidenceColor = {

@@ -5,11 +5,16 @@ import DomainError from "../shared/DomainError.jsx";
 import { safeMap } from "../../utils/safe";
 import { useToast } from "../../utils/useToast";
 import { useApiCall } from "../../lib/useApiCall.js";
+import {
+  useMasterplanProjection,
+  extractReprojection,
+} from "../../context/MasterplanProjectionContext.jsx";
 
 export default function TaskDashboard() {
   const [newTask, setNewTask] = useState("");
   const [velocityMessage, setVelocityMessage] = useState("");
   const { toast, showToast, clearToast } = useToast();
+  const { publishProjection } = useMasterplanProjection();
   const { loading, error, data, execute: fetchTasks } = useApiCall(getTasks, {
     domain: "tasks",
   });
@@ -39,8 +44,20 @@ export default function TaskDashboard() {
   const handleComplete = async (taskName) => {
     try {
       const res = await completeTask(taskName);
-      // Show the backend confirmation (contains TWR score)
-      setVelocityMessage(res);
+
+      // Push the recomputed cascade-aware MasterPlan projection to the shared
+      // context so the MasterPlan surface reflects it without waiting for its
+      // own refetch (MASTERPLAN_SAAS Step 2/3).
+      const reproj = extractReprojection(res);
+      if (reproj) publishProjection(reproj.planId, reproj.projection);
+
+      // Show the backend confirmation (contains TWR score). Render a string
+      // regardless of the response envelope shape.
+      const message =
+        typeof res === "string"
+          ? res
+          : res?.task_result || res?.message || "Task completed.";
+      setVelocityMessage(message);
       fetchTasks();
 
       // Clear message after 3s
