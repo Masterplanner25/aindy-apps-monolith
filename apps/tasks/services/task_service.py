@@ -601,9 +601,13 @@ def complete_task(db: Session, name: str, user_id: str = None):
     except Exception as _eu_exc:
         logger.warning("[EU] task complete hook — non-fatal | error=%s", _eu_exc)
 
+    # Persist raw elapsed time (seconds) at completion. NOTE: this is actual
+    # elapsed time, not the Infinity "execution_speed" KPI (a 0-100 velocity
+    # score computed in analytics/scoring/infinity_service.py) — hence the
+    # explicit, unit-tagged metric name to avoid conflating the two.
     save_calculation_via_syscall(
         db,
-        "Execution Speed",
+        "Task Time Spent (seconds)",
         task.time_spent,
         user_id=str(owner_user_id),
     )

@@ -34,6 +34,39 @@ layer drop the unverified path).
 
 ---
 
+## TASK-TIME-SPENT-UNITS-1: `Task.time_spent` is seconds, not hours (documented; normalization deferred)
+
+**Status:** Documented (2026-06-30). The column stays in **seconds**; the misleading
+"hours" comment and a name-colliding metric were corrected. True-hours
+normalization is deferred (below).
+
+**Context:** `apps/tasks/models.py::Task.time_spent` was commented `# in hours` but
+the write path accrues **seconds** (`time_spent += (now - start_time).total_seconds()`
+in `task_service.py`), and every consumer already treats it as seconds — the client
+shows `time_spent / 60` as minutes, and completion memory labels it `"s"` /
+`"time_spent_seconds"`. There is no live miscalculation: the analytics TWR/effort
+formulas read `TaskInput.time_spent` (a **caller-supplied API payload in hours**), a
+separate path that never touches the DB column; and the Infinity `execution_speed`
+KPI is a 0-100 velocity score computed in `infinity_service.py`, unrelated.
+
+**Done (2026-06-30):** Corrected the model comment to state seconds and cross-ref
+`duration` (estimated **hours**, added for continuous-time ETA) and the analytics
+hours input; added a clarifying note to `TaskInput`; renamed the completion-time
+`save_calculation` metric from `"Execution Speed"` (collided with the KPI) to
+`"Task Time Spent (seconds)"`. No behavior/data change.
+
+**Deferred (Option B — normalize to true hours):** convert the write path to hours
+(`/ 3600`), update the client display (drop the `/60` minutes rendering), fix the
+completion memory labels, and add an Alembic migration converting existing rows
+seconds→hours. User-visible and touches the integration-tier timing path (not
+app-profile testable), so it was not taken now.
+
+**Reopen trigger:** any consumer needing `Task.time_spent` in hours (e.g. feeding
+it into the analytics TWR/effort formulas), or a decision to unify the effort unit
+across `duration` (hours) and `time_spent` (seconds).
+
+---
+
 ## MONGO-DB-NAME-1: social layer split across two Mongo databases (RESOLVED)
 
 **Status:** RESOLVED (2026-06-27). Code unified; no data migration required
