@@ -67,6 +67,41 @@ across `duration` (hours) and `time_spent` (seconds).
 
 ---
 
+## MASTERPLAN-CONNECTOR-RUNTIME-1: automation connectors lack a first-class registration + capability-enforcement surface (runtime-owned)
+
+**Status:** Deferred (2026-06-30). App-side connector coverage is complete
+(MASTERPLAN_SAAS Step 4); the residual is runtime work in `aindy-runtime`.
+
+**Context:** External automation connectors (social, crm, email, webhook, stripe,
+subscription) are dispatched by a hardcoded `if/elif` ladder in one app service,
+`apps/automation/services/automation_execution_service.py::execute_automation_action`.
+Each connector builds its own outbound HTTP/SMTP with stdlib (`urllib`/`smtplib`)
+and wraps it in the runtime `perform_external_call`, which is an **observability
+wrapper only** (`AINDY.platform_layer.external_call_service`): it emits
+`external.call.started|completed|failed` events and times the call, but does **not**
+authorize, allow-list, rate-limit, sandbox, or vault credentials. There is no
+`register_connector`-style hook in `AINDY.platform_layer.registry`.
+
+**Gaps (runtime-owned):**
+1. **Connector registration hook** — replace the app-side `if/elif` ladder with a
+   runtime `register_connector(type, handler)` surface so connectors are pluggable
+   like routers/syscalls/jobs, and so multiple apps can contribute connector types.
+2. **Capability-enforced outbound I/O** — a runtime boundary that gates external
+   calls (per-user authorization, endpoint allow-lists, credential vaulting,
+   rate-limiting) rather than the by-convention `perform_external_call` observe-only
+   wrapper.
+3. **Shared HTTP client / retry-circuit** — apps use raw `urllib` today;
+   consolidating outbound transport + retry/circuit-breaking belongs in the runtime.
+
+**Not blocked:** connector *delivery* works today (app-owned). This is hardening,
+not capability. Per the app/runtime split, these are `aindy-runtime` features; the
+app would adopt them via the new registration hook once published.
+
+**Reopen trigger:** a runtime release exposing a connector-registration and/or
+outbound-capability surface, or a security requirement for enforced outbound I/O.
+
+---
+
 ## MONGO-DB-NAME-1: social layer split across two Mongo databases (RESOLVED)
 
 **Status:** RESOLVED (2026-06-27). Code unified; no data migration required
@@ -366,7 +401,7 @@ application guard, the DB unique-index rejection, and that distinct sessions rem
 | Search orchestration unified (Steps 1–6 + v3 ranking + semantic seam, 2026-06-28) — shared `search_service`, unified `SearchResponse` contract, agent tool + `unified_search` workflow, shared lexical ranking, and the hybrid embedding-ranking seam (**SEARCH-RANKING-EMBEDDINGS-1**, RESOLVED) all shipped. No remaining search-ranking debt | search | — | done |
 | Freelance commercial workflow incomplete — payments/refunds/webhooks/idempotency/subscriptions and now lead→client→order lineage (Phase 1, 2026-06-28: `ClientAccount` + intake_service) exist; agent-driven execution (Phase 2) and the autonomous optimization loop (Phase 5) do not | freelance | M | before exposing freelance as a primary autonomous revenue path |
 | RippleTrace productization incomplete — execution-causality, graph edges, UI, and now end-to-end causal-graph validation (backend + frontend, Steps 1–2, 2026-06-28) exist; deeper insight generation and broader scenario coverage do not | rippletrace | M | before using RippleTrace as a primary incident/audit surface |
-| Masterplan dependency cascade + execution automation — anchor/ETA debt closed; ETA is now plan-scoped + cascade/critical-path aware (MASTERPLAN_SAAS Step 1, 2026-06-30, `apps/masterplan/services/eta_service.py`). task completion now returns the refreshed projection (Step 3, `_recalculate_active_masterplan_eta` → `task_orchestration.masterplan_projection`). the plan's ETA panel now surfaces the cascade metrics directly — basis chip, critical-chain depth, ready/blocked — and adopts the completion-response projection reactively via a `MasterplanProjectionProvider` context so completing a task refreshes the plan panel without a refetch (MASTERPLAN_SAAS Step 2, 2026-06-30, `client/src/components/app/MasterPlanDashboard.jsx`, `client/src/context/MasterplanProjectionContext.jsx`). ETA is now continuous-time: per-task `estimated_hours` drives a remaining-effort + effort-weighted-critical-path projection (`projection_basis="duration"`), reducing to count-based cascade when estimates are absent (2026-06-30, `apps/tasks/services/task_service.py`, `apps/masterplan/services/eta_service.py`). Remaining: external automation connectors (Step 4: social internal-only, CRM stub — delivery runtime-gated) | masterplan | L | before treating Masterplan as an autonomous planner |
+| Masterplan dependency cascade + execution automation — anchor/ETA debt closed; ETA is now plan-scoped + cascade/critical-path aware (MASTERPLAN_SAAS Step 1, 2026-06-30, `apps/masterplan/services/eta_service.py`). task completion now returns the refreshed projection (Step 3, `_recalculate_active_masterplan_eta` → `task_orchestration.masterplan_projection`). the plan's ETA panel now surfaces the cascade metrics directly — basis chip, critical-chain depth, ready/blocked — and adopts the completion-response projection reactively via a `MasterplanProjectionProvider` context so completing a task refreshes the plan panel without a refetch (MASTERPLAN_SAAS Step 2, 2026-06-30, `client/src/components/app/MasterPlanDashboard.jsx`, `client/src/context/MasterplanProjectionContext.jsx`). ETA is now continuous-time: per-task `estimated_hours` drives a remaining-effort + effort-weighted-critical-path projection (`projection_basis="duration"`), reducing to count-based cascade when estimates are absent (2026-06-30, `apps/tasks/services/task_service.py`, `apps/masterplan/services/eta_service.py`). external automation connectors now reach external surfaces — CRM (stub → provider-agnostic outbound POST) and social (additive external delivery on top of the internal feed) join email/webhook/stripe, all wrapped in the runtime `perform_external_call` boundary (MASTERPLAN_SAAS Step 4, 2026-06-30, `apps/automation/services/automation_execution_service.py`, `tests/unit/test_automation_connectors.py`). Remaining is runtime-owned hardening only (see MASTERPLAN-CONNECTOR-RUNTIME-1 below), not app wiring | masterplan | L | mostly closed; residual is runtime-owned |
 | ARM low-risk config suggestions require manual apply — `auto_apply_safe` remains advisory, not auto-applied | arm | S | before positioning ARM as a self-tuning service |
 | Infinity loop autonomy still shallow — reasoning extracted into a reusable engine + dedicated `reason()` service (strategy_selector/feedback_analyzer) the loop consumes, plus `reasoning.*` observability events, agent integration (planner consumes the `analytics.reasoning_recommendation` job; completion hook → reasoning-backed orchestrator), reasoning `execution_intent` + a registered `reasoning` flow strategy / `reasoning_apply` flow, and the `reasoning.evaluate` agent tool (`apps/analytics/services/reasoning/`, `apps/analytics/agents/`, ARM/Reasoning Phases 1–5 + tool follow-up, 2026-06-28/29). All app-ownable reasoning phases are complete. Still no deep threshold/weight learning and not a bounded autonomous controller | analytics | M | before enabling autonomous optimization decisions |
 | Nodus-native reasoning execution deferred (runtime) — reasoning `execution_intent` runs through the flow engine (Phase 4), but there is no app-facing registration surface for Nodus `.nd` workflows; true Nodus-first execution needs a `register_nodus_workflow`-style hook added in `aindy-runtime` (runtime feature request, not an app edit) | runtime/analytics | M | when Nodus becomes the primary execution substrate |
