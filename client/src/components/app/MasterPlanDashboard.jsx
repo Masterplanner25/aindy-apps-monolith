@@ -187,7 +187,12 @@ function ETAProjectionPanel({ planId }) {
   return (
     <div style={{ marginTop: "12px", padding: "10px", background: "#111113", borderRadius: "6px", border: "1px solid #27272a" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-        <span style={{ fontSize: "11px", color: "#71717a", fontWeight: "700", letterSpacing: "0.05em" }}>ETA PROJECTION</span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "11px", color: "#71717a", fontWeight: "700", letterSpacing: "0.05em" }}>ETA PROJECTION</span>
+          {projection.projection_basis === "cascade" &&
+          <span title="Dependency-aware projection (critical path)" style={{ fontSize: "9px", color: "#00ffaa", border: "1px solid #14532d", borderRadius: "4px", padding: "1px 5px" }}>cascade</span>
+          }
+        </span>
         <span style={{ fontSize: "11px", color: confidenceColor }}>{projection.eta_confidence}</span>
       </div>
       <div style={{ fontSize: "12px", color: "#a1a1aa" }}>
@@ -207,6 +212,16 @@ function ETAProjectionPanel({ planId }) {
         <p style={{ margin: "3px 0" }}>
           {projection.completed_tasks} / {projection.total_tasks} tasks complete
         </p>
+        {typeof projection.critical_depth === "number" && projection.critical_depth > 1 &&
+        <p style={{ margin: "3px 0" }}>
+            <strong>Critical chain:</strong> {`${projection.critical_depth} deep`}
+          </p>
+        }
+        {(typeof projection.ready_tasks === "number" || typeof projection.blocked_tasks === "number") &&
+        <p style={{ margin: "3px 0", color: "#71717a" }}>
+            {`${projection.ready_tasks ?? 0} ready · ${projection.blocked_tasks ?? 0} blocked`}
+          </p>
+        }
       </div>
     </div>);
 

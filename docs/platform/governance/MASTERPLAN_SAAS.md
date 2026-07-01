@@ -102,7 +102,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | ETA projection / timeline compression | Masterplan Plans doc | Plan-scoped, cascade/critical-path-aware projection (critical-path depth imposes a sequential floor over flat velocity); continuous-time duration modeling is still simplified | Implemented (cascade-aware) | `apps/masterplan/services/eta_service.py`, `apps/masterplan/routes/masterplan_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 | Dependency cascade model | Masterplan Plans doc | Dependency metadata, DAG construction, blocked-task enforcement, and downstream unlock behavior exist | Implemented | `db/models/task.py`, `services/task_services.py` |
 | Execution automation layer | Masterplan SaaS docs | MasterPlan can generate tasks and dispatch bound automation through the execution layer; external connectors remain partial | Partial | `routes/masterplan_router.py`, `services/masterplan_execution_service.py`, `routes/automation_router.py` |
-| Execution analytics dashboard | SaaS docs | Partial (MasterPlan dashboard + analytics summary exist, but no dedicated execution/compression dashboard) | Partial | `routes/analytics_router.py`, `routes/dashboard_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
+| Execution analytics dashboard | SaaS docs | The MasterPlan surface now shows plan-scoped cascade execution metrics directly (basis, critical-chain depth, ready/blocked); a dedicated cross-plan execution/compression dashboard is still not built | Partial | `routes/analytics_router.py`, `routes/dashboard_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 
 ---
 
@@ -184,9 +184,22 @@ improves for free — no change needed there.
 scoping + critical-depth derivation, the integration path (cascade vs velocity
 fallback), and missing-plan handling.
 
-### Step 2 - Expose MasterPlan execution metrics directly
-**Files:** `routes/masterplan_router.py`, `routes/analytics_router.py`, `client/src/components/MasterPlanDashboard.jsx`  
-**Outcome:** the MasterPlan surface shows execution metrics tied to the active plan rather than relying on generic dashboard views.
+### Step 2 - Expose MasterPlan execution metrics directly - DONE
+**Files:** `client/src/components/app/MasterPlanDashboard.jsx`  
+**Outcome:** the active plan's ETA panel now surfaces the Step-1 cascade metrics
+directly on the MasterPlan surface rather than relying on generic dashboard views.
+The projection endpoint (`get_masterplan_projection` → `calculate_eta`
+pass-through) already returns the cascade fields, so this step is purely the
+consuming UI: the `ETAProjectionPanel` renders a **`cascade`** basis chip when the
+projection is dependency-aware, a **critical-chain depth** line (`{critical_depth}
+deep`, shown only when the chain is longer than one), and a **`{ready} ready ·
+{blocked} blocked`** line — alongside the existing velocity / ahead-behind
+metrics. It degrades cleanly on the velocity fallback (no chip, no critical-chain
+line).
+
+**Tests:** `client/src/test/masterplan-dashboard.test.jsx` — cascade metrics
+render on the active plan, and the chip + critical-chain line are omitted on the
+velocity fallback.
 
 ### Step 3 - Return MasterPlan reprojection from task completion flows - DONE
 **Files:** `apps/tasks/services/task_service.py`  

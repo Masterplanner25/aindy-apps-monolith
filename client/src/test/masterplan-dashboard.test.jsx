@@ -107,4 +107,69 @@ describe("MasterPlanDashboard", () => {
     expect(await screen.findByText(/no master plans yet\./i)).toBeInTheDocument();
     expect(screen.getByText(/create your first plan to begin tracking objectives/i)).toBeInTheDocument();
   });
+
+  const ACTIVE_PLAN = {
+    id: 7,
+    version_label: "Plan Alpha",
+    status: "active",
+    is_active: true,
+    posture: "Accelerated",
+  };
+
+  it("surfaces cascade execution metrics on the active plan", async () => {
+    mockListMasterPlans.mockResolvedValue({ plans: [ACTIVE_PLAN] });
+    mockGetMasterplanProjection.mockResolvedValue({
+      velocity: 1.0,
+      projected_completion_date: "2026-08-01",
+      days_ahead_behind: 24,
+      eta_confidence: "high",
+      total_tasks: 3,
+      completed_tasks: 1,
+      remaining_tasks: 2,
+      critical_depth: 6,
+      blocked_tasks: 1,
+      ready_tasks: 1,
+      projection_basis: "cascade",
+    });
+
+    render(
+      <AppProviders>
+        <MasterPlanDashboard />
+      </AppProviders>,
+    );
+
+    // dependency-aware basis chip + the new critical-chain / ready-blocked metrics
+    expect(await screen.findByText("cascade")).toBeInTheDocument();
+    expect(screen.getByText("6 deep")).toBeInTheDocument();
+    expect(screen.getByText("1 ready · 1 blocked")).toBeInTheDocument();
+    // existing metric still renders
+    expect(screen.getByText("24d ahead")).toBeInTheDocument();
+  });
+
+  it("omits the cascade chip and critical chain on the velocity fallback", async () => {
+    mockListMasterPlans.mockResolvedValue({ plans: [ACTIVE_PLAN] });
+    mockGetMasterplanProjection.mockResolvedValue({
+      velocity: 0.5,
+      projected_completion_date: "2026-09-01",
+      days_ahead_behind: -3,
+      eta_confidence: "medium",
+      total_tasks: 10,
+      completed_tasks: 4,
+      remaining_tasks: 6,
+      critical_depth: 0,
+      blocked_tasks: 0,
+      ready_tasks: 0,
+      projection_basis: "velocity",
+    });
+
+    render(
+      <AppProviders>
+        <MasterPlanDashboard />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByText("3d behind")).toBeInTheDocument();
+    expect(screen.queryByText("cascade")).not.toBeInTheDocument();
+    expect(screen.queryByText(/deep/)).not.toBeInTheDocument();
+  });
 });
