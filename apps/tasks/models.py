@@ -30,13 +30,23 @@ class Task(Base):
     due_date = Column(DateTime, nullable=True)
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)
+    # ESTIMATED effort in HOURS. Set from the `estimated_hours` create input;
+    # consumed by the MasterPlan ETA (apps/masterplan/services/eta_service.py) for
+    # continuous-time / effort-weighted projection. Do NOT confuse with
+    # `time_spent` below (actual elapsed *seconds*).
     duration = Column(Float, default=0.0)
     scheduled_time = Column(DateTime, nullable=True)
     reminder_time = Column(DateTime, nullable=True)
     recurrence = Column(String, nullable=True)  # daily, weekly, monthly
 
     # --- Performance & AI Metrics ---
-    time_spent = Column(Float, default=0.0)  # in hours
+    # ACTUAL elapsed time in SECONDS (accrued via (now - start_time).total_seconds()
+    # on start/complete). NOT hours — every consumer treats this as seconds (the
+    # client shows time_spent/60 as minutes; completion memory labels it "s").
+    # Distinct from `duration` (estimated hours) and from the analytics
+    # TaskInput.time_spent API payload (which is caller-supplied hours, a separate
+    # path that never reads this column).
+    time_spent = Column(Float, default=0.0)  # actual elapsed SECONDS (see note above)
     task_complexity = Column(Integer, default=1)
     skill_level = Column(Integer, default=1)
     ai_utilization = Column(Integer, default=0)

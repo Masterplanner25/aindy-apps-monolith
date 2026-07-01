@@ -2,9 +2,15 @@ from pydantic import BaseModel, field_validator
 
 
 class TaskInput(BaseModel):
-    """Pydantic model for calculating TWR (Time-to-Wealth Ratio)."""
+    """Pydantic model for calculating TWR (Time-to-Wealth Ratio).
+
+    NOTE: ``time_spent`` here is a CALLER-SUPPLIED value in HOURS for the TWR/
+    effort/productivity formulas. It is unrelated to ``apps.tasks.models.Task.time_spent``,
+    which stores actual elapsed *seconds*. Do not feed the DB column into these
+    formulas without converting (seconds / 3600).
+    """
     task_name: str
-    time_spent: float  # In hours
+    time_spent: float  # In hours (caller-supplied; see class note)
     task_complexity: int  # 1-5 scale
     skill_level: int  # 1-5 scale
     ai_utilization: int  # 1-5 scale
