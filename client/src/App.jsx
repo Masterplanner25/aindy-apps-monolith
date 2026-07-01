@@ -15,6 +15,7 @@ import { useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/Login";
 import RegisterPage from "./pages/Register";
 import { useSystem } from "./context/SystemContext";
+import { MasterplanProjectionProvider } from "./context/MasterplanProjectionContext";
 
 import "./App.css";
 
@@ -225,7 +226,7 @@ export default function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<BootGate />}>
-                  <Route element={routeElement("Application Shell", <AppShell />)}>
+                  <Route element={routeElement("Application Shell", <MasterplanProjectionProvider><AppShell /></MasterplanProjectionProvider>)}>
                     <Route path="/" element={<RuntimeAwareHomeRedirect />} />
                     <Route path="/dashboard" element={<AppProfileRoute element={routeElement("Dashboard", <Dashboard />)} />} />
                     <Route path="/tasks" element={<AppProfileRoute element={routeElement("Tasks", <TaskDashboard />)} />} />
