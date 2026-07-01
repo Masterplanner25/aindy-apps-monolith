@@ -85,9 +85,11 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 - basic dashboards
 
 **Missing or Drifted vs Masterplan Module docs:**
-- ETA projection is now plan-scoped and cascade/critical-path aware (2026-06-30);
-  the remaining gap is continuous-time / per-task-duration compression (tasks are
-  count-based today)
+- ETA projection is now plan-scoped, cascade/critical-path aware, and
+  continuous-time (2026-06-30): tasks carry an optional `estimated_hours` effort
+  estimate and the projection runs on remaining *effort* + the effort-weighted
+  critical path when estimates exist (`projection_basis="duration"`), falling
+  back to count-based cascade otherwise
 - external automation connectors remain partial beyond the internal automation layer
 
 ---
@@ -99,7 +101,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | Genesis -> MasterPlan lifecycle | Masterplan Genesis Module | Implemented | Implemented | `routes/genesis_router.py`, `services/masterplan_factory.py` |
 | MasterPlan activation | Genesis Module | Implemented | Implemented | `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
 | Masterplan anchor / target state | Masterplan Plans doc | Anchor fields, endpoint, and UI are implemented | Implemented | `db/models/masterplan.py`, `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
-| ETA projection / timeline compression | Masterplan Plans doc | Plan-scoped, cascade/critical-path-aware projection (critical-path depth imposes a sequential floor over flat velocity); continuous-time duration modeling is still simplified | Implemented (cascade-aware) | `apps/masterplan/services/eta_service.py`, `apps/masterplan/routes/masterplan_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
+| ETA projection / timeline compression | Masterplan Plans doc | Plan-scoped, cascade/critical-path-aware, and continuous-time: with per-task effort estimates it projects on remaining effort + the effort-weighted critical path (`projection_basis="duration"`), reducing to count-based cascade when estimates are absent | Implemented (duration-aware) | `apps/masterplan/services/eta_service.py`, `apps/tasks/services/task_service.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 | Dependency cascade model | Masterplan Plans doc | Dependency metadata, DAG construction, blocked-task enforcement, and downstream unlock behavior exist | Implemented | `db/models/task.py`, `services/task_services.py` |
 | Execution automation layer | Masterplan SaaS docs | MasterPlan can generate tasks and dispatch bound automation through the execution layer; external connectors remain partial | Partial | `routes/masterplan_router.py`, `services/masterplan_execution_service.py`, `routes/automation_router.py` |
 | Execution analytics dashboard | SaaS docs | The MasterPlan surface now shows plan-scoped cascade execution metrics directly (basis, critical-chain depth, ready/blocked); a dedicated cross-plan execution/compression dashboard is still not built | Partial | `routes/analytics_router.py`, `routes/dashboard_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
@@ -110,7 +112,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
-| ETA projection is flat velocity-based only — RESOLVED (2026-06-30): now plan-scoped + cascade/critical-path aware (`apps/masterplan/services/eta_service.py`). Remaining: continuous-time/duration-based compression (tasks are count-based today, no per-task durations) | Compression now reflects dependency depth, not just raw counts | `apps/masterplan/services/eta_service.py` |
+| ETA projection is flat velocity-based only — RESOLVED (2026-06-30): now plan-scoped, cascade/critical-path aware, and continuous-time (per-task `estimated_hours` → remaining-effort + effort-weighted critical path, `projection_basis="duration"`) | Compression reflects dependency depth *and* heterogeneous task sizes, not just raw counts | `apps/masterplan/services/eta_service.py`, `apps/tasks/services/task_service.py` |
 | External automation connectors are still partial | Internal automation exists, but external social/CRM/payment surfaces are not fully connected | `routes/automation_router.py`, related automation services |
 
 ---
@@ -121,7 +123,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | --- | --- | --- | --- | --- |
 | Masterplan drift | Product | Plans exist without dependency-aware trajectory signal | Core value missing | High |
 | Docs vs runtime mismatch | Product | SaaS docs understate implemented anchor/ETA features and overstate execution depth | Expectation gap | High |
-| Projection still under-models dependency cascade | Technical | Mitigated (2026-06-30): ETA now uses critical-path depth (a sequential floor) and is plan-scoped; residual gap is per-task duration modeling | Weak projection quality | Low |
+| Projection still under-models dependency cascade | Technical | Resolved (2026-06-30): ETA is plan-scoped, uses critical-path depth as a sequential floor, and is continuous-time (effort-weighted critical path from per-task `estimated_hours`) | Weak projection quality | Low |
 | External automation connectors are partial | Business | Execution SaaS promise is only partly fulfilled | Revenue risk | High |
 
 ---
@@ -235,6 +237,33 @@ to consume.
 (active plan / no plan / no anchor / failure) and the orchestration return
 contract carrying the projection keys.
 
+### Step 5 - Continuous-time (per-task-duration) compression - DONE
+**Files:** `apps/tasks/services/task_service.py`, `apps/tasks/schemas/task_schemas.py`,
+`apps/tasks/routes/task_router.py`, `apps/tasks/syscalls/syscall_handlers.py`,
+`apps/masterplan/services/eta_service.py`, `client/src/components/app/MasterPlanDashboard.jsx`  
+**Outcome:** the ETA model was count-based — every task weighed the same. Tasks
+now carry an optional effort estimate (`estimated_hours` on create → `Task.duration`,
+hours), and the projection upgrades to **continuous time** when estimates exist.
+`build_task_graph` exposes per-node `duration` and a `critical_duration` map (the
+effort-weighted longest *remaining* dependency chain; completed nodes contribute
+0). `calculate_eta` scales task/day velocity by average task size into hours/day,
+then projects on **remaining effort** and the **effort-weighted critical path**:
+`max(remaining_effort / work_velocity, critical_path_effort /
+min(work_velocity, 8h/day))` — the 8h/day cap being the single-stream sequential
+floor. This reduces *exactly* to the count-based cascade estimate when tasks are
+uniform, so a plan with a few large tasks now projects longer than its task count
+implies. Basis becomes `projection_basis="duration"`; the result also surfaces
+`remaining_effort`, `critical_path_effort`, and `work_velocity`. It degrades to
+count-based cascade when no estimates exist, and to flat velocity when the graph
+is unavailable. The dashboard shows a `duration` chip and an "Effort left: ~Xh"
+line.
+
+**Tests:** `tests/unit/test_masterplan_eta_duration.py` (effort math, effort scope
+metrics, duration-basis integration, cascade fallback),
+`tests/unit/test_task_graph_duration.py` (duration-weighted critical path,
+completed-effort exclusion, `estimated_hours` persistence), and
+`client/src/test/masterplan-dashboard.test.jsx` (duration chip + effort line).
+
 ### Step 4 - Extend external automation connectors
 **Files:** `routes/automation_router.py`, related automation services/models  
 **Outcome:** the existing MasterPlan-linked automation layer reaches external social/CRM/payment surfaces rather than remaining mostly internal.
@@ -262,8 +291,8 @@ Masterplan layer debt is tracked in:
 
 The Masterplan SaaS layer currently implements **planning, locking, activation,
 anchor setting, dependency-aware task execution, plan-scoped cascade/critical-path
-ETA projection, and internal automation binding**. The remaining gaps are
-**continuous-time (per-task-duration) compression modeling** and complete external
-automation coverage. The system's core promise (execution as timeline
-compression) is now represented concretely through dependency-aware projection,
-though duration-based modeling and external connectors are not yet complete.
+ETA projection with continuous-time (per-task-duration) compression, and internal
+automation binding**. The remaining gap is complete external automation coverage.
+The system's core promise (execution as timeline compression) is now represented
+concretely through dependency- and effort-aware projection; external connectors
+are the last incomplete surface.

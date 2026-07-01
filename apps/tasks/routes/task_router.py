@@ -82,6 +82,7 @@ def create_task(
                 "task_name": task.name,
                 "category": task.category,
                 "priority": task.priority,
+                "estimated_hours": task.estimated_hours,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
                 "masterplan_id": task.masterplan_id,
                 "parent_task_id": task.parent_task_id,

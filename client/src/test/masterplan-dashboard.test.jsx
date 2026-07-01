@@ -172,4 +172,35 @@ describe("MasterPlanDashboard", () => {
     expect(screen.queryByText("cascade")).not.toBeInTheDocument();
     expect(screen.queryByText(/deep/)).not.toBeInTheDocument();
   });
+
+  it("surfaces continuous-time effort metrics on the duration basis", async () => {
+    mockListMasterPlans.mockResolvedValue({ plans: [ACTIVE_PLAN] });
+    mockGetMasterplanProjection.mockResolvedValue({
+      velocity: 1.0,
+      projected_completion_date: "2026-08-15",
+      days_ahead_behind: 12,
+      eta_confidence: "high",
+      total_tasks: 3,
+      completed_tasks: 1,
+      remaining_tasks: 2,
+      critical_depth: 2,
+      blocked_tasks: 0,
+      ready_tasks: 2,
+      remaining_effort: 34,
+      critical_path_effort: 20,
+      work_velocity: 10,
+      projection_basis: "duration",
+    });
+
+    render(
+      <AppProviders>
+        <MasterPlanDashboard />
+      </AppProviders>,
+    );
+
+    // duration basis shows its own chip + the effort-left line
+    expect(await screen.findByText("duration")).toBeInTheDocument();
+    expect(screen.getByText("~34h")).toBeInTheDocument();
+    expect(screen.getByText("12d ahead")).toBeInTheDocument();
+  });
 });

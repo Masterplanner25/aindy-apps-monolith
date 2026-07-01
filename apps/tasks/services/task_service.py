@@ -149,6 +149,15 @@ def _recompute_task_status(db: Session, task: Task, user_id: str | uuid.UUID | N
     return task.status
 
 
+def _as_effort_hours(value: Any) -> float:
+    """Coerce an estimated-effort value to non-negative hours (0.0 on bad input)."""
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return hours if hours > 0 else 0.0
+
+
 def build_task_graph(tasks: list[Task]) -> dict[str, Any]:
     nodes = {
         int(task.id): {
@@ -159,6 +168,7 @@ def build_task_graph(tasks: list[Task]) -> dict[str, Any]:
             "depends_on": _dependency_ids(task),
             "automation_type": getattr(task, "automation_type", None),
             "masterplan_id": getattr(task, "masterplan_id", None),
+            "duration": _as_effort_hours(getattr(task, "duration", 0.0)),
         }
         for task in tasks
     }
@@ -190,6 +200,21 @@ def build_task_graph(tasks: list[Task]) -> dict[str, Any]:
         if children:
             critical_weight[task_id] = 1 + max(critical_weight[child_id] for child_id in children)
 
+    # Duration-weighted critical path (hours of *remaining* work along the longest
+    # downstream chain). Completed nodes contribute 0 so the chain reflects effort
+    # still to do; mirrors ``critical_weight`` but in continuous time.
+    def _remaining_effort(task_id: int) -> float:
+        node = nodes[task_id]
+        return 0.0 if node["status"] == "completed" else float(node["duration"])
+
+    critical_duration = {task_id: _remaining_effort(task_id) for task_id in nodes}
+    for task_id in reversed(topo_order):
+        children = downstream[task_id]
+        if children:
+            critical_duration[task_id] = _remaining_effort(task_id) + max(
+                critical_duration[child_id] for child_id in children
+            )
+
     ready = [
         task_id
         for task_id in topo_order
@@ -210,6 +235,7 @@ def build_task_graph(tasks: list[Task]) -> dict[str, Any]:
         "downstream": downstream,
         "topological_order": topo_order,
         "critical_weight": critical_weight,
+        "critical_duration": critical_duration,
         "ready": ready,
         "blocked": blocked,
     }
@@ -237,6 +263,7 @@ def get_task_graph_context(db: Session, user_id: str | uuid.UUID | None) -> dict
         "blocked": graph["blocked"],
         "critical_path": critical_path,
         "critical_weight": graph["critical_weight"],
+        "critical_duration": graph["critical_duration"],
     }
 
 
@@ -400,6 +427,7 @@ def create_task(
     category="general",
     priority="medium",
     due_date=None,
+    duration: float | None = None,
     masterplan_id: int | None = None,
     parent_task_id: int | None = None,
     dependency_type: str = "hard",
@@ -434,6 +462,7 @@ def create_task(
         reminder_time=reminder_time,
         recurrence=recurrence,
         user_id=owner_user_id,
+        duration=_as_effort_hours(duration),
         time_spent=0,
         task_complexity=1,
         skill_level=1,
