@@ -13,6 +13,7 @@ class TaskCreate(BaseModel):
     title: Optional[str] = None  # accepted as alias for name
     category: Optional[str] = "general"
     priority: Optional[str] = "medium"
+    estimated_hours: Optional[float] = None  # estimated effort in hours -> Task.duration
     due_date: Optional[str] = None
     masterplan_id: Optional[int] = None
     parent_task_id: Optional[int] = None

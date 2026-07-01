@@ -6,9 +6,17 @@ Projects a MasterPlan's completion against the user-declared anchor_date.
 Projection is **plan-scoped** (only the plan's own tasks) and **cascade-aware**:
 remaining work is bounded both by throughput (remaining / velocity) and by the
 longest remaining dependency chain (critical-path depth), which cannot be
-parallelized away. The dependency graph (critical_path / critical_weight) comes
-from the existing `sys.v1.tasks.get_graph_context` syscall. When the graph is
-unavailable it falls back to the legacy flat user-velocity estimate.
+parallelized away. The dependency graph (critical_path / critical_weight /
+critical_duration) comes from the existing `sys.v1.tasks.get_graph_context`
+syscall.
+
+When the plan's tasks carry effort estimates (`Task.duration`, hours), the
+projection upgrades to **continuous time**: task/day velocity is scaled by
+average task size into hours/day, and the projection runs on remaining *effort*
+and the effort-weighted critical path (`projection_basis="duration"`). This
+reduces exactly to the count-based cascade estimate when tasks are uniform, and
+falls back to it when no estimates exist — and to the legacy flat user-velocity
+estimate when the graph is unavailable.
 
 Public API:
     calculate_eta(db, masterplan_id, user_id) -> dict
@@ -33,12 +41,27 @@ VELOCITY_WINDOW_DAYS = 14
 CONFIDENCE_HIGH_MIN_TASKS = 5
 CONFIDENCE_MEDIUM_MIN_TASKS = 2
 
+# A single dependency chain is worked one task at a time; it can absorb at most
+# ~a focused workday of effort per day, so a chain of E hours cannot finish
+# faster than E / SINGLE_STREAM_HOURS_PER_DAY days regardless of parallel
+# throughput. This is the continuous-time analogue of the count model's
+# "1 task/day" single-stream cap.
+SINGLE_STREAM_HOURS_PER_DAY = 8.0
+
 
 def _as_int(value: Any) -> Optional[int]:
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _as_float(value: Any) -> float:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return f if f > 0 else 0.0
 
 
 def _dispatch_task_read(payload: dict, *, db: Session, user_id: str, capability: str) -> dict:
@@ -111,34 +134,57 @@ def _scope_plan_from_graph(graph: dict, plan_id: Any) -> Optional[dict]:
         return None
 
     critical_weight = graph.get("critical_weight") or {}
+    critical_duration = graph.get("critical_duration") or {}
     ready = {_as_int(task_id) for task_id in (graph.get("ready") or [])}
     blocked = {_as_int(task_id) for task_id in (graph.get("blocked") or [])}
     plan_id_int = _as_int(plan_id)
 
     total = completed = blocked_tasks = ready_tasks = 0
     critical_depth = 0
+    critical_path_effort = 0.0
+    known_durations: list[float] = []      # any plan task with a real estimate
+    remaining_durations: list[float] = []  # raw estimates for remaining tasks (may be 0)
     for node in nodes.values():
         if _as_int(node.get("masterplan_id")) != plan_id_int:
             continue
         total += 1
+        duration = _as_float(node.get("duration"))
+        if duration > 0:
+            known_durations.append(duration)
         if str(node.get("status") or "") == "completed":
             completed += 1
             continue
         task_id = _as_int(node.get("task_id"))
         depth = _as_int(critical_weight.get(task_id, critical_weight.get(str(task_id)))) or 1
         critical_depth = max(critical_depth, depth)
+        chain_effort = _as_float(
+            critical_duration.get(task_id, critical_duration.get(str(task_id)))
+        )
+        critical_path_effort = max(critical_path_effort, chain_effort)
+        remaining_durations.append(duration)
         if task_id in ready:
             ready_tasks += 1
         elif task_id in blocked:
             blocked_tasks += 1
 
+    remaining = max(total - completed, 0)
+    # Fill unestimated remaining tasks with the average known task size so a
+    # partially-annotated plan still projects sensibly.
+    avg_effort = (sum(known_durations) / len(known_durations)) if known_durations else 0.0
+    remaining_effort = sum(d if d > 0 else avg_effort for d in remaining_durations)
+    has_duration_signal = bool(known_durations) and remaining > 0 and avg_effort > 0
+
     return {
         "total": total,
         "completed": completed,
-        "remaining": max(total - completed, 0),
+        "remaining": remaining,
         "critical_depth": critical_depth,
         "blocked_tasks": blocked_tasks,
         "ready_tasks": ready_tasks,
+        "avg_effort": avg_effort,
+        "remaining_effort": remaining_effort,
+        "critical_path_effort": critical_path_effort,
+        "has_duration_signal": has_duration_signal,
     }
 
 
@@ -155,6 +201,30 @@ def _project_days(remaining: int, velocity: float, critical_depth: int) -> float
     throughput_days = remaining / velocity
     chain_rate = min(velocity, 1.0)
     sequential_days = (critical_depth / chain_rate) if (critical_depth > 1 and chain_rate > 0) else 0.0
+    return max(throughput_days, sequential_days)
+
+
+def _project_effort_days(
+    remaining_effort: float, work_velocity: float, critical_path_effort: float
+) -> float:
+    """Continuous-time projection: days to finish ``remaining_effort`` hours of work.
+
+    The time-weighted analogue of ``_project_days``. Throughput is bounded by the
+    daily work capacity (``remaining_effort / work_velocity``), and the critical
+    chain imposes a sequential floor of ``critical_path_effort /
+    min(work_velocity, SINGLE_STREAM_HOURS_PER_DAY)`` — a chain of long tasks
+    pushes the date out even when aggregate throughput looks fast. Reduces exactly
+    to the count model when every task is the same size.
+    """
+    if work_velocity <= 0 or remaining_effort <= 0:
+        return 0.0
+    throughput_days = remaining_effort / work_velocity
+    chain_rate = min(work_velocity, SINGLE_STREAM_HOURS_PER_DAY)
+    sequential_days = (
+        (critical_path_effort / chain_rate)
+        if (critical_path_effort > 0 and chain_rate > 0)
+        else 0.0
+    )
     return max(throughput_days, sequential_days)
 
 
@@ -184,7 +254,9 @@ def calculate_eta(db: Session, masterplan_id: int, user_id: str) -> dict:
     Returns:
         dict with keys: velocity, projected_completion_date, days_ahead_behind,
         eta_confidence, anchor_date, total_tasks, completed_tasks, remaining_tasks,
-        critical_depth, blocked_tasks, ready_tasks, projection_basis
+        critical_depth, blocked_tasks, ready_tasks, remaining_effort,
+        critical_path_effort, work_velocity, projection_basis
+        (``projection_basis`` = duration | cascade | velocity | insufficient_data)
     """
     owner_user_id = require_user_id(user_id)
     plan = (
@@ -203,6 +275,10 @@ def calculate_eta(db: Session, masterplan_id: int, user_id: str) -> dict:
     # Plan-scoped, cascade-aware counts from the dependency graph; fall back to
     # legacy user-wide counts when the graph is unavailable.
     scope = _scope_plan_from_graph(_graph_context(db, owner_user_id), plan.id)
+    remaining_effort = 0.0
+    critical_path_effort = 0.0
+    work_velocity = 0.0
+    duration_modeled = False
     if scope is not None:
         total = scope["total"]
         completed = scope["completed"]
@@ -211,6 +287,14 @@ def calculate_eta(db: Session, masterplan_id: int, user_id: str) -> dict:
         blocked_tasks = scope["blocked_tasks"]
         ready_tasks = scope["ready_tasks"]
         projection_basis = "cascade"
+        # Continuous-time upgrade: when the plan's tasks carry effort estimates,
+        # scale task/day velocity into hours/day and project on remaining effort
+        # and the effort-weighted critical path instead of raw task counts.
+        if scope["has_duration_signal"] and velocity > 0:
+            work_velocity = velocity * scope["avg_effort"]
+            remaining_effort = scope["remaining_effort"]
+            critical_path_effort = scope["critical_path_effort"]
+            duration_modeled = work_velocity > 0 and remaining_effort > 0
     else:
         total = _total_tasks_for_user(db, owner_user_id)
         completed = _completed_tasks_for_user(db, owner_user_id)
@@ -224,7 +308,11 @@ def calculate_eta(db: Session, masterplan_id: int, user_id: str) -> dict:
     days_ahead_behind: Optional[int] = None
 
     if velocity > 0:
-        days_needed = _project_days(remaining, velocity, critical_depth)
+        if duration_modeled:
+            days_needed = _project_effort_days(remaining_effort, work_velocity, critical_path_effort)
+            projection_basis = "duration"
+        else:
+            days_needed = _project_days(remaining, velocity, critical_depth)
         projected = (now + timedelta(days=days_needed)).date()
         if plan.anchor_date:
             anchor = plan.anchor_date.date() if hasattr(plan.anchor_date, "date") else plan.anchor_date
@@ -255,6 +343,9 @@ def calculate_eta(db: Session, masterplan_id: int, user_id: str) -> dict:
         "critical_depth": critical_depth,
         "blocked_tasks": blocked_tasks,
         "ready_tasks": ready_tasks,
+        "remaining_effort": round(remaining_effort, 2),
+        "critical_path_effort": round(critical_path_effort, 2),
+        "work_velocity": round(work_velocity, 3),
         "projection_basis": projection_basis,
         "eta_last_calculated": plan.eta_last_calculated.isoformat(),
     }
