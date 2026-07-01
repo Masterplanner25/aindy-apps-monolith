@@ -30,9 +30,9 @@ def execute_automation_action(payload: dict[str, Any], db) -> dict[str, Any]:
         raise ValueError(f"unsupported_automation_type:{automation_type or 'unknown'}")
 
     if automation_type == "social":
-        return _execute_social_action(payload, config)
+        return _execute_social_action(payload, config, db=db)
     if automation_type == "crm":
-        return _execute_crm_action(payload, config)
+        return _execute_crm_action(payload, config, db=db)
     if automation_type == "email":
         return _execute_email_action(payload, config, db=db)
     if automation_type == "webhook":
@@ -44,7 +44,37 @@ def execute_automation_action(payload: dict[str, Any], db) -> dict[str, Any]:
     return _execute_content_generation(payload, config)
 
 
-def _execute_social_action(payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+def _auth_headers(config: dict[str, Any], *, header_key: str = "auth_header", key_key: str = "api_key") -> dict[str, str]:
+    """Build outbound headers with a JSON content-type and optional auth.
+
+    Accepts either a full ``auth_header`` (used verbatim) or an ``api_key``
+    (sent as a Bearer token). Extra ``headers`` in config are merged in.
+    """
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    headers.update({str(k): str(v) for k, v in (config.get("headers") or {}).items()})
+    if config.get(header_key):
+        headers["Authorization"] = str(config.get(header_key))
+    elif config.get(key_key):
+        headers["Authorization"] = f"Bearer {config.get(key_key)}"
+    return headers
+
+
+def _http_json(endpoint: str, body: Any, headers: dict[str, str], method: str) -> dict[str, Any]:
+    """POST/PUT a JSON body and return a compact {status_code, body} result."""
+    req = urllib_request.Request(
+        str(endpoint),
+        data=json.dumps(body).encode("utf-8"),
+        headers=headers,
+        method=method,
+    )
+    with urllib_request.urlopen(req, timeout=15) as resp:
+        return {
+            "status_code": getattr(resp, "status", 200),
+            "body": resp.read().decode("utf-8", errors="ignore")[:2000],
+        }
+
+
+def _execute_social_action(payload: dict[str, Any], config: dict[str, Any], *, db=None) -> dict[str, Any]:
     content = str(config.get("content") or payload.get("task_name") or "").strip()
     if not content:
         raise ValueError("social_content_required")
@@ -56,11 +86,12 @@ def _execute_social_action(payload: dict[str, Any], config: dict[str, Any]) -> d
     posts = social_db["posts"]
     post_id = str(config.get("post_id") or "")
     now = datetime.now(timezone.utc)
+    tags = config.get("tags") or ["masterplan", "automation"]
     document = {
         "user_id": str(payload.get("user_id") or ""),
         "content": content,
         "visibility": config.get("visibility", "private"),
-        "tags": config.get("tags") or ["masterplan", "automation"],
+        "tags": tags,
         "created_at": now,
         "updated_at": now,
         "origin": "masterplan_automation",
@@ -68,23 +99,98 @@ def _execute_social_action(payload: dict[str, Any], config: dict[str, Any]) -> d
         "masterplan_id": payload.get("masterplan_id"),
     }
     inserted = posts.insert_one(document)
-    return {
+    result = {
         "automation_type": "social",
         "status": "completed",
         "post_id": str(inserted.inserted_id),
         "content": content,
         "requested_post_id": post_id or None,
+        "delivery": "internal",
     }
 
+    # Additive external delivery: when an external target is configured, also
+    # publish the post to that surface (e.g. a real social API / bridge). The
+    # internal feed post above is always written regardless.
+    external_endpoint = config.get("external_endpoint") or config.get("external_url")
+    if external_endpoint:
+        headers = _auth_headers(
+            config, header_key="external_auth_header", key_key="external_api_key"
+        )
+        if config.get("external_headers"):
+            headers.update({str(k): str(v) for k, v in config["external_headers"].items()})
+        method = str(config.get("external_method") or "POST").upper()
+        body = config.get("external_body")
+        if body is None:
+            body = {
+                "content": content,
+                "visibility": config.get("visibility", "private"),
+                "tags": tags,
+                "user_id": str(payload.get("user_id") or ""),
+            }
+        external_response = perform_external_call(
+            service_name="social",
+            db=db,
+            user_id=payload.get("user_id"),
+            endpoint=str(external_endpoint),
+            method=f"http.{method.lower()}",
+            extra={"purpose": "social_external_delivery"},
+            operation=lambda: _http_json(external_endpoint, body, headers, method),
+        )
+        result["delivery"] = "internal+external"
+        result["external_response"] = external_response
 
-def _execute_crm_action(payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    return result
+
+
+def _execute_crm_action(payload: dict[str, Any], config: dict[str, Any], *, db=None) -> dict[str, Any]:
+    action = config.get("action", "record_follow_up")
+    contact = config.get("contact")
+    details = config.get("details") or config.get("notes")
+    endpoint = config.get("endpoint") or config.get("url") or config.get("crm_url")
+
+    # No external CRM target configured — record the intent internally (the
+    # historical stub behavior), so plan items without a CRM endpoint still work.
+    if not endpoint:
+        return {
+            "automation_type": "crm",
+            "status": "recorded",
+            "delivery": "internal",
+            "action": action,
+            "contact": contact,
+            "details": details,
+            "task_id": payload.get("task_id"),
+        }
+
+    headers = _auth_headers(config)
+    method = str(config.get("method") or "POST").upper()
+    body = config.get("body")
+    if body is None:
+        body = {
+            "action": action,
+            "contact": contact,
+            "details": details,
+            "task_name": payload.get("task_name"),
+            "user_id": str(payload.get("user_id") or ""),
+            "metadata": config.get("metadata") or {},
+        }
+    response = perform_external_call(
+        service_name="crm",
+        db=db,
+        user_id=payload.get("user_id"),
+        endpoint=str(endpoint),
+        method=f"http.{method.lower()}",
+        extra={"purpose": "crm_sync", "action": action, "contact": contact},
+        operation=lambda: _http_json(endpoint, body, headers, method),
+    )
     return {
         "automation_type": "crm",
         "status": "completed",
-        "action": config.get("action", "record_follow_up"),
-        "contact": config.get("contact"),
-        "details": config.get("details") or config.get("notes"),
+        "delivery": "external",
+        "action": action,
+        "contact": contact,
+        "details": details,
         "task_id": payload.get("task_id"),
+        "response": response,
     }
 
 

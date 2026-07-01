@@ -90,7 +90,9 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
   estimate and the projection runs on remaining *effort* + the effort-weighted
   critical path when estimates exist (`projection_basis="duration"`), falling
   back to count-based cascade otherwise
-- external automation connectors remain partial beyond the internal automation layer
+- external automation connectors now reach social/CRM/payment surfaces (2026-06-30);
+  what remains is runtime-owned hardening (a first-class connector registration hook
+  + capability-enforced outbound I/O), not app wiring
 
 ---
 
@@ -103,7 +105,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | Masterplan anchor / target state | Masterplan Plans doc | Anchor fields, endpoint, and UI are implemented | Implemented | `db/models/masterplan.py`, `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
 | ETA projection / timeline compression | Masterplan Plans doc | Plan-scoped, cascade/critical-path-aware, and continuous-time: with per-task effort estimates it projects on remaining effort + the effort-weighted critical path (`projection_basis="duration"`), reducing to count-based cascade when estimates are absent | Implemented (duration-aware) | `apps/masterplan/services/eta_service.py`, `apps/tasks/services/task_service.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 | Dependency cascade model | Masterplan Plans doc | Dependency metadata, DAG construction, blocked-task enforcement, and downstream unlock behavior exist | Implemented | `db/models/task.py`, `services/task_services.py` |
-| Execution automation layer | Masterplan SaaS docs | MasterPlan can generate tasks and dispatch bound automation through the execution layer; external connectors remain partial | Partial | `routes/masterplan_router.py`, `services/masterplan_execution_service.py`, `routes/automation_router.py` |
+| Execution automation layer | Masterplan SaaS docs | MasterPlan generates tasks and dispatches bound automation through the execution layer; connectors reach external social/CRM/email/webhook/payment surfaces (app builds the call, wrapped in the runtime `perform_external_call` boundary) | Implemented | `apps/masterplan/services/masterplan_execution_service.py`, `apps/automation/services/automation_execution_service.py` |
 | Execution analytics dashboard | SaaS docs | The MasterPlan surface now shows plan-scoped cascade execution metrics directly (basis, critical-chain depth, ready/blocked); a dedicated cross-plan execution/compression dashboard is still not built | Partial | `routes/analytics_router.py`, `routes/dashboard_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 
 ---
@@ -113,7 +115,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | Gap | Impact | Files to Update |
 | --- | --- | --- |
 | ETA projection is flat velocity-based only — RESOLVED (2026-06-30): now plan-scoped, cascade/critical-path aware, and continuous-time (per-task `estimated_hours` → remaining-effort + effort-weighted critical path, `projection_basis="duration"`) | Compression reflects dependency depth *and* heterogeneous task sizes, not just raw counts | `apps/masterplan/services/eta_service.py`, `apps/tasks/services/task_service.py` |
-| External automation connectors are still partial | Internal automation exists, but external social/CRM/payment surfaces are not fully connected | `routes/automation_router.py`, related automation services |
+| External automation connectors — RESOLVED (2026-06-30): social + CRM now reach external surfaces alongside email/webhook/stripe. Remaining is runtime-owned: a first-class connector registration hook + capability-enforced outbound I/O | Execution SaaS promise (external delivery) now met; hardening is runtime work | `apps/automation/services/automation_execution_service.py` |
 
 ---
 
@@ -124,7 +126,7 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 | Masterplan drift | Product | Plans exist without dependency-aware trajectory signal | Core value missing | High |
 | Docs vs runtime mismatch | Product | SaaS docs understate implemented anchor/ETA features and overstate execution depth | Expectation gap | High |
 | Projection still under-models dependency cascade | Technical | Resolved (2026-06-30): ETA is plan-scoped, uses critical-path depth as a sequential floor, and is continuous-time (effort-weighted critical path from per-task `estimated_hours`) | Weak projection quality | Low |
-| External automation connectors are partial | Business | Execution SaaS promise is only partly fulfilled | Revenue risk | High |
+| External automation connectors are partial | Business | Mitigated (2026-06-30): social/CRM/email/webhook/payment all reach external surfaces; residual is runtime-owned hardening (connector registration hook + capability-enforced outbound I/O), not delivery capability | Revenue risk | Low |
 
 ---
 
@@ -132,9 +134,10 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 
 The Masterplan SaaS layer is currently:
 
-> A strategic planning + activation system with dependency-aware task execution
-> and internal automation binding, but still partial compression modeling and
-> incomplete external automation surfaces.
+> A strategic planning + activation system with dependency-aware, continuous-time
+> task execution and automation binding that reaches external social/CRM/email/
+> webhook/payment surfaces. Remaining refinements are runtime-owned (a first-class
+> connector registration hook + capability-enforced outbound I/O).
 
 ---
 
@@ -264,9 +267,39 @@ metrics, duration-basis integration, cascade fallback),
 completed-effort exclusion, `estimated_hours` persistence), and
 `client/src/test/masterplan-dashboard.test.jsx` (duration chip + effort line).
 
-### Step 4 - Extend external automation connectors
-**Files:** `routes/automation_router.py`, related automation services/models  
-**Outcome:** the existing MasterPlan-linked automation layer reaches external social/CRM/payment surfaces rather than remaining mostly internal.
+### Step 4 - Extend external automation connectors - DONE
+**Files:** `apps/automation/services/automation_execution_service.py`  
+**Outcome:** the MasterPlan-linked automation layer now reaches external
+social/CRM/payment surfaces. Payment (`stripe`/`subscription`) and `email`/
+`webhook` were already external; the two gaps — **CRM** (a pure echo stub) and
+**social** (internal Mongo feed only) — are now wired, mirroring the existing
+pattern: the app builds the outbound HTTP request and wraps it in the runtime's
+`perform_external_call` observability boundary (no runtime change or new
+connector hook needed — outbound I/O is app-owned).
+- **CRM** is now provider-agnostic: when `automation_config` supplies an
+  `endpoint` (+ `api_key`/`auth_header`), it POSTs the contact/action/details
+  payload to that CRM API (`service_name="crm"`, `status="completed"`,
+  `delivery="external"`). With no endpoint it falls back to the historical
+  record-only behavior (`status="recorded"`, `delivery="internal"`), so plan
+  items without a CRM target still work.
+- **Social** external delivery is **additive**: the internal feed post is always
+  written, and when `external_endpoint` (+ `external_api_key`/`external_auth_header`)
+  is configured the post is also published to that surface
+  (`delivery="internal+external"`).
+
+The MasterPlan → task automation binding is already generic
+(`masterplan_execution_service._automation_from_item`), so plan items can target
+the CRM/social connectors with no further wiring.
+
+**Tests:** `tests/unit/test_automation_connectors.py` — CRM record-only fallback +
+external POST (payload/auth/wrapping), social internal-only + additive external
+delivery, and the unsupported-type / required-content guards. (Connectors
+previously had zero behavioral coverage.)
+
+**Deferred (runtime-owned, not blocking):** a first-class `register_connector`-style
+registration hook (connectors are an app-side `if/elif` ladder today) and
+capability-enforced outbound I/O (allow-lists, credential vaulting, rate-limiting).
+`perform_external_call` only observes; it does not gate. Tracked in TECH_DEBT.
 
 ---
 
@@ -291,8 +324,9 @@ Masterplan layer debt is tracked in:
 
 The Masterplan SaaS layer currently implements **planning, locking, activation,
 anchor setting, dependency-aware task execution, plan-scoped cascade/critical-path
-ETA projection with continuous-time (per-task-duration) compression, and internal
-automation binding**. The remaining gap is complete external automation coverage.
-The system's core promise (execution as timeline compression) is now represented
-concretely through dependency- and effort-aware projection; external connectors
-are the last incomplete surface.
+ETA projection with continuous-time (per-task-duration) compression, and automation
+binding that reaches external social/CRM/email/webhook/payment surfaces**. The
+system's core promise (execution as timeline compression, then external execution)
+is now represented concretely end to end. The remaining refinements are
+runtime-owned hardening — a first-class connector registration hook and
+capability-enforced outbound I/O — not app-level gaps.
