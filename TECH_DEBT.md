@@ -67,6 +67,59 @@ across `duration` (hours) and `time_spent` (seconds).
 
 ---
 
+## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion unverified in-app; resume continuation emits `execution.started` outside the pipeline
+
+**Status:** Partial validation (2026-07-04). The §5 gate from
+`HANDOFF-aindy-runtime-1.5.0.md` is validated up to — but not through —
+execute-to-completion. Tracked by the CI job `nodus-vm-integration.yml` /
+`tests/integration/test_nodus_vm.py`.
+
+**Context:** RTR-1 shipped the opt-in `nodus_vm` agent-execution backend
+(`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`). §5 asked whether tools registered via
+this repo's plugin manifest resolve **and execute** inside the `nodus_worker`
+subprocess. The first live-Postgres CI run (2026-07-04, runtime 1.5.0) established:
+
+- ✅ Plan generation under nodus_vm (stub + `anthropic_chat` planners).
+- ✅ WAIT parking — `AINDY_AGENT_WAIT_BEFORE_HIGH_RISK` inserts an approval WAIT before
+  the first high-risk step; the run parks at `status="waiting"` with `wait_state` /
+  `correlation_id` / `granted_tools` set.
+- ✅ The app-owned resume route (`POST /apps/agent/runs/{id}/resume`, §4) returns 200
+  and publishes `agent.approval.granted` scoped to the run's correlation.
+- ✅ No tool-resolution failure surfaced in the subprocess (no `"tool not found"`),
+  i.e. the app manifest loaded there.
+- ❌ **Execute-to-completion does not run under the TestClient integration harness.**
+  After resume the run stays `waiting`, and the runtime repeatedly raises
+  `RuntimeError: ExecutionContract violation: execution event 'execution.started'
+  emitted outside pipeline` (`AINDY/core/system_event_service.py:453`, from
+  `AINDY/core/execution_pipeline/pipeline.py:326`). The plan continuation appears to
+  run outside the ExecutionPipeline wrapper.
+
+**Open question (drives the fix owner):** is this a harness limitation — the resumed
+continuation needs a running scheduler that `TestClient` (with
+`AINDY_ENABLE_BACKGROUND_TASKS=false`) does not provide — or a genuine
+`aindy-runtime` defect in the nodus_vm resume-continuation path (missing pipeline
+wrapper)? The runtime repo validated nodus_vm execute-to-completion for
+runtime-native memory tools, so the app-manifest execute leg specifically is what
+remains unproven here.
+
+**Current handling:** `test_nodus_vm.py` hard-asserts the validated legs (parking,
+resume acceptance, no resolution failure) and marks execute-to-completion `xfail`
+with this reference, so the CI job is green and records exactly what is proven.
+
+**Deferred / next options:**
+1. **Live-server harness** — run the app as a real uvicorn process in CI (scheduler
+   ticking) instead of `TestClient`, then re-run the resume→completion leg. If it
+   completes, the error was harness-only and the `xfail`s become hard asserts.
+2. **Runtime bug report** — if completion still fails with a scheduler running, file
+   the `execution.started emitted outside pipeline` symptom against `aindy-runtime`
+   (RTR-1) with the repro (stub plan + `AINDY_AGENT_WAIT_BEFORE_HIGH_RISK` on live PG).
+
+**Reopen trigger:** either option above, or any move to make `nodus_vm` a default
+(`AINDY_AGENT_EXECUTION_BACKEND`) — which cannot happen until execute-to-completion
+with real app tools is proven end-to-end.
+
+---
+
 ## MASTERPLAN-CONNECTOR-RUNTIME-1: automation connectors lack a first-class registration + capability-enforcement surface (runtime-owned)
 
 **Status:** Deferred (2026-06-30). App-side connector coverage is complete

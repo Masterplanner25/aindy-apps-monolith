@@ -131,4 +131,4 @@ jobs:
           python -m pytest
           -c pytest.nodus.ini
           tests/integration/test_nodus_vm.py
-          -v
+          -v -ra
