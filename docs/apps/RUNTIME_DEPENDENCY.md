@@ -25,10 +25,10 @@ aindy-runtime>=1.0,<2.0
 The upper bound is required. The apps repo should not accept unbounded runtime
 upgrades.
 
-Validated on `2026-06-29`:
+Validated on `2026-07-04`:
 
-- installed runtime version: `1.4.3`
-- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.4.3,<2.0`
+- installed runtime version: `1.5.0`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.5.0,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
 
 `aindy-runtime` is published on PyPI (`PYPI-PUBLISH-1` is closed), so this is the
@@ -38,7 +38,7 @@ live, published dependency contract — not a pre-publication staging arrangemen
 
 `aindy-runtime` is installed from PyPI as a normal pinned dependency:
 
-- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.4.3,<2.0`
+- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.5.0,<2.0`
 - CI installs it via `pip install -e .[test]` (no runtime-repo checkout, no source
   install)
 - CI verifies the installed runtime version and that `/api/version` reports the
