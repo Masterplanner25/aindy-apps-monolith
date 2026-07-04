@@ -398,3 +398,57 @@ class TestAgentApproveReject:
         token = _register_and_login(client)
         r = client.post(f"/apps/agent/runs/{uuid.uuid4()}/reject", headers=_auth(token))
         assert r.status_code == 404
+
+
+class TestAgentResume:
+    """POST /apps/agent/runs/{id}/resume — release a run parked on a mid-plan WAIT step (RTR-1)."""
+
+    def test_resume_unauthenticated_returns_401(self, client):
+        r = client.post(f"/apps/agent/runs/{uuid.uuid4()}/resume")
+        assert r.status_code == 401
+
+    def test_resume_unknown_run_returns_404(self, client):
+        token = _register_and_login(client)
+        r = client.post(f"/apps/agent/runs/{uuid.uuid4()}/resume", headers=_auth(token))
+        assert r.status_code == 404
+
+    def test_resume_non_waiting_run_returns_409(self, client):
+        """A run that exists but is not in status='waiting' cannot be resumed."""
+        if os.getenv("AINDY_AGENT_PLANNER_BACKEND") == "disabled":
+            pytest.skip("plan generation required to create a run")
+        token = _register_and_login(client)
+        r = client.post(
+            "/apps/agent/run",
+            json={"goal": f"Resume 409 test {uuid.uuid4().hex[:6]}"},
+            headers=_auth(token),
+        )
+        if r.status_code in (202, 500):
+            pytest.skip("run deferred or planner not configured")
+        run_id = _extract_run_id(r.json())
+        if run_id is None:
+            pytest.skip("no run_id returned")
+        r = client.post(f"/apps/agent/runs/{run_id}/resume", headers=_auth(token))
+        # Not parked on a WAIT step → the runtime rejects the resume as a conflict.
+        assert r.status_code == 409, f"expected 409, got {r.status_code} {r.text[:200]}"
+
+    def test_resume_owner_invokes_runtime(self, client):
+        """Owner POST reaches resume_agent_run_runtime and returns its envelope (200)."""
+        from unittest.mock import patch
+
+        token = _register_and_login(client)
+        run_id = str(uuid.uuid4())
+        fake_result = {
+            "run_id": run_id,
+            "status": "executing",
+            "resumed_event": "agent.wait.released",
+            "correlation_id": None,
+            "waiters_notified": 1,
+        }
+        with patch(
+            "apps.agent.routes.agent_router.resume_agent_run_runtime",
+            return_value=fake_result,
+        ) as mock_resume:
+            r = client.post(f"/apps/agent/runs/{run_id}/resume", headers=_auth(token))
+        assert r.status_code == 200, f"resume: {r.status_code} {r.text[:200]}"
+        assert mock_resume.called, "resume_agent_run_runtime was not invoked"
+        assert mock_resume.call_args.kwargs.get("run_id") == run_id
