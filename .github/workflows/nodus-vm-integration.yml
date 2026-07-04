@@ -1,0 +1,128 @@
+name: Nodus VM Integration (RTR-1 §5)
+
+# Validates the runtime's opt-in `nodus_vm` agent-execution backend end-to-end
+# against a live Postgres stack, driving REAL app-manifest tools through the
+# nodus_worker subprocess (handoff HANDOFF-aindy-runtime-1.5.0.md §5).
+#
+# This is the ONE validation that can only be done in this repo: whether app
+# tools registered via aindy_plugins.json resolve AND execute inside the
+# subprocess spawned by NodusRuntimeAdapter (the PLANNER-SUBPROC-1 risk class).
+#
+# It uses the app-owned `anthropic_chat` planner (a real Claude call) so the LLM
+# selects a genuine app-manifest-only tool (e.g. task.create) that the runtime
+# has no built-in default for — the only way to prove the app manifest loaded in
+# the subprocess. It therefore requires the `ANTHROPIC_API_KEY` repo secret and
+# self-skips (green no-op) when the secret is absent.
+#
+# Not wired into the PR gate: it costs LLM tokens and needs a secret unavailable
+# on fork PRs. Runs post-merge on main and on demand.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/agent/**"
+      - "pyproject.toml"
+      - "pytest.nodus.ini"
+      - "tests/integration/test_nodus_vm.py"
+      - ".github/workflows/nodus-vm-integration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  nodus-vm-integration:
+    name: Nodus VM + App Tools (live Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: aindy_test
+          POSTGRES_PASSWORD: aindy_test
+          POSTGRES_DB: aindy_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U aindy_test -d aindy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Secret is unavailable on fork PRs and when unset — the preflight step
+      # below turns this whole job into a green no-op in that case.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - name: Preflight — require ANTHROPIC_API_KEY
+        id: preflight
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "::notice title=Nodus VM validation skipped::ANTHROPIC_API_KEY not set; the §5 LLM-driven validation needs it. Skipping (no-op)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.preflight.outputs.run == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        if: steps.preflight.outputs.run == 'true'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.preflight.outputs.run == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
+
+      - name: Verify runtime provides the RTR-1 resume surface (>= 1.5.0)
+        if: steps.preflight.outputs.run == 'true'
+        run: |
+          python - <<'PY'
+          import importlib.metadata as md
+          from packaging.version import Version
+
+          version = md.version("aindy-runtime")
+          assert Version(version) >= Version("1.5.0"), f"need aindy-runtime>=1.5.0, got {version}"
+
+          # The nodus_vm + resume path this job exercises only exists in >=1.5.0.
+          from AINDY.agents.runtime_api import resume_agent_run_runtime  # noqa: F401
+          print(f"aindy-runtime {version}: resume_agent_run_runtime present")
+          PY
+
+      - name: Run §5 nodus_vm validation
+        if: steps.preflight.outputs.run == 'true'
+        run: >-
+          python -m pytest
+          -c pytest.nodus.ini
+          tests/integration/test_nodus_vm.py
+          -v
