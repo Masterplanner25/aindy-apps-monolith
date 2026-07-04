@@ -69,10 +69,10 @@ across `duration` (hours) and `time_spent` (seconds).
 
 ## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion unverified in-app; resume continuation emits `execution.started` outside the pipeline
 
-**Status:** Partial validation (2026-07-04). The §5 gate from
-`HANDOFF-aindy-runtime-1.5.0.md` is validated up to — but not through —
-execute-to-completion. Tracked by the CI job `nodus-vm-integration.yml` /
-`tests/integration/test_nodus_vm.py`.
+**Status:** Runtime fix shipped in **aindy-runtime 1.5.1** (#152); app pin bumped
+to `>=1.5.1`. Awaiting the §5 CI re-run to confirm execute-to-completion is now
+observable in-harness, after which the test `xfail`s flip to hard asserts. Tracked
+by the CI job `nodus-vm-integration.yml` / `tests/integration/test_nodus_vm.py`.
 
 **Context:** RTR-1 shipped the opt-in `nodus_vm` agent-execution backend
 (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`). §5 asked whether tools registered via
@@ -105,19 +105,28 @@ default `ENFORCE_EXECUTION_CONTRACT=True`, raises. A live server (scheduler runn
 fixes event *delivery* but **not** this — the callback still runs without a pipeline
 context. This is not a harness limitation; it is an `aindy-runtime` defect.
 
-**Filed:** `aindy-runtime` issue **#152** (full file:line diagnosis and repro). Fix is
-runtime-owned (this repo does not own `AINDY/`): wrap the resumed segment in a pipeline
-/ async-execution context the way the initial run is. Local report:
-`HANDOFF-runtime-nodus-resume-pipeline-context-bug.md`.
+**Filed:** `aindy-runtime` issue **#152** (full file:line diagnosis and repro). Local
+report: `HANDOFF-runtime-nodus-resume-pipeline-context-bug.md`.
 
-**Current handling:** `test_nodus_vm.py` hard-asserts the validated legs (parking,
-resume acceptance, no resolution failure) and marks execute-to-completion `xfail`
-with this reference, so the CI job is green and records exactly what is proven.
+**Fixed in aindy-runtime 1.5.1** (confirmed in the installed source): the resumed
+segment now wraps `_execute_agent_segment_chain` in `activate_async_execution_context()`
+(`AINDY/runtime/nodus_execution_service.py:617-631`, comment cites #152), so every
+`execution.*` event in the resumed chain satisfies the `ENFORCE_EXECUTION_CONTRACT`
+guard instead of raising and stranding the run at `executing`.
 
-**Reopen trigger:** `aindy-runtime#152` ships (then flip the `xfail`s to hard asserts
-and re-run the CI job), or any move to make `nodus_vm` the default
-(`AINDY_AGENT_EXECUTION_BACKEND`) — which cannot happen until execute-to-completion
-with real app tools is proven end-to-end.
+**Current handling / remaining unknown:** `test_nodus_vm.py` hard-asserts the validated
+legs (parking, resume acceptance, no resolution failure) and marks execute-to-completion
+`xfail` (imperative — it *auto-passes* if the run reaches a terminal state). The context
+bug is fixed, but the resume callback is **scheduler-driven**, and the §5 job runs under
+`TestClient` — so completion is only observable if the callback is actually dispatched in
+that harness. The §5 re-run on 1.5.1 settles it: if it now completes, convert the
+conditional `xfail`s to plain hard asserts; if it still parks at `waiting`, the residual
+is purely a harness gap (no scheduler tick) — close it with a manual
+`get_scheduler_engine().schedule()` drive in the test or a live-server harness.
+
+**Reopen trigger:** the §5 re-run result (flip `xfail`s → hard asserts on green), or any
+move to make `nodus_vm` the default (`AINDY_AGENT_EXECUTION_BACKEND`) — which cannot
+happen until execute-to-completion with real app tools is proven end-to-end.
 
 ---
 
