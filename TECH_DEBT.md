@@ -94,27 +94,28 @@ subprocess. The first live-Postgres CI run (2026-07-04, runtime 1.5.0) establish
   `AINDY/core/execution_pipeline/pipeline.py:326`). The plan continuation appears to
   run outside the ExecutionPipeline wrapper.
 
-**Open question (drives the fix owner):** is this a harness limitation — the resumed
-continuation needs a running scheduler that `TestClient` (with
-`AINDY_ENABLE_BACKGROUND_TASKS=false`) does not provide — or a genuine
-`aindy-runtime` defect in the nodus_vm resume-continuation path (missing pipeline
-wrapper)? The runtime repo validated nodus_vm execute-to-completion for
-runtime-native memory tools, so the app-manifest execute leg specifically is what
-remains unproven here.
+**Root cause (confirmed — runtime-owned bug):** the resumed segment is dispatched by
+the scheduler and runs **inline with no enclosing `ExecutionPipeline` context**
+(`AINDY/runtime/nodus_execution_service.py` `_execute_agent_segment_chain` never calls
+`execute_with_pipeline` / `set_pipeline_active` / `activate_async_execution_context`,
+unlike the initial run which enters via `ExecutionPipeline().run`). When the resumed
+segment emits `execution.started`, the guard at `AINDY/core/system_event_service.py:453`
+sees neither `is_pipeline_active()` nor `is_async_execution_active()` and, with the
+default `ENFORCE_EXECUTION_CONTRACT=True`, raises. A live server (scheduler running)
+fixes event *delivery* but **not** this — the callback still runs without a pipeline
+context. This is not a harness limitation; it is an `aindy-runtime` defect.
+
+**Filed:** `aindy-runtime` issue **#152** (full file:line diagnosis and repro). Fix is
+runtime-owned (this repo does not own `AINDY/`): wrap the resumed segment in a pipeline
+/ async-execution context the way the initial run is. Local report:
+`HANDOFF-runtime-nodus-resume-pipeline-context-bug.md`.
 
 **Current handling:** `test_nodus_vm.py` hard-asserts the validated legs (parking,
 resume acceptance, no resolution failure) and marks execute-to-completion `xfail`
 with this reference, so the CI job is green and records exactly what is proven.
 
-**Deferred / next options:**
-1. **Live-server harness** — run the app as a real uvicorn process in CI (scheduler
-   ticking) instead of `TestClient`, then re-run the resume→completion leg. If it
-   completes, the error was harness-only and the `xfail`s become hard asserts.
-2. **Runtime bug report** — if completion still fails with a scheduler running, file
-   the `execution.started emitted outside pipeline` symptom against `aindy-runtime`
-   (RTR-1) with the repro (stub plan + `AINDY_AGENT_WAIT_BEFORE_HIGH_RISK` on live PG).
-
-**Reopen trigger:** either option above, or any move to make `nodus_vm` a default
+**Reopen trigger:** `aindy-runtime#152` ships (then flip the `xfail`s to hard asserts
+and re-run the CI job), or any move to make `nodus_vm` the default
 (`AINDY_AGENT_EXECUTION_BACKEND`) — which cannot happen until execute-to-completion
 with real app tools is proven end-to-end.
 
