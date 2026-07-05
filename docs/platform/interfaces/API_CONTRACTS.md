@@ -1,6 +1,6 @@
 ---
 title: "API Contracts"
-last_verified: "2026-05-09"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -8,6 +8,10 @@ owner: "platform-team"
 # API Contracts
 
 This document formalizes the current FastAPI HTTP interface based strictly on implemented routes. It separates current behavior from policy requirements and does not introduce new endpoints.
+
+> **Related:** [`docs/api/API_REFERENCE.md`](../../api/API_REFERENCE.md) documents the
+> app-owned endpoint request/response shapes. This inventory is the router-file → URL
+> and mount/ownership map (runtime + app), validated by `scripts/check_api_contracts.py`.
 
 Ownership note:
 
@@ -111,7 +115,7 @@ Mutable domain features. All paths below are prefixed with `/apps`.
 - `apps/dashboard/routes/dashboard_router.py` (router prefix `/dashboard`) **[JWT auth required]** ? `/apps/dashboard/overview`
 - `apps/dashboard/routes/health_dashboard_router.py` (router prefix `/dashboard`) **[JWT auth required]** ? `/apps/dashboard/health`
 - `apps/search/routes/seo_routes.py` (router prefix `/seo`) **[JWT auth required]** ? `/apps/seo/analyze`, `/apps/seo/meta`, `/apps/seo/suggest`, etc.
-- `apps/search/routes/research_results_router.py` (router prefix `/research`) **[JWT auth required]** ? `/apps/research/`
+- `apps/search/routes/research_results_router.py` (router prefix `/research`; the same module also registers `search_history_router` at prefix `/search`, serving `/apps/search/*`) **[JWT auth required]** ? `/apps/research/`
 - `apps/authorship/routes/authorship_router.py` (router prefix `/authorship`) **[JWT auth required]** ? `/apps/authorship/reclaim`
 - `apps/rippletrace/routes/rippletrace_router.py` (router prefix `/rippletrace`) **[JWT auth required]** ? `/apps/rippletrace/*`
 - `apps/network_bridge/routes/network_bridge_router.py` (router prefix `/network_bridge`) **[API key required]** ? `/apps/network_bridge/*`
@@ -185,13 +189,13 @@ MAS path-addressable memory (`/platform/memory/*`):
 - `GET /platform/memory/tree` — JWT or Platform API key required. Hierarchical tree from path prefix. Query params: `path` (required), `limit` (default 100). Returns `{tree: {...}, flat: [...], count: int, root: str}`.
 - `GET /platform/memory/trace` — JWT or Platform API key required. Causal chain following `source_event_id` links backward from an exact node path. Query params: `path` (required), `depth` (default 5, max 10). Returns `{chain: [...], count: int, root_path: str}`.
 
-See `docs/architecture/MEMORY_ADDRESS_SPACE.md` for path structure and wildcard rules.
+See the `aindy-runtime` repo's memory address-space reference for path structure and wildcard rules (this `/platform/memory/*` surface is runtime-owned).
 
 **Syscall Registry Introspection (2026-04-01):**
 
 - `GET /platform/syscalls` — JWT or Platform API key required. Query param: `version` (optional filter, e.g. `v1`). Returns the versioned registry with full ABI schemas: `{versions: ["v1", "v2"], syscalls: {v1: {action: {name, capability, description, stable, deprecated, input_schema, output_schema}}, ...}, total_count: int}`.
 
-See `docs/architecture/SYSCALL_SYSTEM.md` for the full syscall system reference.
+See the `aindy-runtime` repo's syscall system reference for the full ABI (this `/platform/syscalls` surface is runtime-owned).
 
 **Nodus Runtime (2026-04-01):**
 
@@ -1515,7 +1519,7 @@ Status Codes: 200, 401.
 
 ## 8. Response Consistency Rules (Policy Requirements)
 - All API responses must be JSON (no HTML error pages).
-- All errors must follow the standardized structure defined in `docs/governance/ERROR_HANDLING_POLICY.md`.
+- All errors must follow the standardized structure defined in the `aindy-runtime` repo's error-handling policy (runtime-owned).
 - Response schema changes require:
 - Update to this document.
 - Route-level integration test updates.

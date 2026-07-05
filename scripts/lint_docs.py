@@ -22,6 +22,7 @@ REQUIRED_DIRECTORIES = [
     Path("docs/nodus"),
     Path("docs/sdk"),
     Path("docs/api"),
+    Path("docs/deployment"),
     Path("CHANGELOG.md"),
 ]
 REQUIRED_FIELDS = ("title", "last_verified", "api_version", "status", "owner")

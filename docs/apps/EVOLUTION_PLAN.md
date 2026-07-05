@@ -54,15 +54,15 @@ This plan defines controlled evolution aligned with current architecture and gov
 ## 2. Phase 1 – Stabilization
 Focus areas:
 - Improve test coverage for critical routes and services (`docs/platform/engineering/TESTING_STRATEGY.md`).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Sections 3 (Testing Debt), 4 (Error Handling Debt).
+- Links to debt: the pre-split register → Sections 3 (Testing Debt), 4 (Error Handling Debt).
 - Normalize error handling per `docs/governance/ERROR_HANDLING_POLICY.md`.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 4 (Error Handling Debt).
+- Links to debt: the pre-split register → Section 4 (Error Handling Debt).
 - Enforce migration discipline and schema validation (`docs/platform/governance/INVARIANTS.md` checklist).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 2 (Schema / Migration Debt).
+- Links to debt: the pre-split register → Section 2 (Schema / Migration Debt).
 - Improve logging consistency (reduce `print(...)` usage where possible).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 4 (Error Handling Debt), Section 7 (Observability Debt).
+- Links to debt: the pre-split register → Section 4 (Error Handling Debt), Section 7 (Observability Debt).
 - Add structured JSON error responses across routes (policy compliance).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 4 (Error Handling Debt).
+- Links to debt: the pre-split register → Section 4 (Error Handling Debt).
 
 Exit criteria (policy-aligned):
 - `docs/governance/ERROR_HANDLING_POLICY.md` is enforced for primary routes.
@@ -73,13 +73,13 @@ Sign-off required: Human approval of Phase 1 completion and policy compliance.
 ## 3. Phase 2 – Operational Hardening
 Focus areas:
 - Introduce a supervised background task mechanism (without changing core runtime model).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Sections 1 (Structural Debt), 5 (Concurrency Debt).
+- Links to debt: the pre-split register → Sections 1 (Structural Debt), 5 (Concurrency Debt).
 - Improve health check consistency; align health endpoints with real routes.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 1 (Structural Debt), Section 8 (Known Deployment Risks in `docs/deployment/DEPLOYMENT_MODEL.md`).
+- Links to debt: the pre-split register → Section 1 (Structural Debt), Section 8 (Known Deployment Risks in `docs/deployment/DEPLOYMENT_MODEL.md`).
 - Improve external model failure handling with retry/fallback policy enforcement (without changing provider interfaces).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 4 (Error Handling Debt).
+- Links to debt: the pre-split register → Section 4 (Error Handling Debt).
 - Retire legacy HMAC handling; enforce JWT-only bridge writes.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 6 (Security Debt).
+- Links to debt: the pre-split register → Section 6 (Security Debt).
 
 Exit criteria (policy-aligned):
 - Background tasks are supervised or safely gated without changing core runtime model.
@@ -93,13 +93,13 @@ Sign-off required: Human approval of Phase 2 completion and operational readines
 
 Focus areas:
 - Implement structured logging consistently across services and routes.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 7 (Observability Debt), Section 4 (Error Handling Debt).
+- Links to debt: the pre-split register → Section 7 (Observability Debt), Section 4 (Error Handling Debt).
 - Add basic metrics instrumentation for core endpoints.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 7 (Observability Debt).
+- Links to debt: the pre-split register → Section 7 (Observability Debt).
 - Add failure monitoring hooks aligned with current deployment model.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 7 (Observability Debt).
+- Links to debt: the pre-split register → Section 7 (Observability Debt).
 - Strengthen deployment safeguards (schema drift detection, health verification before exposure).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 2 (Schema / Migration Debt).
+- Links to debt: the pre-split register → Section 2 (Schema / Migration Debt).
 
 **Status:** Complete (2026-03-22)
 
@@ -115,13 +115,13 @@ Sign-off required: Human approval of Phase 3 completion and observability readin
 
 Focus areas:
 - Background task isolation to reduce duplicate work in multi-instance deployments.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 5 (Concurrency Debt).
+- Links to debt: the pre-split register → Section 5 (Concurrency Debt).
 - Horizontal deployment considerations (state isolation, background work gating).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Sections 1 (Structural Debt), 5 (Concurrency Debt).
+- Links to debt: the pre-split register → Sections 1 (Structural Debt), 5 (Concurrency Debt).
 - Gateway persistence improvements (remove in-memory-only state).
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 1 (Structural Debt).
+- Links to debt: the pre-split register → Section 1 (Structural Debt).
 - Concurrency improvements within current framework constraints.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 5 (Concurrency Debt).
+- Links to debt: the pre-split register → Section 5 (Concurrency Debt).
 
 Execution checklist:
 1. ✅ Background task lease prevents duplicate runners across instances — `start_background_tasks()` returns `bool`; `scheduler_service.start()` only called on lease-holding instance (Sprint N+9).
@@ -160,7 +160,7 @@ Focus areas:
 - Complete Agentics as an operational subsystem rather than a partial feature set.
 - Converge the current internal flow engine and the installed Nodus runtime toward one execution architecture.
 - Preserve the existing internal flow engine as the stable transitional path until real Nodus-backed execution is ready.
-- Links to debt: `docs/platform/engineering/TECH_DEBT.md` → §16.6 through §16.10.
+- Links to debt: the pre-split register → §16.6 through §16.10.
 
 Execution checklist:
 1. Stabilize the current agent execution path across `agent_runtime`, `nodus_adapter`, `flow_engine`, async execution, replay, and recovery.
