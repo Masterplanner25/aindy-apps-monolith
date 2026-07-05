@@ -15,8 +15,8 @@ python -m pip install -e ../aindy-runtime --no-deps --no-build-isolation
 python -m pip install -e . --no-build-isolation
 
 # Boot app-profile server (run from repo root so aindy_plugins.json is discovered)
-aindy-runtime-api
-AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime-api   # explicit manifest form
+aindy-runtime serve
+AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime serve   # explicit manifest form
 
 # App-profile test subset (no live server required)
 pytest tests/unit/test_app_manifest_bootstrap_contract.py \
@@ -131,7 +131,7 @@ Full pattern documentation: `docs/architecture/PLUGIN_REGISTRY_PATTERN.md`
 | `platform-only` | `AINDY/runtime_plugins.json` | none |
 | `default-apps` | `./aindy_plugins.json` | `apps.bootstrap` → 17 apps |
 
-Running `aindy-runtime-api` from this repo root automatically selects `aindy_plugins.json`.
+Running `aindy-runtime serve` from this repo root automatically selects `aindy_plugins.json`.
 Set `AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json` explicitly if the CWD is different.
 
 ---

@@ -31,7 +31,7 @@ route bug, a flow bug, a syscall bug, or a runtime pipeline bug. All are in play
 Boot command (from `aindy-apps-monolith` root):
 
 ```bash
-AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime-api
+AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime serve
 ```
 
 Expected on boot: `boot_profile=default-apps`, `app_plugins_loaded=True`,

@@ -69,7 +69,7 @@ The apps repo owns:
 
 The runtime package owns:
 
-- `aindy-runtime-api`
+- `aindy-runtime serve`
 - `aindy-runtime`
 - manifest parsing and profile selection
 - plugin loading
@@ -100,13 +100,13 @@ the lower bound deliberately when adopting a newer runtime release.
 Canonical app-profile startup from this repo root:
 
 ```bash
-aindy-runtime-api
+aindy-runtime serve
 ```
 
 Equivalent explicit-manifest form:
 
 ```bash
-AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime-api
+AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime serve
 ```
 
 ## Runtime Docs
