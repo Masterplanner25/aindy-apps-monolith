@@ -1,6 +1,6 @@
 ---
 title: "Governance Index (apps-monolith)"
-last_verified: "2026-06-27"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -46,8 +46,10 @@ App code and docs must conform to these and must not contradict or redefine them
 ### Level 3 — Public surface & interface authority (app-owned)
 - `docs/architecture/PUBLIC_SURFACE_CONTRACTS.md` — cross-domain public surfaces.
 - `docs/architecture/PUBLIC_SURFACE_AUDIT.md`, `PUBLIC_SURFACE_MIGRATION_GUIDE.md`.
-- `docs/platform/interfaces/API_CONTRACTS.md` — HTTP route inventory.
-- `docs/api/API_REFERENCE.md`, `CHANGELOG.md` — app REST surface + history.
+- `docs/platform/interfaces/API_CONTRACTS.md` — HTTP route inventory
+  (validated by `scripts/check_api_contracts.py`).
+- `docs/api/API_REFERENCE.md` (app-owned `/apps/*` coverage guarded by
+  `scripts/check_api_reference.py`), `CHANGELOG.md` (repo root) — app REST surface + history.
 - `docs/architecture/ANALYTICS_BOUNDARY.md` — analytics ownership boundary.
 - `docs/architecture/USER_ID_AUDIT.md` — per-user scoping audit.
 
