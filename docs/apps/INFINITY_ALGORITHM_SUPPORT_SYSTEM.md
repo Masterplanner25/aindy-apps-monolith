@@ -1,3 +1,10 @@
+---
+title: "Infinity Algorithm Support System"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # Infinity Algorithm Support System - Canonical Definition & Evolution Plan
 
 ---
@@ -79,7 +86,9 @@ User Action -> Task API -> Task Service -> DB -> Algorithm Input
 
 #### Source
 
-* `The Masterplan SaaS/Watcher.txt`
+* Runtime-owned: `aindy-runtime/AINDY/watcher/` (`watcher_service.py`,
+  `watcher_router.py`, `watcher_contract.py`) — the watcher moved into the runtime
+  at the repo split (was `The Masterplan SaaS/Watcher.txt` in the pre-split archive).
 
 #### Intended Capabilities
 
@@ -463,7 +472,8 @@ syscalls/jobs; they do not edit runtime. Step ownership:
   (`observability_router`, `agent_event_service`, `async_job_service`) with no
   app-facing aggregate syscall/job yet. The app lever would be a new
   `dependency_adapter` fetch once the runtime exposes the aggregate; until then
-  these are runtime feature requests, not app edits.
+  these are runtime feature requests, not app edits. Tracked: `TECH_DEBT.md` →
+  **INFINITY-RUNTIME-HANDOFF-1**.
 
 ---
 

@@ -1,4 +1,34 @@
+---
+title: "Infinity Algorithm"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # INFINITY ALGORITHM
+
+> **Ownership & cross-repo status (2026-07-05).** The Infinity scoring engine,
+> orchestrator, and adjustment loop are **app-owned** — they live in
+> `apps/analytics/services/scoring/` and `apps/analytics/services/orchestration/`.
+> This doc and its siblings (`INFINITY_ALGORITHM_CANONICAL`, `_FORMALIZATION`,
+> `_SUPPORT_SYSTEM`) are the app end of a cross-repo pair: the runtime owns a
+> complementary audit, `aindy-runtime/docs/runtime/INFINITY_LOOP_AUDIT.md`, covering
+> loop closure at the execution altitude
+> (`Intent→Plan→Execute→Observe→Memory→Recall→Score→Improve`) and enumerating 5
+> structural runtime gaps. The two are complementary, not duplicative.
+>
+> **On the "Files to modify: `AINDY/…`" lists (Phases 2–5):** same anti-pattern
+> corrected in `docs/apps/AGENTICS.md` and `docs/apps/AUTONOMOUS_REASONING_MODULE.md`
+> — apps extend the runtime through its registration surface
+> (`AINDY.platform_layer.registry`); they do not edit runtime code. Phase 2 ("force
+> major execution through the orchestrator") is largely **runtime-gated**: making
+> agent/flow/Nodus execution consult Infinity *before* dispatch needs runtime
+> primitives (a runtime-owned Next-Action engine + pre-dispatch hooks) — the runtime
+> audit's Gap 4. `nodus_vm` is now the default agent-execution backend (PR #52), so
+> agent runs execute through the Nodus VM, but Infinity-driven pre-dispatch control
+> is not yet a runtime capability. Runtime-side Infinity work is tracked in
+> `TECH_DEBT.md` → **INFINITY-RUNTIME-HANDOFF-1**; the app-side loop-depth residual
+> in **APP-DEBT-MIGRATED-1** ("Infinity loop autonomy still shallow").
 
 ## 1. System Reality
 
@@ -579,7 +609,7 @@ This document aligns with `docs/apps/EVOLUTION_PLAN.md`:
 
 ### TECH_DEBT.md
 
-This document aligns with `docs/platform/engineering/TECH_DEBT.md`:
+This document aligns with `TECH_DEBT.md`:
 
 - current debt is not only formula coverage
 - the real debt is incomplete centrality, shallow loop policy, and missing trajectory intelligence

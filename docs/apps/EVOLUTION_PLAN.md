@@ -1,6 +1,6 @@
 ---
 title: "Evolution Plan"
-last_verified: "2026-06-27"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -27,7 +27,7 @@ This plan defines controlled evolution aligned with current architecture and gov
 > `docs/api/CHANGELOG.md`).
 
 ## 1. Guiding Principles
-- Preserve all invariants in `docs/governance/INVARIANTS.md`.
+- Preserve all invariants in `docs/platform/governance/INVARIANTS.md`.
 - Preserve the PostgreSQL requirement (`DATABASE_URL` must be PostgreSQL).
 - Preserve SQLAlchemy session isolation per request.
 - Avoid architectural rewrites.
@@ -57,7 +57,7 @@ Focus areas:
 - Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Sections 3 (Testing Debt), 4 (Error Handling Debt).
 - Normalize error handling per `docs/governance/ERROR_HANDLING_POLICY.md`.
 - Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 4 (Error Handling Debt).
-- Enforce migration discipline and schema validation (`docs/governance/INVARIANTS.md` checklist).
+- Enforce migration discipline and schema validation (`docs/platform/governance/INVARIANTS.md` checklist).
 - Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 2 (Schema / Migration Debt).
 - Improve logging consistency (reduce `print(...)` usage where possible).
 - Links to debt: `docs/platform/engineering/TECH_DEBT.md` → Section 4 (Error Handling Debt), Section 7 (Observability Debt).
@@ -66,7 +66,7 @@ Focus areas:
 
 Exit criteria (policy-aligned):
 - `docs/governance/ERROR_HANDLING_POLICY.md` is enforced for primary routes.
-- Invariants in `docs/governance/INVARIANTS.md` have test coverage per `docs/platform/engineering/TESTING_STRATEGY.md`.
+- Invariants in `docs/platform/governance/INVARIANTS.md` have test coverage per `docs/platform/engineering/TESTING_STRATEGY.md`.
 - Migration validation steps are documented and run before release.
 Sign-off required: Human approval of Phase 1 completion and policy compliance.
 
@@ -106,7 +106,7 @@ Focus areas:
 Exit criteria (policy-aligned):
 - Structured logging is used across core routes and services.
 - Basic metrics exist for core endpoints or request outcomes.
-- Deployment checks block startup on schema drift (aligned with `docs/governance/INVARIANTS.md`).
+- Deployment checks block startup on schema drift (aligned with `docs/platform/governance/INVARIANTS.md`).
 Sign-off required: Human approval of Phase 3 completion and observability readiness.
 
 ## 5. Phase 4 – Scalability Readiness
@@ -134,12 +134,27 @@ Execution checklist:
 Exit criteria (policy-aligned):
 - ✅ Background task execution is isolated to avoid duplicate work in multi-instance deployments.
 - ✅ Gateway no longer relies on in-memory-only state for critical flows.
-- ✅ Horizontal deployment does not violate invariants or session isolation (per `docs/governance/INVARIANTS.md`).
+- ✅ Horizontal deployment does not violate invariants or session isolation (per `docs/platform/governance/INVARIANTS.md`).
 Sign-off required: Human approval of Phase 4 completion and scalability readiness.
 
 ## 6. Phase 5 – Agentics Completion + Nodus Convergence
 
 **Status:** In progress
+
+> **Milestone (2026-07-05) — Nodus convergence substrate landed.** `nodus_vm` is now
+> this monolith's **default** agent-execution backend
+> (`apps/agent/bootstrap.py::_select_execution_backend`, PR #52; RTR-1 §5 proven on
+> runtime ≥1.5.3 — app-manifest tools resolve, dispatch, and complete their DB writes
+> inside the `nodus_worker` subprocess, and a WAIT/resume run drives to completion).
+> This advances checklist items 2 and 4 (canonical Nodus execution contract; Nodus
+> traces landing in `SystemEvent`/`AgentEvent`). **Still open — Phase 5 stays in
+> progress:** item 3 (repo-managed `.nd` workflow assets / plan→`.nd` pipeline — no
+> app-facing `register_nodus_workflow` surface yet), item 5 (multi-agent
+> delegation/scoped sub-runs), and item 6 (Infinity loop as a bounded autonomous
+> controller). Tracked in `TECH_DEBT.md` → **RTR-1-NODUS-COMPLETION** and
+> **APP-DEBT-MIGRATED-1** ("Agentics completion is runtime-owned", "Nodus-native
+> reasoning execution deferred (runtime)", "Infinity loop autonomy still shallow");
+> detailed in `docs/apps/AGENTICS.md` and `docs/apps/AUTONOMOUS_REASONING_MODULE.md`.
 
 Focus areas:
 - Complete Agentics as an operational subsystem rather than a partial feature set.
@@ -253,7 +268,7 @@ Exit criteria:
 * Documentation in `docs/apps/RIPPLETRACE.md` and relevant architecture docs references the Advanced Intelligence roadmap.
 
 ## 7. Change Governance Rules
-- No evolution phase may violate `docs/governance/INVARIANTS.md`.
+- No evolution phase may violate `docs/platform/governance/INVARIANTS.md`.
 - No schema change without an Alembic migration.
 - No external integration without a mocking strategy and test coverage.
 - Major structural changes require proposal-first approval per `docs/governance/AGENT_WORKING_RULES.md`.
@@ -266,18 +281,23 @@ The following are deferred unless explicitly prioritized:
 - Horizontal scaling beyond current single-node assumptions.
 
 ## Traceability Matrix
-| Phase | Primary Debt Sections |
+
+> Section numbers below reference the **historical pre-split register**, not this
+> repo's `TECH_DEBT.md` (which is organized by named items, not numbered sections).
+> Current app-domain tracking for every phase: `TECH_DEBT.md` → **APP-DEBT-MIGRATED-1**.
+
+| Phase | Pre-split register § (historical) |
 |------|------------------------|
-| Phase 1 – Stabilization | `TECH_DEBT.md` Sections 2, 3, 4, 7 |
-| Phase 2 – Operational Hardening | `TECH_DEBT.md` Sections 1, 4, 5, 6 |
-| Phase 3 – Observability and Resilience | `TECH_DEBT.md` Sections 2, 4, 7 |
-| Phase 4 – Scalability Readiness | `TECH_DEBT.md` Sections 1, 5 |
-| Phase 5 – Agentics Completion + Nodus Convergence | `TECH_DEBT.md` §16.6, §16.7, §16.8, §16.9, §16.10 |
-| Phase 6 – Ownership Cleanup + Observability Hardening | `TECH_DEBT.md` Sections 1, 2, 7 |
-| Phase 7 – Data Integrity + Operational Hygiene | `TECH_DEBT.md` Sections 2, 3 |
+| Phase 1 – Stabilization | Sections 2, 3, 4, 7 |
+| Phase 2 – Operational Hardening | Sections 1, 4, 5, 6 |
+| Phase 3 – Observability and Resilience | Sections 2, 4, 7 |
+| Phase 4 – Scalability Readiness | Sections 1, 5 |
+| Phase 5 – Agentics Completion + Nodus Convergence | §16.6, §16.7, §16.8, §16.9, §16.10 |
+| Phase 6 – Ownership Cleanup + Observability Hardening | Sections 1, 2, 7 |
+| Phase 7 – Data Integrity + Operational Hygiene | Sections 2, 3 |
 
 ## Compliance Checklist (Per Phase)
-- Invariants remain intact and tested (`docs/governance/INVARIANTS.md`).
+- Invariants remain intact and tested (`docs/platform/governance/INVARIANTS.md`).
 - Error handling policy enforced (`docs/governance/ERROR_HANDLING_POLICY.md`).
 - Schema changes include migrations and documentation updates.
 - API contract updates reflected in `docs/platform/interfaces/API_CONTRACTS.md`.
@@ -292,5 +312,5 @@ The following are deferred unless explicitly prioritized:
 - Evidence checklist for approval:
 - Tests executed per `docs/platform/engineering/TESTING_STRATEGY.md` (record command outputs or summaries).
 - Alembic revision matches head (`alembic current` equals `alembic heads`).
-- Schema vs. migration checks completed (`docs/governance/INVARIANTS.md` checklist).
+- Schema vs. migration checks completed (`docs/platform/governance/INVARIANTS.md` checklist).
 - Store release evidence and sign-off notes in `docs/platform/governance/release_notes.md` (create if missing).

@@ -1,3 +1,10 @@
+---
+title: "Freelancing System"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # FREELANCING SYSTEM
 
 > **Status update (2026-06-28).** This roadmap was written against an earlier
@@ -11,6 +18,26 @@
 > autonomous optimization loop (Phase 5, depends on the Autonomous Reasoning
 > Module). Treat the per-section "Not implemented" lists below as historical
 > except where corrected.
+
+> **Addendum (2026-07-05) — Phases 2/5 are app-doable via registration hooks, not
+> `AINDY/` edits.** The per-phase "Files to modify: `AINDY/…`" lists (Phases 2, 3, 5)
+> repeat the anti-pattern corrected in `docs/apps/AGENTICS.md` and
+> `docs/apps/AUTONOMOUS_REASONING_MODULE.md`: apps extend the runtime through its
+> registration surface (`AINDY.platform_layer.registry`); they do not edit runtime
+> code. **Phase 2** (freelance launches bounded agent runs) is app-side — register
+> freelance agent tools via `register_tool` (as analytics/search/arm/tasks/masterplan
+> already do; freelance has no `apps/freelance/agents/tools.py` yet — that absence *is*
+> the gap) and create runs through the runtime agent-run API, mirroring ARM Phase 3's
+> `reasoning.evaluate` tool. **Phase 5** consumes the now-shipped reasoning layer
+> (`apps/analytics/services/reasoning/`), not a freelance-specific engine. Read the
+> `AINDY/…` file lists below as runtime internals for context, not app work.
+>
+> `nodus_vm` is now the default agent-execution backend (PR #52), so freelance agent
+> runs would execute through it; freelance-specific `.nd` workflows (Phase 3 "later")
+> still await the runtime `register_nodus_workflow` surface. The remaining freelance
+> gaps (Phase 2 agent execution, Phase 3 client workflow automation / freelance `.nd`
+> workflows, Phase 5 autonomous loop) are tracked in `TECH_DEBT.md` →
+> **APP-DEBT-MIGRATED-1** ("Freelance commercial workflow incomplete").
 
 ## 1. System Reality
 
@@ -594,7 +621,7 @@ This document aligns with `docs/apps/EVOLUTION_PLAN.md`:
 
 ### TECH_DEBT.md
 
-This document aligns with `docs/platform/engineering/TECH_DEBT.md`:
+This document aligns with `TECH_DEBT.md`:
 
 - current debt is not just missing features
 - the bigger issue is incomplete integration with the platform layers it should sit on top of
