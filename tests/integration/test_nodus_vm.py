@@ -77,17 +77,50 @@ _RESOLUTION_FAILURE_MARKERS = (
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _register_and_login(client) -> str:
-    email = f"test-nodus-{uuid.uuid4().hex[:8]}@aindy.test"
-    password = "IntegrationTest1!"
-    r = client.post("/auth/register", json={"email": email, "password": password})
-    assert r.status_code in (200, 201), f"register: {r.status_code} {r.text[:200]}"
+def _token_from_login(client, email: str, password: str) -> str:
     r = client.post("/auth/login", json={"email": email, "password": password})
     assert r.status_code == 200, f"login: {r.status_code} {r.text[:200]}"
     body = r.json()
     token = body.get("access_token") or (body.get("data") or {}).get("access_token")
     assert token, f"no access_token in login response: {body}"
     return token
+
+
+def _register_and_login(client) -> str:
+    """Register + login via the API — the user lives in the harness's transactional
+    (rolled-back) session. Fine for runs that never write a user-FK'd row from the
+    nodus subprocess (Gate 2 over memory.recall). Gate 1 needs `_login_committed_user`."""
+    email = f"test-nodus-{uuid.uuid4().hex[:8]}@aindy.test"
+    password = "IntegrationTest1!"
+    r = client.post("/auth/register", json={"email": email, "password": password})
+    assert r.status_code in (200, 201), f"register: {r.status_code} {r.text[:200]}"
+    return _token_from_login(client, email, password)
+
+
+def _login_committed_user(client, testing_session_factory) -> str:
+    """Create a COMMITTED user (engine-bound session, separate connection) and log in.
+
+    Gate 1 drives a real app-manifest DB write (`task.create`) inside the `nodus_worker`
+    subprocess, which uses its own committed-only DB connection. The default
+    transactional-rollback harness user (`tests/fixtures/client.py`) is invisible to that
+    connection, so the user must be committed for the `tasks_user_id_fkey` write to
+    succeed. `testing_session_factory` is bound to the engine (commits independently of the
+    app's rolled-back outer transaction); `cleanup_committed_test_state` TRUNCATEs it
+    between tests. `/auth/login` needs only the `users` row (verify password → JWT). See
+    TECH_DEBT RTR-1-NODUS-APPTOOL-500-DBVIS.
+    """
+    from AINDY.db.models.user import User
+    from AINDY.services.auth_service import hash_password
+
+    email = f"test-nodus-committed-{uuid.uuid4().hex[:8]}@aindy.test"
+    password = "IntegrationTest1!"
+    session = testing_session_factory()
+    try:
+        session.add(User(email=email, hashed_password=hash_password(password), is_active=True))
+        session.commit()
+    finally:
+        session.close()
+    return _token_from_login(client, email, password)
 
 
 def _auth(token: str) -> dict:
@@ -177,8 +210,12 @@ class TestNodusVmAppTool:
         monkeypatch.setattr(settings, "AINDY_AGENT_PLANNER_BACKEND", "stub_app_tool", raising=False)
         return "stub_app_tool"
 
-    def test_app_tool_resolves_and_executes_in_subprocess(self, client, _stub_app_tool_planner):
-        token = _register_and_login(client)
+    def test_app_tool_resolves_and_executes_in_subprocess(
+        self, client, testing_session_factory, _stub_app_tool_planner
+    ):
+        # Committed user — the nodus subprocess's committed-only connection must see it
+        # for task.create's tasks_user_id_fkey write to succeed (see _login_committed_user).
+        token = _login_committed_user(client, testing_session_factory)
         goal = f"nodus-vm app-tool {uuid.uuid4().hex[:6]}"  # becomes the task name
         r = client.post("/apps/agent/run", json={"goal": goal}, headers=_auth(token))
         if r.status_code in (202, 500):
@@ -243,32 +280,11 @@ class TestNodusVmAppTool:
         for s in steps:
             if s.get("tool_name") not in app_tools_hit:
                 continue
-            st = _status_from(s)
-            if st in {"success", "completed", "executed", "ok"}:
-                continue
-            err = str(s.get("error_message") or "")
-            low = err.lower()
-            if st == "failed" and "user_id" in low and "fkey" in low:
-                # The app tool RESOLVED and dispatched to its syscall inside the
-                # nodus_worker subprocess (the §5 gate — proven above); only its DB write
-                # failed, on `tasks_user_id_fkey`. This is a TEST-HARNESS artifact, not a
-                # product bug: the integration harness (tests/fixtures/client.py) registers
-                # the user in a transactional session that ROLLS BACK and monkeypatches
-                # SessionLocal in-process, while the nodus subprocess uses a separate
-                # committed-only DB connection that cannot see the uncommitted test user.
-                # In production users are committed, so a real subprocess sees them. Same
-                # cause as the non-fatal system_events_user_id_fkey violations in the
-                # completion runs. To make this a hard pass, commit the test user so the
-                # subprocess connection can see it. See TECH_DEBT RTR-1-NODUS-APPTOOL-500.
-                pytest.xfail(
-                    "nodus_vm app tool resolved + dispatched in the subprocess (§5 proven), "
-                    "but its DB write hit tasks_user_id_fkey — the transactional-rollback test "
-                    "user is invisible to the subprocess's committed-only connection "
-                    f"(harness artifact, not a product bug). Observed: {err[:180]}"
-                )
-            assert st in {"success", "completed", "executed", "ok"}, (
-                f"app tool {s.get('tool_name')} did not execute cleanly: "
-                f"status={st} error={err[:200]}"
+            # The user is committed (see _login_committed_user), so the app tool's DB write
+            # completes end-to-end inside the subprocess — a full app-manifest execute proof.
+            assert _status_from(s) in {"success", "completed", "executed", "ok"}, (
+                f"app tool {s.get('tool_name')} did not execute cleanly in the subprocess: "
+                f"status={s.get('status')} error={str(s.get('error_message'))[:200]}"
             )
 
 
