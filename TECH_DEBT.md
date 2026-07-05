@@ -1,5 +1,45 @@
 # Technical Debt
 
+## APP-DEPLOY-1: server deploy artifact (app-consuming-the-framework image)
+
+**Status:** In progress (2026-07-05). App-owned. First-cut scaffold added; runtime-contract
+specifics need confirmation + a real build/boot test.
+
+**Context:** The apps repo shipped only `client/Dockerfile` (frontend) and
+`docker-compose.test.yml` (datastores for the test runner). It had no server deployable for the
+app profile — an image that installs the pinned `aindy-runtime` and provides the app plugin
+manifest so `apps.bootstrap` registers the domain apps into the runtime via the plugin ABI.
+
+**Delivered (this change):**
+- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.5.3,<2.0`), copies the
+  app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves
+  `AINDY.main:app` via the runtime-bundled uvicorn from the repo root.
+- `docker/entrypoint.sh` — applies migrations then execs the server: app schema via
+  `alembic upgrade head` (repo root; `alembic_version`), and runtime schema
+  (`alembic_version_runtime`) via an injected `RUNTIME_MIGRATE_CMD`.
+- `docker-compose.prod.yml` — apps server + Postgres/pgvector (persistent) + Redis, mirroring
+  the runtime prod overlay; Mongo (social, degradable) commented/optional.
+
+**Open items:**
+1. **Runtime migration command.** `RUNTIME_MIGRATE_CMD` is injected because the runtime's
+   migrate mechanism is defined by its deploy contract (`aindy-runtime` RUNTIME_ONLY_DEPLOYMENT)
+   and is not introspectable from the installed package (no alembic tree or migrate console
+   script in the wheel). Confirm the command and hard-wire it — or confirm the runtime
+   self-migrates at boot and drop the step.
+2. **Build/boot test.** The image is unbuilt/untested here — the local venv has runtime 1.5.1
+   (below the pin), which lacks `aindy-runtime-api` and the app-profile surface. Build against
+   `aindy-runtime>=1.5.3` and verify boot (`/api/version` → boot_profile=default-apps,
+   app_plugins_loaded=true, app_plugin_count=17) and that `alembic upgrade head` applies cleanly.
+3. **Env-name/driver confirmation.** `DATABASE_URL` uses the psycopg2 scheme (runtime-bundled);
+   the Redis env var name (`REDIS_URL`) is assumed — confirm against the runtime config surface.
+4. **CI + hardening.** Add a container build-smoke to CI (mirroring the frontend one); consider a
+   multi-stage build to drop the toolchain from the final image; parameterize the listen port.
+
+**Reopen trigger:** productionizing the app profile, or a runtime release that changes the boot
+entrypoint / migration contract.
+
+---
+
 ## RIPPLETRACE-CONTENT-LLM-1: rippletrace content generation is template-only (LLM path dropped in the port)
 
 **Status:** Tracked (2026-07-05). App-owned. Found comparing the standalone RippleTrace MVP
@@ -73,7 +113,7 @@ Infinity" phases.
 **Handoff items (all in `aindy-runtime`):**
 1. **Reciprocal cross-links** — link `INFINITY_LOOP_AUDIT.md` ↔ the app docset so the two
    altitudes (runtime loop closure vs app KPI/scoring/support layer) are navigable. The app side
-   now points at the runtime audit; the runtime side does not yet point back.
+   points at the runtime audit; the runtime side now points back (done — see Verification below).
 2. **The 5 structural runtime gaps** named in `INFINITY_LOOP_AUDIT.md` — recall→planning link
    broken (Gap 1); event ledger missing `RecallUsed` / `ScoreComputed` / `NextActionChosen`
    (Gap 2); no execution-level score record (Gap 3); no runtime-owned Next-Action engine
@@ -91,16 +131,16 @@ Infinity" phases.
 signal) is runtime-owned (`aindy-runtime`: `AINDY/platform_layer/watcher_service.py` +
 `AINDY/routes/watcher_router.py`).
 
-**Verification (2026-07-05):** checked against the `aindy-runtime` checkout — the handoff is
-currently **one-directional; none of the three items are picked up yet.**
-- #1: `docs/runtime/INFINITY_LOOP_AUDIT.md` (last_verified 2026-06-07) has no back-reference to
-  the app docset — the app side points at the runtime audit, not vice versa. **Open.**
-- #2: the 5 gaps are described in `INFINITY_LOOP_AUDIT.md` prose but there is **no `INFINITY-*`
-  entry in `aindy-runtime/TECH_DEBT.md`** — answer to "confirm they're tracked" is **negative**.
-  Gap 4 (Next-Action engine primitive) is the one gating app-side Infinity Phase 2.
-- #3: the Step 3/4 producers exist (`observability_router.py`, `agent_event_service.py`,
-  `async_job_service.py`) but no aggregate-syscall request is anchored runtime-side. **Open.**
-Nothing in `aindy-runtime` references INFINITY-RUNTIME-HANDOFF-1 itself.
+**Verification (2026-07-05, updated):** the runtime reciprocated this session — items 1 & 2 are
+now **runtime side done**; item 3 remains open.
+- #1: **Runtime side done.** `docs/runtime/INFINITY_LOOP_AUDIT.md` now cross-links the app
+  docset, so the two altitudes are navigable both ways.
+- #2: **Runtime side done.** The 5 structural gaps are now tracked runtime-side as
+  **INFINITY-RUNTIME-1** in `aindy-runtime/TECH_DEBT.md` (PR #160 merged). Gap 4 (Next-Action
+  engine primitive) — which gates app-side Infinity Phase 2 — is on that board.
+- #3: **Open.** The Step 3/4 producers (`observability_router.py`, `agent_event_service.py`,
+  `async_job_service.py`) still expose no app-facing aggregate syscall/job; the app lever
+  remains a `dependency_adapter` fetch once the runtime exposes the aggregate.
 
 **Reopen trigger:** an `aindy-runtime` release advancing loop closure (any of the 5 gaps) or
 exposing observability/execution aggregate syscalls; or a re-triage of the app-side Infinity

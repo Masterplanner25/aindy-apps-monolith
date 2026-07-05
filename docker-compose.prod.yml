@@ -1,0 +1,68 @@
+# Production-style overlay for the app profile: the apps server consuming the installed
+# aindy-runtime, plus its datastores. Mirrors docker-compose.test.yml but builds the
+# server image and uses a persistent Postgres volume.
+#
+# Secrets are expected from the environment / an .env file — do not commit real values.
+#   Required: SECRET_KEY, AINDY_API_KEY, PERMISSION_SECRET
+#   Model keys (as used by the domains): OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY
+#   Optional: MONGO_URL (social layer; degradable), POSTGRES_PASSWORD, RUNTIME_MIGRATE_CMD
+services:
+  apps-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # psycopg2 is the runtime's bundled driver -> plain postgresql:// scheme.
+      DATABASE_URL: "postgresql://aindy:${POSTGRES_PASSWORD:-aindy}@postgres:5432/aindy"
+      # Event bus (cross-instance pub/sub). Exact var name is runtime-config-owned; see APP-DEPLOY-1.
+      REDIS_URL: "redis://redis:6379/0"
+      MONGO_URL: "${MONGO_URL:-}"
+      SECRET_KEY: "${SECRET_KEY:?set SECRET_KEY}"
+      AINDY_API_KEY: "${AINDY_API_KEY:?set AINDY_API_KEY}"
+      PERMISSION_SECRET: "${PERMISSION_SECRET:?set PERMISSION_SECRET}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Set to the runtime's documented migrate command once confirmed (APP-DEPLOY-1);
+      # empty means "runtime self-migrates or was migrated out-of-band".
+      RUNTIME_MIGRATE_CMD: "${RUNTIME_MIGRATE_CMD:-}"
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: aindy
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-aindy}"
+      POSTGRES_DB: aindy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-pgvector.sql:/docker-entrypoint-initdb.d/init-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aindy -d aindy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Social layer is Mongo-backed but degradable; enable if you need it and set MONGO_URL.
+  # mongo:
+  #   image: mongo:7
+  #   volumes:
+  #     - mongodata:/data/db
+
+volumes:
+  pgdata:
+  # mongodata:
