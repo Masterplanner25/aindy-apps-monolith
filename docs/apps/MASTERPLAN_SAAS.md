@@ -3,7 +3,7 @@ title: "Masterplan SaaS - Canonical Definition & Evolution Plan"
 last_verified: "2026-06-30"
 api_version: "1.0"
 status: current
-owner: "platform-team"
+owner: "apps-team"
 ---
 # Masterplan SaaS - Canonical Definition & Evolution Plan
 
@@ -34,9 +34,9 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 ### 3.1 Genesis (Plan Formation)
 
 **Implementation:**
-- `routes/genesis_router.py`
-- `services/genesis_ai.py`
-- `services/masterplan_factory.py`
+- `apps/masterplan/routes/genesis_router.py`
+- `apps/masterplan/services/genesis_ai.py`
+- `apps/masterplan/services/masterplan_factory.py`
 
 **Current Capabilities:**
 - guided strategic draft
@@ -48,8 +48,8 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 ### 3.2 MasterPlan Artifact
 
 **Implementation:**
-- `routes/masterplan_router.py`
-- `db/models/masterplan.py`
+- `apps/masterplan/routes/masterplan_router.py`
+- `apps/masterplan/models.py`
 
 **Current Capabilities:**
 - versioned plan records
@@ -61,9 +61,9 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 ### 3.3 Execution Tracking
 
 **Implementation:**
-- `routes/task_router.py`
-- `services/task_services.py`
-- `routes/analytics_router.py`
+- `apps/tasks/routes/task_router.py`
+- `apps/tasks/services/task_service.py`
+- `apps/analytics/routes/analytics_router.py`
 
 **Current Capabilities:**
 - task tracking
@@ -100,13 +100,13 @@ Genesis -> MasterPlan -> Lock -> Activate -> Execute -> Measure -> Reproject
 
 | Documented Capability | Evidence in Docs | Implementation Reality | Status | Primary Files |
 | --- | --- | --- | --- | --- |
-| Genesis -> MasterPlan lifecycle | Masterplan Genesis Module | Implemented | Implemented | `routes/genesis_router.py`, `services/masterplan_factory.py` |
-| MasterPlan activation | Genesis Module | Implemented | Implemented | `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
-| Masterplan anchor / target state | Masterplan Plans doc | Anchor fields, endpoint, and UI are implemented | Implemented | `db/models/masterplan.py`, `routes/masterplan_router.py`, `client/src/components/MasterPlanDashboard.jsx` |
+| Genesis -> MasterPlan lifecycle | Masterplan Genesis Module | Implemented | Implemented | `apps/masterplan/routes/genesis_router.py`, `apps/masterplan/services/masterplan_factory.py` |
+| MasterPlan activation | Genesis Module | Implemented | Implemented | `apps/masterplan/routes/masterplan_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
+| Masterplan anchor / target state | Masterplan Plans doc | Anchor fields, endpoint, and UI are implemented | Implemented | `apps/masterplan/models.py`, `apps/masterplan/routes/masterplan_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 | ETA projection / timeline compression | Masterplan Plans doc | Plan-scoped, cascade/critical-path-aware, and continuous-time: with per-task effort estimates it projects on remaining effort + the effort-weighted critical path (`projection_basis="duration"`), reducing to count-based cascade when estimates are absent | Implemented (duration-aware) | `apps/masterplan/services/eta_service.py`, `apps/tasks/services/task_service.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
-| Dependency cascade model | Masterplan Plans doc | Dependency metadata, DAG construction, blocked-task enforcement, and downstream unlock behavior exist | Implemented | `db/models/task.py`, `services/task_services.py` |
+| Dependency cascade model | Masterplan Plans doc | Dependency metadata, DAG construction, blocked-task enforcement, and downstream unlock behavior exist | Implemented | `apps/tasks/models.py`, `apps/tasks/services/task_service.py` |
 | Execution automation layer | Masterplan SaaS docs | MasterPlan generates tasks and dispatches bound automation through the execution layer; connectors reach external social/CRM/email/webhook/payment surfaces (app builds the call, wrapped in the runtime `perform_external_call` boundary) | Implemented | `apps/masterplan/services/masterplan_execution_service.py`, `apps/automation/services/automation_execution_service.py` |
-| Execution analytics dashboard | SaaS docs | The MasterPlan surface now shows plan-scoped cascade execution metrics directly (basis, critical-chain depth, ready/blocked); a dedicated cross-plan execution/compression dashboard is still not built | Partial | `routes/analytics_router.py`, `routes/dashboard_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
+| Execution analytics dashboard | SaaS docs | The MasterPlan surface now shows plan-scoped cascade execution metrics directly (basis, critical-chain depth, ready/blocked); a dedicated cross-plan execution/compression dashboard is still not built | Partial | `apps/analytics/routes/analytics_router.py`, `apps/dashboard/routes/dashboard_router.py`, `client/src/components/app/MasterPlanDashboard.jsx` |
 
 ---
 
@@ -306,7 +306,7 @@ capability-enforced outbound I/O (allow-lists, credential vaulting, rate-limitin
 ## 11. Technical Debt
 
 Masterplan layer debt is tracked in:
-- `docs/platform/engineering/TECH_DEBT.md`
+- `TECH_DEBT.md`
 
 ---
 
@@ -314,8 +314,7 @@ Masterplan layer debt is tracked in:
 
 - This document is the canonical reference for the Masterplan SaaS layer.
 - Any changes must also update:
-  - `docs/architecture/SYSTEM_SPEC.md`
-  - `docs/interfaces/API_CONTRACTS.md`
+  - `docs/platform/interfaces/API_CONTRACTS.md`
   - `docs/apps/EVOLUTION_PLAN.md`
 
 ---
