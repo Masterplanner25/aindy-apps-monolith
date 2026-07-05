@@ -89,12 +89,14 @@ hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>
    and the run never completed. Fixed by only looking up bare-UUID ids and SAVEPOINT/rollbacking
    the lookup. Reproduced on CI runs 28734012605 + 28734198382 (1.5.2); closed in 1.5.3.
 
-**Gate 1 (app-manifest tool execution) — RESOLVED (2026-07-05):** reworked from an
-LLM-driven proof to the deterministic `stub_app_tool` planner (emits a high-risk
-`task.create` step — an app-manifest-only tool with no runtime default), mirroring Gate 2's
-park→resume→scheduler-drive path. It hard-asserts `task.create` resolves AND executes in the
-`nodus_worker` subprocess, closing the §5 app-manifest gate with no LLM/key/network. See
-**RTR-1-NODUS-APPTOOL-500** below.
+**Gate 1 (app-manifest tool in the subprocess) — resolution PROVEN; completion xfails on a
+harness artifact (2026-07-05):** reworked from an LLM-driven proof to the deterministic
+`stub_app_tool` planner (emits a high-risk `task.create` step — an app-manifest-only tool
+with no runtime default), mirroring Gate 2's park→resume→scheduler-drive path with no
+LLM/key/network. It **hard-asserts** that `task.create` resolves AND dispatches to its
+syscall inside the `nodus_worker` subprocess — **the core §5 question, now answered YES**.
+The tool's DB write then fails on `tasks_user_id_fkey` (`xfail`), a **test-harness**
+artifact — see **RTR-1-NODUS-APPTOOL-500** below.
 
 **History (the reopened-then-fixed arc for #152):** on 1.5.1 the symptom looked gone on
 the passive re-run (run 28727775436) only because, with no scheduler heartbeat, the
@@ -160,15 +162,33 @@ and #157 fixed) this passes end-to-end; a regression of either fix would poison 
 PG transaction and fail it red. Tool *resolution* in the subprocess and
 execute-to-completion are both now proven.
 
-**RTR-1-NODUS-APPTOOL-500 — RESOLVED (2026-07-05).** Gate 1 now proves an **app-manifest**
-tool (`task.create`, no runtime default) resolves AND executes in the `nodus_worker`
-subprocess via the deterministic `stub_app_tool` planner
-(`apps/agent/agents/runtime_extensions.py` — emits a single high-risk `task.create` step),
-mirroring Gate 2's park→resume→scheduler-drive path with an app tool swapped in. No LLM,
-key, or network; the `nodus-vm-integration.yml` `ANTHROPIC_API_KEY` preflight gate was
-removed so the job runs unconditionally. The history below records why the *previous*
-LLM-driven Gate 1 could never pass in CI (kept as the record; it debunks the original
-subprocess-boundary hypothesis).
+**RTR-1-NODUS-APPTOOL-500 — §5 resolution PROVEN; two blockers retired, one harness
+artifact remains (2026-07-05).** Gate 1 (deterministic `stub_app_tool` planner,
+`apps/agent/agents/runtime_extensions.py`, emitting a high-risk `task.create` step) now
+**hard-asserts** that an app-manifest-only tool (no runtime default) resolves AND dispatches
+to its syscall inside the `nodus_worker` subprocess — the core §5 question, answered YES,
+with no LLM/key/network. Two things this retired:
+- the **egress blocker** (the old LLM-driven Gate 1's create-500 was an
+  `anthropic.APIConnectionError` — the runner can't reach `api.anthropic.com`; plan-gen is
+  in-process so an LLM was never needed — see History below). The
+  `nodus-vm-integration.yml` `ANTHROPIC_API_KEY` preflight gate is removed; the job runs
+  unconditionally.
+- the **subprocess-boundary hypothesis** (debunked — plan-gen never enters the subprocess).
+
+**Remaining — `RTR-1-NODUS-APPTOOL-500-DBVIS` (test-harness artifact, not a product bug):**
+after resolving+dispatching, `task.create`'s DB write fails on `tasks_user_id_fkey` and
+Gate 1 **xfails**. Root cause is in the integration harness (`tests/fixtures/client.py`), not
+the product: on PostgreSQL it registers the test user in a **transactional session that rolls
+back** (`db_session_factory` → `db_connection.rollback()`) and monkeypatches `SessionLocal`
+**in-process** to that transaction. The `nodus_worker` subprocess uses a **separate,
+committed-only** DB connection the in-process monkeypatch cannot reach, so the uncommitted
+test user is invisible to it → FK violation. Same cause as the non-fatal
+`system_events_user_id_fkey` violations seen in every completion run (masked there because
+those events are non-fatal and `memory.recall` writes no user-FK'd row). In production users
+are committed, so a real subprocess sees them. **To make Gate 1 a hard pass:** commit the
+test user (e.g. via `testing_session_factory`, the committed engine-bound factory) so the
+subprocess connection can see it; then flip the `task.create` step-status `xfail` to a hard
+assert.
 
 **History — why the old LLM-driven Gate 1 skipped:** it drove `task.create` via the
 `anthropic_chat` planner, but `POST /apps/agent/run` returned a generic **500**
@@ -214,13 +234,17 @@ directly and folded the real exception into the skip reason (CI run 28743569180)
 sidesteps it entirely — the `anthropic_chat` backend and `planner_anthropic.py` stay
 registered/available for real use, but the §5 gate no longer depends on them.
 
-**Reopen trigger / next step:** **§5 is now fully green** — both gates hard-assert
-(execute-to-completion over a runtime-default tool + app-manifest-tool execution in the
-subprocess), with no LLM/key/network. The only remaining nodus_vm forward step is making it
-the **default** execution backend (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`), which is now
-unblocked from the app side; any regression of either gate fails CI red. The
-`anthropic_chat` LLM planner remains available for real (non-CI) use; if a future need
-requires exercising it in CI, the runner must be able to reach `api.anthropic.com`.
+**Reopen trigger / next step:** §5's core claim is proven — app-manifest tools resolve AND
+dispatch inside the `nodus_worker` subprocess (Gate 1, hard-asserted), and
+execute-to-completion works over a runtime-default tool (Gate 2, hard-asserted) — with no
+LLM/key/network; CI is green (1 passed + 1 xfailed). Remaining items: (a)
+**RTR-1-NODUS-APPTOOL-500-DBVIS** — commit the test user in Gate 1 so the subprocess's
+committed-only connection sees it, then flip the `task.create` step `xfail` to a hard assert
+(closes the last mile: an app tool's DB write completing in the subprocess). (b) making
+`nodus_vm` the **default** backend (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`) — unblocked from
+the app side; any regression of either gate fails CI red. The `anthropic_chat` LLM planner
+remains available for real (non-CI) use; exercising it in CI would require runner egress to
+`api.anthropic.com`.
 
 ---
 
