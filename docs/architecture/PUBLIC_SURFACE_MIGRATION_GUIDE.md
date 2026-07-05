@@ -1,6 +1,6 @@
 ---
 title: "Public Surface Migration Guide"
-last_verified: "2026-04-26"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -14,7 +14,12 @@ added here.
 ## Migration: LoopAdjustment ORM → Service Functions (analytics consumers)
 
 **Affects:** analytics callers of automation.public.LoopAdjustment
-**Status:** IN PROGRESS (Apps Prompt 3)
+**Status:** COMPLETE (Apps Prompt 3, verified 2026-07-05) — analytics no longer
+imports the `LoopAdjustment` ORM; loop-adjustment reads/writes now go through the
+automation syscalls (`sys.v1.automation.list_loop_adjustments`,
+`create_loop_adjustment`, `update_loop_adjustment`). `automation.public` still
+exports `LoopAdjustment` and `get_loop_adjustments` for backward compatibility;
+the hard removal (automation.public v2.0) has not shipped.
 **Target version:** automation.public v2.0
 
 ### Before
