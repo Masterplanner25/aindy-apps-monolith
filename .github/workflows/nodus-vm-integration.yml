@@ -120,11 +120,13 @@ jobs:
           version = md.version("aindy-runtime")
           assert Version(version) >= Version("1.5.2"), f"need aindy-runtime>=1.5.2, got {version}"
 
-          # The resume symbol landed in 1.5.0; the nodus_vm execute-to-completion
-          # fix (ExecutionPipeline marks itself active before emitting
-          # execution.started, so the nested flow-runner pipeline no longer trips
-          # the ExecutionContract guard, aindy-runtime#152 / PR #155) requires >=1.5.2 —
-          # Gate 2 hard-asserts completion against it.
+          # The resume symbol landed in 1.5.0; the #152 fix (ExecutionPipeline marks
+          # itself active before emitting execution.started, so the nested flow-runner
+          # pipeline no longer trips the ExecutionContract guard, aindy-runtime#152 /
+          # PR #155) requires >=1.5.2. That fix is verified here, but execute-to-
+          # completion remains blocked on a next-layer runtime bug (idempotency-gate
+          # UUID cast), so Gate 2 still xfails on completion — see TECH_DEBT
+          # RTR-1-NODUS-COMPLETION.
           from AINDY.agents.runtime_api import resume_agent_run_runtime  # noqa: F401
           print(f"aindy-runtime {version}: resume_agent_run_runtime present")
           PY
