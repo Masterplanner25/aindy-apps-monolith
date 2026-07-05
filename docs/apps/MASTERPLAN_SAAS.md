@@ -1,6 +1,6 @@
 ---
 title: "Masterplan SaaS - Canonical Definition & Evolution Plan"
-last_verified: "2026-06-30"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -299,14 +299,20 @@ previously had zero behavioral coverage.)
 **Deferred (runtime-owned, not blocking):** a first-class `register_connector`-style
 registration hook (connectors are an app-side `if/elif` ladder today) and
 capability-enforced outbound I/O (allow-lists, credential vaulting, rate-limiting).
-`perform_external_call` only observes; it does not gate. Tracked in TECH_DEBT.
+`perform_external_call` only observes; it does not gate. Tracked: `TECH_DEBT.md` →
+**MASTERPLAN-CONNECTOR-RUNTIME-1**.
 
 ---
 
 ## 11. Technical Debt
 
-Masterplan layer debt is tracked in:
-- `TECH_DEBT.md`
+Masterplan layer debt is tracked in `TECH_DEBT.md`:
+- **MASTERPLAN-CONNECTOR-RUNTIME-1** — the runtime-owned connector hardening
+  (first-class `register_connector` hook + capability-enforced outbound I/O) noted in
+  §8 and Step 4.
+- **APP-DEBT-MIGRATED-1** ("Masterplan dependency cascade + execution automation") —
+  the domain roadmap row; anchor/ETA/cascade debt is closed, the residual is the
+  runtime connector work above.
 
 ---
 

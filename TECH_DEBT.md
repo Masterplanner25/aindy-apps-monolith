@@ -1,5 +1,32 @@
 # Technical Debt
 
+## RIPPLETRACE-CONTENT-LLM-1: rippletrace content generation is template-only (LLM path dropped in the port)
+
+**Status:** Tracked (2026-07-05). App-owned. Found comparing the standalone RippleTrace MVP
+(`C:\dev\Rippletrace`) against this app's port.
+
+**Context:** The standalone `content_generator` generated post drafts via OpenAI
+`gpt-4o-mini` (platform-aware prompt: LinkedIn short-form / Medium long-form / general) with
+a deterministic template **fallback** and a `source` provenance field, and
+`generate_variations` produced genuinely different variants. This app's
+`apps/rippletrace/services/content_generator.py` kept only the template path
+(`_build_title` / `_build_hook` / `_build_body` string templates), and `generate_variations`
+merely appends "(1)/(2)/(3)" to the title/CTA (cosmetic, not real variation). The
+`/generate_content*` and `/generate_variations` endpoints therefore return canned copy, not
+model-authored drafts. Documented in `docs/apps/RIPPLETRACE.md` §7.
+
+**Fix when triggered:** route generation through the runtime LLM abstraction rather than a
+direct `openai` call — register a rippletrace content tool via `register_tool` (as
+analytics/search/arm do) or call the runtime LLM primitive, keeping the existing template
+output as the deterministic fallback (and under `settings.is_testing`) so app-profile runs
+stay offline/deterministic. Preserve a `source` field so callers can distinguish model vs
+template output.
+
+**Reopen trigger:** productizing rippletrace content generation, or any work on the
+`/generate_content*` surface.
+
+---
+
 ## TASK-COMPLETE-IDEMPOTENCY-1: `complete_task` has no prior-status guard — repeated completion re-fires side effects
 
 **Status:** Tracked (2026-07-05). App-owned correctness issue in `apps/tasks`; not yet fixed
