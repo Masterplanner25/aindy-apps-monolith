@@ -34,6 +34,9 @@ pytest tests/unit/test_import_boundaries.py::test_name -v
 # Cross-app import boundary check (required before any PR)
 python scripts/check_app_imports.py
 
+# API reference drift guard (boots app-profile, diffs live /apps/* vs the doc)
+python scripts/check_api_reference.py
+
 # App-profile smoke (mirrors CI — verifies boot_profile=default-apps, app_plugins_loaded=True)
 python -c "
 import os, json
@@ -225,6 +228,7 @@ Use `disabled` (set in `pytest.integration.ini`), **not** `stub`. The `stub` bac
 | Bootstrap aggregator | `apps/bootstrap.py` |
 | Bootstrap validator (AST-based) | `apps/_bootstrap_validator.py` |
 | Cross-app import checker | `scripts/check_app_imports.py` |
+| API reference drift guard | `scripts/check_api_reference.py` |
 | App-owned Alembic migrations | `alembic/versions/` |
 | Plugin registry pattern doc | `docs/architecture/PLUGIN_REGISTRY_PATTERN.md` |
 | Boot profiles doc | `docs/architecture/BOOT_PROFILES.md` |

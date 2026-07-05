@@ -127,6 +127,9 @@ jobs:
           print(payload)
           PY
 
+      - name: Check API reference route drift
+        run: python scripts/check_api_reference.py
+
       - name: Check cross-app import boundaries
         run: python scripts/check_app_imports.py
 
