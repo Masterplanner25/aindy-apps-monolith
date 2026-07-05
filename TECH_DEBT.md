@@ -12,28 +12,41 @@ manifest so `apps.bootstrap` registers the domain apps into the runtime via the 
 
 **Delivered (this change):**
 - `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.5.3,<2.0`), copies the
-  app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves
-  `AINDY.main:app` via the runtime-bundled uvicorn from the repo root.
-- `docker/entrypoint.sh` — applies migrations then execs the server: app schema via
-  `alembic upgrade head` (repo root; `alembic_version`), and runtime schema
-  (`alembic_version_runtime`) via an injected `RUNTIME_MIGRATE_CMD`.
-- `docker-compose.prod.yml` — apps server + Postgres/pgvector (persistent) + Redis, mirroring
-  the runtime prod overlay; Mongo (social, degradable) commented/optional.
+  app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves via
+  `aindy-runtime serve` from the repo root (shape follows the runtime's own `aindy-runtime init`
+  scaffold: `libpq-dev`, `AINDY_HOST=0.0.0.0`).
+- `docker/entrypoint.sh` — applies the app schema (`alembic upgrade head`, `alembic_version`),
+  then execs `aindy-runtime serve` (which binds `AINDY_HOST:AINDY_PORT` and self-migrates the
+  runtime schema, `alembic_version_runtime`, at boot). A `PRE_SERVE_CMD` hook is available for a
+  runtime pre-serve migrate step if the deploy contract adds one.
+- `docker-compose.prod.yml` — `api` (built app image) + Postgres/pgvector (persistent) with a
+  `/health` healthcheck; Redis under a `full` profile and Mongo optional, mirroring
+  `aindy-runtime init`.
+
+**Verified so far (2026-07-05):** against the pinned runtime `1.5.3` (the local venv was stale at
+`1.5.1` and was upgraded), the app boots app-profile (boot_profile=default-apps,
+app_plugin_count=17) and `scripts/check_api_reference.py` reports 0 drift. The Docker image itself
+is still unbuilt/untested here (no Docker in the dev env).
 
 **Open items:**
-1. **Runtime migration command.** `RUNTIME_MIGRATE_CMD` is injected because the runtime's
-   migrate mechanism is defined by its deploy contract (`aindy-runtime` RUNTIME_ONLY_DEPLOYMENT)
-   and is not introspectable from the installed package (no alembic tree or migrate console
-   script in the wheel). Confirm the command and hard-wire it — or confirm the runtime
-   self-migrates at boot and drop the step.
-2. **Build/boot test.** The image is unbuilt/untested here — the local venv has runtime 1.5.1
-   (below the pin), which lacks `aindy-runtime-api` and the app-profile surface. Build against
-   `aindy-runtime>=1.5.3` and verify boot (`/api/version` → boot_profile=default-apps,
-   app_plugins_loaded=true, app_plugin_count=17) and that `alembic upgrade head` applies cleanly.
-3. **Env-name/driver confirmation.** `DATABASE_URL` uses the psycopg2 scheme (runtime-bundled);
-   the Redis env var name (`REDIS_URL`) is assumed — confirm against the runtime config surface.
+1. **App-tree migration ordering.** The runtime self-migrates its own schema at `serve` (its
+   `aindy-runtime init` compose runs only `aindy-runtime serve`, no migrate step), and there is
+   **no** `aindy-runtime migrate` subcommand (only `init` / `serve` / `sandbox` / `auth`). The
+   entrypoint runs the app `alembic upgrade head` before serve; if an app revision FKs a
+   runtime-owned table this must be ordered after the runtime schema exists — confirm and wire
+   `PRE_SERVE_CMD` accordingly.
+2. **Build/boot test.** Build the image against `aindy-runtime>=1.5.3` and verify boot end-to-end
+   (`/health`, `/api/version` → 17 app plugins) and that `alembic upgrade head` applies cleanly.
+3. **Env-name/driver confirmation.** `DATABASE_URL` uses the psycopg2 scheme; `REDIS_URL` /
+   `EXECUTION_MODE=distributed` are assumed from the runtime scaffold — confirm against the
+   runtime config surface.
 4. **CI + hardening.** Add a container build-smoke to CI (mirroring the frontend one); consider a
-   multi-stage build to drop the toolchain from the final image; parameterize the listen port.
+   multi-stage build to drop the toolchain; the listen port is `AINDY_PORT`.
+
+**Related doc bug:** the pinned runtime exposes `aindy-runtime serve`, not `aindy-runtime-api`
+(the latter is referenced in `CLAUDE.md`, `docs/apps/RUNTIME_DEPENDENCY.md`,
+`docs/apps/APPS_MONOLITH_REPO_SHAPE.md`, and `LIVE_VERIFICATION_SCOPE.md`, but ships in no
+package). Fix those to `aindy-runtime serve` (tracked here until done).
 
 **Reopen trigger:** productionizing the app profile, or a runtime release that changes the boot
 entrypoint / migration contract.
