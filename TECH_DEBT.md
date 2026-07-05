@@ -88,7 +88,19 @@ Infinity" phases.
 
 **App-side dependencies:** the app-owned loop-depth residual is tracked separately in
 **APP-DEBT-MIGRATED-1** ("Infinity loop autonomy still shallow"); the watcher (a core support
-signal) is runtime-owned (`aindy-runtime/AINDY/watcher/`).
+signal) is runtime-owned (`aindy-runtime`: `AINDY/platform_layer/watcher_service.py` +
+`AINDY/routes/watcher_router.py`).
+
+**Verification (2026-07-05):** checked against the `aindy-runtime` checkout — the handoff is
+currently **one-directional; none of the three items are picked up yet.**
+- #1: `docs/runtime/INFINITY_LOOP_AUDIT.md` (last_verified 2026-06-07) has no back-reference to
+  the app docset — the app side points at the runtime audit, not vice versa. **Open.**
+- #2: the 5 gaps are described in `INFINITY_LOOP_AUDIT.md` prose but there is **no `INFINITY-*`
+  entry in `aindy-runtime/TECH_DEBT.md`** — answer to "confirm they're tracked" is **negative**.
+  Gap 4 (Next-Action engine primitive) is the one gating app-side Infinity Phase 2.
+- #3: the Step 3/4 producers exist (`observability_router.py`, `agent_event_service.py`,
+  `async_job_service.py`) but no aggregate-syscall request is anchored runtime-side. **Open.**
+Nothing in `aindy-runtime` references INFINITY-RUNTIME-HANDOFF-1 itself.
 
 **Reopen trigger:** an `aindy-runtime` release advancing loop closure (any of the 5 gaps) or
 exposing observability/execution aggregate syscalls; or a re-triage of the app-side Infinity

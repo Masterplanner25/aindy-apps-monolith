@@ -24,8 +24,10 @@ owner: "apps-team"
 > major execution through the orchestrator") is largely **runtime-gated**: making
 > agent/flow/Nodus execution consult Infinity *before* dispatch needs runtime
 > primitives (a runtime-owned Next-Action engine + pre-dispatch hooks) — the runtime
-> audit's Gap 4. `nodus_vm` is now the default agent-execution backend (PR #52), so
-> agent runs execute through the Nodus VM, but Infinity-driven pre-dispatch control
+> audit's Gap 4. The monolith now defaults to `nodus_vm` (PR #52, via
+> `apps/agent/bootstrap.py::_select_execution_backend`; the runtime's own default
+> remains `agent_flow`), so agent runs execute through the Nodus VM, but
+> Infinity-driven pre-dispatch control
 > is not yet a runtime capability. Runtime-side Infinity work is tracked in
 > `TECH_DEBT.md` → **INFINITY-RUNTIME-HANDOFF-1**; the app-side loop-depth residual
 > in **APP-DEBT-MIGRATED-1** ("Infinity loop autonomy still shallow").

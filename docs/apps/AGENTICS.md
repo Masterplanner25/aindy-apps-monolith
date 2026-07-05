@@ -67,7 +67,8 @@ this doc (§1 *Partially working / Not implemented*, §4 Phase B, §5 *Verdict*,
 the *Summary*).** Those sections predate the RTR-1 work and are retained below as
 the historical baseline the roadmap was built from — they are no longer current.
 
-- **`nodus_vm` is now this monolith's DEFAULT agent-execution backend** on every
+- **`nodus_vm` is now this monolith's DEFAULT agent-execution backend** (the runtime's
+  own default remains `agent_flow`; the monolith opts in) on every
   non-test boot (`apps/agent/bootstrap.py::_select_execution_backend` →
   `os.environ.setdefault("AINDY_AGENT_EXECUTION_BACKEND", "nodus_vm")`, PR #52,
   2026-07-05). An explicit env value (ops override / pytest ini) always wins; the
