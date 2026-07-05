@@ -133,3 +133,4 @@ jobs:
           -c pytest.nodus.ini
           tests/integration/test_nodus_vm.py
           -v -ra
+          -o log_cli=true --log-cli-level=WARNING
