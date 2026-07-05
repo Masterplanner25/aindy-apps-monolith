@@ -458,8 +458,8 @@ map in `aindy-runtime/docs/runtime/RUNTIME_DOCSET_BOUNDARY.md`:
   `ABSTRACTED_ALGORITHM_SPEC.md`, `FORMULA_AND_ALGORITHM_OVERVIEW.md`
 - `docs/architecture/`: `PUBLIC_SURFACE_AUDIT.md`, `PUBLIC_SURFACE_CONTRACTS.md`,
   `PUBLIC_SURFACE_MIGRATION_GUIDE.md`, `USER_ID_AUDIT.md`
-- `docs/api/API_REFERENCE.md`, `docs/platform/engineering/IMPLEMENTATION_DOCS_AUDIT.md`,
-  `docs/platform/governance/MASTERPLAN_SAAS.md`
+- `docs/api/API_REFERENCE.md`, `docs/apps/IMPLEMENTATION_DOCS_AUDIT.md`,
+  `docs/apps/MASTERPLAN_SAAS.md`
 
 **Fixup performed (2026-06-27):** The pre-split docs referenced a flat monolith layout
 (`services/foo.py`, `routes/foo.py`, `db/models/foo.py`, `AINDY/services/foo.py`). Every code-path
@@ -525,7 +525,7 @@ not app-owned — the apps-monolith slice was small. Disposition:
     runtime content belongs to `aindy-runtime`.
   - `platform/governance/release_notes.md` → **ARCHIVE-ONLY** — completed pre-split sprint history;
     app release tracking starts fresh from the split (git history + `docs/api/CHANGELOG.md`).
-  - `platform/governance/EVOLUTION_PLAN.md` → **BROUGHT OVER** as `docs/platform/governance/EVOLUTION_PLAN.md`.
+  - `platform/governance/EVOLUTION_PLAN.md` → **BROUGHT OVER** as `docs/apps/EVOLUTION_PLAN.md`.
     It's an existing, current roadmap (not synthesized): Phases 1–4 are completed runtime hardening
     (kept as historical context, owned upstream by `aindy-runtime`), Phase 5 is the current
     cross-repo phase, and Phases 6–7 + the named phases are app-facing. Brought over with

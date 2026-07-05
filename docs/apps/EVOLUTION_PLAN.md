@@ -39,8 +39,8 @@ This plan defines controlled evolution aligned with current architecture and gov
 - Freelancing System evolution is defined in `docs/apps/FREELANCING_SYSTEM.md`.
 - Social Layer evolution is defined in `docs/apps/SOCIAL_LAYER.md`.
 - ARM evolution is defined in `docs/apps/AUTONOMOUS_REASONING_MODULE.md`.
-- Masterplan SaaS evolution is defined in `docs/platform/governance/MASTERPLAN_SAAS.md`.
-- Implementation docs utility audit is defined in `docs/platform/engineering/IMPLEMENTATION_DOCS_AUDIT.md`.
+- Masterplan SaaS evolution is defined in `docs/apps/MASTERPLAN_SAAS.md`.
+- Implementation docs utility audit is defined in `docs/apps/IMPLEMENTATION_DOCS_AUDIT.md`.
 - Agentics reality, corrected A.I.N.D.Y. + Nodus architecture, and completion roadmap are defined in `docs/apps/AGENTICS.md`.
 - Treat the current `PersistentFlowRunner` execution path as transitional infrastructure.
 - Treat real Nodus integration as a core infrastructure objective, not a completed milestone and not a deferred nice-to-have.
@@ -226,7 +226,7 @@ Focus areas:
 
 Execution checklist:
 1. Auth + API key management flows exist, documented via interface contracts and route policies.
-2. Multi-tenant isolation is enforced at the DB level and documented in `docs/platform/governance/MASTERPLAN_SAAS.md`.
+2. Multi-tenant isolation is enforced at the DB level and documented in `docs/apps/MASTERPLAN_SAAS.md`.
 3. Billing integration points for usage-based metering are defined and surfaced through `/billing/*` or similar endpoints.
 4. Hosted deployment guide covers security, scaling, and operational runbooks.
 
