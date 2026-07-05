@@ -162,7 +162,11 @@ def _diagnose_anthropic_planner(goal: str) -> str:
             "is in the runtime dispatch/context, NOT the anthropic_chat backend"
         )
     except Exception as exc:
-        return f"direct backend call raised {type(exc).__name__}: {str(exc)[:400]}"
+        # APIConnectionError's own message is just "Connection error."; the actionable
+        # detail (DNS / TLS / connection refused / timeout) is on __cause__.
+        cause = getattr(exc, "__cause__", None)
+        cause_txt = f" | cause: {type(cause).__name__}: {str(cause)[:200]}" if cause else ""
+        return f"direct backend call raised {type(exc).__name__}: {str(exc)[:300]}{cause_txt}"
 
 
 def _assert_no_tool_resolution_failure(steps: list[dict], run_body: dict) -> None:
