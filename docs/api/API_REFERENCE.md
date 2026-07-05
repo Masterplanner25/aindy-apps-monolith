@@ -1,3 +1,10 @@
+---
+title: "App HTTP REST API Reference"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # API Reference
 
 ## HTTP API Reference
@@ -104,6 +111,13 @@ Reject Agent Run
 
 #### POST /apps/agent/runs/{run_id}/replay
 Replay Agent Run
+
+**Parameters:** run_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/agent/runs/{run_id}/resume
+Resume Agent Run
 
 **Parameters:** run_id (path): string
 
@@ -377,13 +391,85 @@ Get Agents
 
 **Response 200:** unspecified
 
+#### POST /apps/coordination/agents/register
+Register Agent
+
+**Body:** agent_id: string (required), capabilities: array[string], current_state: map[unspecified], health_status: string, load: number
+
+**Response 200:** unspecified
+
 #### GET /apps/coordination/agents/status
 Get Agents Status
 
 **Response 200:** unspecified
 
+#### DELETE /apps/coordination/agents/{agent_id}
+Deregister Agent
+
+**Parameters:** agent_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/coordination/agents/{agent_id}/heartbeat
+Heartbeat Agent
+
+**Parameters:** agent_id (path): string
+
+**Body:** object | null
+
+**Response 200:** unspecified
+
+#### POST /apps/coordination/conflict/memory
+Detect Memory Conflict Route
+
+**Body:** agent_id: string | null, memory_path: string (required)
+
+**Response 200:** unspecified
+
+#### POST /apps/coordination/conflict/run
+Detect Run Conflict Route
+
+**Body:** agent_id: string | null, objective: string (required)
+
+**Response 200:** unspecified
+
 #### GET /apps/coordination/graph
 Get Coordination Graph
+
+**Response 200:** unspecified
+
+#### GET /apps/coordination/memory/shared
+Get Shared Memory
+
+**Parameters:** limit (query): integer, tags (query): string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/coordination/messages/inbox
+Get Coordination Inbox
+
+**Parameters:** agent_id (query): string, message_type (query): string | null, include_acknowledged (query): boolean, limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/coordination/messages/{message_id}/acknowledge
+Acknowledge Coordination Message
+
+**Parameters:** message_id (path): string
+
+**Body:** agent_id: string (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/coordination/runs
+Get Coordination Runs
+
+**Response 200:** unspecified
+
+#### GET /apps/coordination/runs/{parent_run_id}/children
+Get Coordination Run Children
+
+**Parameters:** parent_run_id (path): string
 
 **Response 200:** unspecified
 
@@ -433,6 +519,18 @@ Resume Flow Run
 
 ### Freelance
 
+#### GET /apps/freelance/clients
+List Clients
+
+**Response 200:** unspecified
+
+#### GET /apps/freelance/clients/{client_id}
+Get Client Lineage
+
+**Parameters:** client_id (path): integer
+
+**Response 200:** unspecified
+
 #### POST /apps/freelance/deliver/{order_id}
 Deliver Order
 
@@ -468,6 +566,13 @@ Generate Delivery
 
 **Response 200:** unspecified
 
+#### POST /apps/freelance/intake/from-lead
+Intake From Lead
+
+**Body:** auto_generate_delivery: boolean, client_email: string (required), client_name: string | null, delivery_config: map[unspecified] | null, delivery_type: string | null, lead_id: integer (required), price: number | null, project_details: string | null, service_type: string (required)
+
+**Response 201:** unspecified
+
 #### GET /apps/freelance/metrics/latest
 Get Latest Metrics
 
@@ -487,6 +592,24 @@ Create Freelance Order
 
 #### GET /apps/freelance/orders
 Get All Orders
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/refund/{order_id}
+Refund Order
+
+**Parameters:** order_id (path): integer
+
+**Body:** object | null
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/subscription/{order_id}/cancel
+Cancel Subscription
+
+**Parameters:** order_id (path): integer
+
+**Body:** object | null
 
 **Response 200:** unspecified
 
@@ -881,6 +1004,13 @@ Get Masterplan
 
 #### POST /apps/masterplans/{plan_id}/activate
 Activate Masterplan
+
+**Parameters:** plan_id (path): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/masterplans/{plan_id}/activate-cascade
+Activate Cascade
 
 **Parameters:** plan_id (path): integer
 
@@ -1419,6 +1549,18 @@ Run Research Query
 
 ### RippleTrace
 
+#### GET /apps/rippletrace/causal/chain/{drop_point_id}
+Get Causal Chain View
+
+**Parameters:** drop_point_id (path): string, depth (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/causal/graph
+Get Causal Graph
+
+**Response 200:** unspecified
+
 #### POST /apps/rippletrace/drop_point
 Create Drop Point
 
@@ -1438,6 +1580,51 @@ Log Ripple Event
 
 **Response 200:** unspecified
 
+#### GET /apps/rippletrace/event/{event_id}/downstream
+Get Event Downstream
+
+**Parameters:** event_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/event/{event_id}/upstream
+Get Event Upstream
+
+**Parameters:** event_id (path): string
+
+**Response 200:** unspecified
+
+#### POST /apps/rippletrace/learning/adjust
+Adjust Learning Thresholds
+
+**Response 200:** unspecified
+
+#### POST /apps/rippletrace/learning/evaluate/{drop_point_id}
+Evaluate Learning Outcome
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/learning/stats
+Get Learning Stats
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/narrative/summary
+Get Narrative Summary
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/narrative/{drop_point_id}
+Get Narrative
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
 #### POST /apps/rippletrace/ping
 Create Ping
 
@@ -1450,6 +1637,39 @@ All Pings
 
 **Response 200:** unspecified
 
+#### GET /apps/rippletrace/playbooks
+List Playbooks View
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/playbooks/match/{drop_point_id}
+Match Playbooks View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/playbooks/{playbook_id}
+Get Playbook View
+
+**Parameters:** playbook_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/predictions/summary
+Get Predictions Summary
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/predictions/{drop_point_id}
+Get Drop Point Prediction
+
+**Parameters:** drop_point_id (path): string, record_learning (query): boolean
+
+**Response 200:** unspecified
+
 #### GET /apps/rippletrace/recent
 Recent Ripples
 
@@ -1457,10 +1677,55 @@ Recent Ripples
 
 **Response 200:** unspecified
 
+#### GET /apps/rippletrace/recommendations/summary
+Get Recommendations Summary
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/recommendations/system
+Get System Recommendations
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/recommendations/{drop_point_id}
+Get Drop Point Recommendation
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
 #### GET /apps/rippletrace/ripples/{drop_point_id}
 Get Ripples
 
 **Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/strategies
+List Strategies View
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/strategies/build
+Build Strategies View
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/strategies/match/{drop_point_id}
+Match Strategies View
+
+**Parameters:** drop_point_id (path): string
+
+**Response 200:** unspecified
+
+#### GET /apps/rippletrace/strategies/{strategy_id}
+Get Strategy View
+
+**Parameters:** strategy_id (path): string
 
 **Response 200:** unspecified
 
@@ -1559,6 +1824,22 @@ Create Post
 
 **Response 200:** unspecified
 
+#### GET /apps/social/posts/{post_id}/comments
+List Post Comments
+
+**Parameters:** post_id (path): string, limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/social/posts/{post_id}/comments
+Create Post Comment
+
+**Parameters:** post_id (path): string
+
+**Body:** author_username: string | null, content: string (required), parent_comment_id: string | null
+
+**Response 200:** unspecified
+
 #### POST /apps/social/posts/{post_id}/interact
 Record Post Interaction
 
@@ -1624,6 +1905,16 @@ Start Task
 
 ### analytics
 
+#### GET /apps/analytics/kpi-weights
+Get Kpi Weights
+
+**Response 200:** unspecified
+
+#### POST /apps/analytics/kpi-weights/adapt
+Adapt Kpi Weights Endpoint
+
+**Response 200:** unspecified
+
 #### POST /apps/analytics/linkedin/manual
 Ingest Linkedin Manual
 
@@ -1642,6 +1933,16 @@ Get Masterplan Analytics
 Get Masterplan Summary
 
 **Parameters:** masterplan_id (path): integer, group_by (query): string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/analytics/policy-thresholds
+Get Policy Thresholds
+
+**Response 200:** unspecified
+
+#### POST /apps/analytics/policy-thresholds/adapt
+Adapt Policy Thresholds Endpoint
 
 **Response 200:** unspecified
 

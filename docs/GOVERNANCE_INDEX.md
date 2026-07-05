@@ -47,7 +47,7 @@ App code and docs must conform to these and must not contradict or redefine them
 - `docs/architecture/PUBLIC_SURFACE_CONTRACTS.md` — cross-domain public surfaces.
 - `docs/architecture/PUBLIC_SURFACE_AUDIT.md`, `PUBLIC_SURFACE_MIGRATION_GUIDE.md`.
 - `docs/platform/interfaces/API_CONTRACTS.md` — HTTP route inventory.
-- `docs/api/API_REFERENCE.md`, `docs/api/CHANGELOG.md` — app REST surface + history.
+- `docs/api/API_REFERENCE.md`, `CHANGELOG.md` — app REST surface + history.
 - `docs/architecture/ANALYTICS_BOUNDARY.md` — analytics ownership boundary.
 - `docs/architecture/USER_ID_AUDIT.md` — per-user scoping audit.
 
@@ -85,7 +85,7 @@ A structural change must update the docs it affects, in the same change:
 - New/changed cross-domain coupling → `docs/architecture/CROSS_DOMAIN_COUPLING.md`
   and `PUBLIC_SURFACE_CONTRACTS.md`.
 - Route behavior change → `docs/platform/interfaces/API_CONTRACTS.md`,
-  `docs/api/API_REFERENCE.md`, and `docs/api/CHANGELOG.md` (breaking/additive).
+  `docs/api/API_REFERENCE.md`, and `CHANGELOG.md` (breaking/additive).
 - Schema/migration discipline change → `docs/deployment/MIGRATION_POLICY.md`.
 - Test/validation discipline change → `docs/platform/engineering/TESTING_STRATEGY.md`.
 - New deferred risk → `TECH_DEBT.md`.

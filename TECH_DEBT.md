@@ -626,7 +626,7 @@ not app-owned — the apps-monolith slice was small. Disposition:
      tracking gap) migrated below as **APP-DEBT-MIGRATED-1**.
   2. `docs/architecture/ANALYTICS_BOUNDARY.md` → added as the app-owned half of the analytics boundary.
   3. `docs/api/CHANGELOG.md` → app-route (`/apps/*`, `/masterplans/*`, `/bridge/*`) history extracted
-     into this repo's `docs/api/CHANGELOG.md`; runtime routes (`/platform/*`, `/agent/*`,
+     into this repo's `CHANGELOG.md`; runtime routes (`/platform/*`, `/agent/*`,
      `/observability/*`) left to the runtime changelog.
 - **Bucket D — living governance (triaged 2026-06-27; author fresh, not copy-split):**
   - `platform/GOVERNANCE_INDEX.md` → **AUTHORED** fresh as `docs/GOVERNANCE_INDEX.md` (indexes
@@ -635,7 +635,7 @@ not app-owned — the apps-monolith slice was small. Disposition:
     `ARCHITECTURE_MAP` + `BOOT_PROFILES` + `PLUGIN_REGISTRY_PATTERN` + `APPS_MONOLITH_REPO_SHAPE`;
     runtime content belongs to `aindy-runtime`.
   - `platform/governance/release_notes.md` → **ARCHIVE-ONLY** — completed pre-split sprint history;
-    app release tracking starts fresh from the split (git history + `docs/api/CHANGELOG.md`).
+    app release tracking starts fresh from the split (git history + `CHANGELOG.md`).
   - `platform/governance/EVOLUTION_PLAN.md` → **BROUGHT OVER** as `docs/apps/EVOLUTION_PLAN.md`.
     It's an existing, current roadmap (not synthesized): Phases 1–4 are completed runtime hardening
     (kept as historical context, owned upstream by `aindy-runtime`), Phase 5 is the current
