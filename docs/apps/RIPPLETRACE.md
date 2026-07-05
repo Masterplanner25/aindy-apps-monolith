@@ -1,3 +1,10 @@
+---
+title: "RippleTrace"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # RippleTrace
 
 ## 1. System Role
@@ -50,7 +57,9 @@ Compatibility routes:
 - `/learning_stats`
 - `/evaluate/{drop_point_id}`
 
-These compatibility endpoints are now served by `AINDY/routes/legacy_surface_router.py`, not `AINDY/main.py`.
+These compatibility endpoints are now served by the app-owned
+`apps/rippletrace/routes/legacy_surface_router.py` (registered via the app bootstrap),
+not `AINDY/main.py`.
 
 ## 4. Product Surface
 - The frontend graph experience depends on the compatibility graph endpoints:
@@ -104,3 +113,48 @@ Proofboard against an execution graph that mixes system events, a memory-node ta
 an async branch, asserting the graph surfaces the memory node, the `stored_as_memory` and
 `async_child` edges, and that the Trace Summary reflects `ripple_span` / root / terminal —
 keeping the proofboard aligned with the execution-side graph.
+
+## 7. Standalone build comparison (2026-07-05)
+
+The original standalone RippleTrace MVP (`C:\dev\Rippletrace`, app code under
+`rippletrace_mvp/`) was compared against this app. **The engine port is comprehensive
+and in several ways ahead of the standalone** — every standalone engine (delta,
+prediction, recommendation, learning, influence, causal, narrative, strategy, playbook,
+content) exists under `apps/rippletrace/services/`, and the distinctive logic survived:
+
+- **Adaptive learning loop is intact and richer.** `prediction_engine` reads learned
+  thresholds live via `learning_engine.get_learning_thresholds`, and `adjust_thresholds`
+  self-tunes them from prediction-vs-outcome accuracy — the standalone's single most
+  valuable mechanism. The monolith learns **four** params (`velocity_trend`,
+  `narrative_trend`, `early_velocity_rate`, `early_narrative_ceiling`) vs the standalone's
+  two, and persists them through `apps/automation/public` rather than a local singleton.
+- **Momentum-alignment causal heuristic**, **weighted typed influence edges**,
+  **spike/delta rates**, and **narrative inflection detection** all carried over.
+- **Beyond the standalone:** per-engine circuit breakers (`engine_registry`), the
+  execution-side trace graph over `SystemEvent` (`rippletrace_service`, absent in the
+  standalone), syscalls, and a registered flow strategy.
+
+**One genuine regression — LLM content generation was dropped.** The standalone
+`content_generator` produced drafts via `gpt-4o-mini` with a platform-aware prompt and a
+clean template fallback (`source` provenance), and `generate_variations` produced real
+variants. This app's `content_generator.py` is **template-only**; `generate_variations`
+only appends "(1)/(2)/(3)". Since A.I.N.D.Y. is an LLM platform, the fix is to route
+generation through the runtime LLM primitive (e.g. a registered agent tool), keeping the
+template output as the deterministic fallback. Tracked: `TECH_DEBT.md` →
+**RIPPLETRACE-CONTENT-LLM-1**.
+
+## 8. Original blueprint concepts not yet built
+
+Captured from `RippleTrace Blueprint.txt` so the original vision is not lost. These were
+aspirational in the standalone too (partially realized or never built), so they are
+**product ideas, not regressions from the port**:
+
+- **Ghost Visibility Tracker** — detect name/keyword pickups where you are *not* explicitly
+  tagged (untagged influence). No implementation in either build.
+- **Time Rings visualization** — the "spiderweb meets sonar" radial graph with Day 1 / 7 /
+  30 concentric rings. The current graph is a generic force/edge layout.
+- **Narrative Energy Score** — an emotional/strategic-significance metric, distinct from the
+  log-dampened ping-count `narrative_score`.
+- **Silent Pings as a first-class taxonomy** — emails/DMs/follows/"pattern syncs" as distinct
+  ping types (today only loosely inferred via `connection_type`).
+- **Exportable PDF Proofboard** — a shareable executive influence summary.

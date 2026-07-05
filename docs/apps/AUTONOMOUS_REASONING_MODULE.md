@@ -1,3 +1,10 @@
+---
+title: "Autonomous Reasoning Module (ARM)"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # AUTONOMOUS REASONING MODULE (ARM)
 
 > **Status update (2026-06-28).** Partly stale. The Infinity-loop decision logic
@@ -37,6 +44,30 @@
 > a runtime feature request (added in `aindy-runtime`), never an app edit to
 > runtime. The originally-listed memory-engine edits (`AINDY/runtime/memory/…`,
 > `AINDY/memory/…`) are deferred to the runtime repo.
+
+> **Addendum (2026-07-05) — execution substrate vs. reasoning→Nodus selection.**
+> Two things this doc conflates are now on different tracks:
+> - **Execution substrate:** `nodus_vm` is now this monolith's **default**
+>   agent-execution backend (`apps/agent/bootstrap.py::_select_execution_backend`,
+>   PR #52; RTR-1 §5 proven on runtime ≥1.5.3). This **supersedes** the general
+>   "Nodus is not the primary execution path / not primary Nodus VM orchestration"
+>   framing in §3 (*Nodus Execution Layer*), §4.B, §9 (*AGENTICS.md* alignment),
+>   and §10 — the substrate transition has happened. See
+>   `docs/apps/AGENTICS.md` → *Status update — Phase B substantially resolved
+>   (2026-07-05)*.
+> - **Reasoning→Nodus workflow selection (still open, and tracked):** reasoning
+>   outputs still cannot drive `.nd` *workflow selection/compilation* — there is no
+>   app-facing `register_nodus_workflow` surface (`nodus_execution_service` is
+>   runtime-internal). This is the genuine, narrower gap Phase 4 names, and it is a
+>   runtime feature request, not an app edit. Tracked: `TECH_DEBT.md` →
+>   **APP-DEBT-MIGRATED-1** ("Nodus-native reasoning execution deferred (runtime)").
+>
+> Also: the reasoning-engine files §6 lists "to introduce … _(path unverified after
+> split)_" now **exist** at `apps/analytics/services/reasoning/` (Phases 1–5
+> shipped — see the 2026-06-28 update above); read §6 as the original design intent,
+> not current absence. The remaining reasoning-depth residual (no deep
+> threshold/weight learning; not a bounded autonomous controller) is tracked:
+> `TECH_DEBT.md` → **APP-DEBT-MIGRATED-1** ("Infinity loop autonomy still shallow").
 
 ## 1. System Reality
 
@@ -710,7 +741,7 @@ This document aligns with `docs/apps/EVOLUTION_PLAN.md`:
 
 ### TECH_DEBT.md
 
-This document aligns with `docs/platform/engineering/TECH_DEBT.md`:
+This document aligns with `TECH_DEBT.md`:
 
 - reasoning debt is currently architectural, not cosmetic
 - the main debt is fragmentation: decision logic is spread across loop logic, planner prompts, flow strategy code, and memory orchestration

@@ -1,6 +1,24 @@
-﻿# Formula and Algorithm Overview
+﻿---
+title: "Formula and Algorithm Overview"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
+# Formula and Algorithm Overview
 
-This document extracts and documents computational formulas and algorithmic processes strictly from the current implementation.
+This document extracts and documents computational formulas and algorithmic processes strictly from the current implementation. Verified against code 2026-07-05.
+
+> **Scope note.** Business-logic formulas are **app-owned** (`apps/*`) and verified against
+> this repo. The remaining `AINDY/*` references are **runtime-owned primitives**
+> (`aindy-runtime`), consumed as a published dependency — verified against the sibling
+> `aindy-runtime` checkout (2026-07-05): the memory-bridge primitives
+> (`AINDY/memory/memory_persistence.py`, `AINDY/memory/bridge.py`,
+> `AINDY/memory/memory_capture_engine.py`), `AINDY/routes/health_router.py`, and
+> `AINDY/main.py` all exist there. The ARM/DeepSeek analysis logic moved *out* of the
+> runtime into the app layer (`apps/arm/services/deepseek/`); the old
+> `AINDY/services/deepseek_arm_service.py` resolves to no file in either repo (see
+> `TECH_DEBT.md` DOCS-MIGRATION-1).
 
 ## 1. Explicit Mathematical Formulas
 
@@ -108,14 +126,11 @@ This document extracts and documents computational formulas and algorithmic proc
   - Returns 2 if thresholds_met OR now >= phase_end; else returns 1.
 
 ### SEO Routes (`apps/search/routes/seo_routes.py`)
-- `POST /analyze_seo/` (inline logic)
+- `analyze_seo` (`POST /seo/analyze`) and `analyze_seo_compat` (`POST /seo/analyze_seo/`)
   - Reference: `apps/search/routes/seo_routes.py`
-  - word_count = len(words)
-  - readability = 100 - (len(words) / 200 × 10)
-  - keyword_densities[w] = count(w)
-  - top_keywords = sorted(keyword_densities, key=count desc)[:5]
-  - densities[k] = round(count(k) / word_count × 100, 2)
-  - Returns: `{word_count, readability, top_keywords, keyword_densities}` where `keyword_densities` is `densities` (percentage values).
+  - Both handlers **delegate** to `analyze_seo_content` → `seo_analysis` (§SEO Services below); they differ only in input schema and default `top_n`. There is no inline readability heuristic — readability comes from `textstat.flesch_reading_ease`.
+  - Returns whatever `seo_analysis` produces: `{word_count, readability, top_keywords, keyword_densities}`.
+  - _(Corrected 2026-07-05: the previously-documented inline `readability = 100 - (len(words)/200 × 10)` block no longer exists.)_
 
 ### SEO Services (`apps/search/services/seo_services.py`)
 - `keyword_density(text, keyword)`
@@ -157,17 +172,21 @@ This document extracts and documents computational formulas and algorithmic proc
 ### Freelance Metrics (`apps/freelance/services/freelance_service.py`)
 - `update_revenue_metrics`:
   - total_revenue = sum(price) for delivered orders
-  - Returns RevenueMetrics with `total_revenue` and `None` for other fields.
+  - Also computes `avg_execution_time`, `income_efficiency`, `ai_productivity_boost`, and `avg_delivery_quality` via `_average(...)` (not `None`).
+  - Adds + commits the `RevenueMetrics` row (does not return it).
+  - _(Corrected 2026-07-05: earlier text claimed the non-revenue fields were `None`.)_
 
 ### Task Services (`apps/tasks/services/task_service.py`)
 - `complete_task`:
   - Reference: `apps/tasks/services/task_service.py`
   - If started, `time_spent += (now - start_time).total_seconds()`
-  - Converts to hours for TWR input: `time_spent / 3600`
-  - Updates MongoDB metrics:
-    - execution_velocity += 1
-    - twr_score += (twr_score × 0.1)
-  - Mongo update reference: `apps/tasks/services/task_service.py` (`update_one`), `apps/tasks/services/task_service.py` (metrics increments)
+  - Sets `status = "completed"`, `end_time = now`, unlocks downstream tasks, emits `TASK_COMPLETED`.
+  - Persists a `save_calculation`-via-syscall of **raw seconds** under `"Task Time Spent (seconds)"` — it does **not** divide by 3600 and does **not** compute TWR here.
+  - _(Corrected 2026-07-05: earlier text claimed a `/3600` hours conversion, an inline TWR computation, and a `twr_score += (twr_score × 0.1)` Mongo increment — none of those exist.)_
+- `orchestrate_task_completion` (the completion side-effects, separated from `complete_task`):
+  - Updates MongoDB `metrics_snapshot`: `$inc execution_velocity: 1` and `$set infinity_score` / `execution_speed_score` (no `twr_score` field).
+  - Also drives memory capture, MasterPlan ETA reprojection, and Infinity scoring.
+  - _(Note: `complete_task` has no already-completed guard — tracked in `TECH_DEBT.md` → TASK-COMPLETE-IDEMPOTENCY-1.)_
 
 ### RippleTrace Services (`apps/rippletrace/services/rippletrace_services.py`)
 - `log_ripple_event`:
@@ -258,9 +277,12 @@ complete_task(name):
   if task not found -> return message
   if start_time set:
     time_spent += (now - start_time).total_seconds()
-  status = "completed"
+  status = "completed"          # no already-completed guard (TASK-COMPLETE-IDEMPOTENCY-1)
   end_time = now
-  compute TWR and save calculations
+  unlock downstream tasks; emit TASK_COMPLETED
+  save_calculation("Task Time Spent (seconds)", time_spent)   # raw seconds, not TWR
+  # completion side-effects (memory, Mongo velocity, ETA, Infinity) run in
+  # orchestrate_task_completion, not here
 ```
 
 ### Memory Bridge Permission Validation (`apps/bridge/routes/bridge_router.py`)
@@ -294,11 +316,16 @@ if trust_tier_required == INNER_CIRCLE:
 - Fallback: returns scores of 0 on exception.
 - Reference: `apps/search/services/leadgen_service.py` (score_lead), `apps/search/services/leadgen_service.py` (regex extraction), `apps/search/services/leadgen_service.py` (json.loads).
 
-### DeepSeek ARM (`AINDY/services/deepseek_arm_service.py`) _(path unverified after split)_
-- Validates file path.
-- Runs analysis/generation synchronously.
-- Truncates outputs for DB summaries (first 1000 chars and 250 chars for memory log summary).
-- References: `AINDY/services/deepseek_arm_service.py` (run_analysis), `AINDY/services/deepseek_arm_service.py` (start_time), `AINDY/services/deepseek_arm_service.py` (duration), `AINDY/services/deepseek_arm_service.py` (analysis_summary[:1000]), `AINDY/services/deepseek_arm_service.py` (analysis_summary[:250]), `AINDY/services/deepseek_arm_service.py` (generate_code), `AINDY/services/deepseek_arm_service.py` (output_code[:1000]).
+### ARM / DeepSeek (`apps/arm/services/deepseek/deepseek_code_analyzer.py`)
+- **App-owned.** The ARM analysis/generation business logic moved from the pre-split
+  runtime `AINDY/services/deepseek_arm_service.py` (which no longer exists in either repo)
+  into the app layer at `apps/arm/services/deepseek/` (`deepseek_code_analyzer.py`,
+  `config_manager_deepseek.py`, `file_processor_deepseek.py`, `security_deepseek.py`).
+- Validates file path; runs `run_analysis` / `generate_code` synchronously; persists
+  `ARMRun` / `ARMLog` and a Memory Bridge node.
+- _(Corrected 2026-07-05: repointed from the dead runtime path. The earlier "truncate DB
+  summaries to 1000 / 250 chars" detail is unverified in the new location — treat as historical
+  until re-checked against `deepseek_code_analyzer.py`.)_
 
 ## 5. Memory Bridge Algorithms
 
@@ -378,10 +405,11 @@ loop forever:
 - Persist: `LeadGenResult` ORM entries
 - Side effect: `create_memory_node` per lead
 
-### ARM/DeepSeek (`AINDY/services/deepseek_arm_service.py`)
+### ARM/DeepSeek (`apps/arm/services/deepseek/deepseek_code_analyzer.py`)
 - Input: file_path (+ optional instructions)
 - Transform: analyze/generate; track duration
 - Persist: `ARMRun` and `ARMLog` entries; Memory Bridge node
+- _(App-owned since the split; was `AINDY/services/deepseek_arm_service.py`.)_
 
 ## 8. Known Algorithmic Gaps
 - Magic numbers:
@@ -389,9 +417,9 @@ loop forever:
   - Multiple fixed multipliers in `calculate_engagement_score` and `calculate_impact_score`.
 - Division-by-zero safeguards are inconsistent:
   - Some functions guard (e.g., `calculate_engagement_score`, `calculate_ai_efficiency`, `calculate_impact_score`), others do not (e.g., `execution_speed`, `engagement_rate`, `attention_value`).
-- Duplicate function name in `apps/search/services/seo_services.py`: `generate_meta_description` defined twice; later definition overrides earlier one.
-- `apps/search/services/leadgen_service.py` contains duplicated scoring logic (dead code after first return block).
-- `apps/search/routes/seo_routes.py` has two `analyze_seo` functions with different behaviors; both are bound to different routes.
-- In `AINDY/memory/bridge.py`, the `create_memory_node` function persists to `CalculationResult` with placeholder values.
+- _Resolved (verified 2026-07-05):_ `generate_meta_description` in `apps/search/services/seo_services.py` is now defined **once** (the duplicate was removed).
+- _Resolved (verified 2026-07-05):_ `apps/search/services/leadgen_service.py::score_lead` no longer contains duplicated/dead scoring logic — a single try/except with one `return` and a zero-score exception fallback.
+- _Corrected (2026-07-05):_ `apps/search/routes/seo_routes.py` has two route handlers — `analyze_seo` (`POST /seo/analyze`) and `analyze_seo_compat` (`POST /seo/analyze_seo/`) — but they are **not** divergent inline implementations; both delegate to the same `analyze_seo_content` → `seo_analysis` service.
+- In `AINDY/memory/bridge.py`, `create_memory_node` is reported to persist to `CalculationResult` with placeholder values — **runtime-owned (`aindy-runtime`), not verifiable from this repo.**
 
 

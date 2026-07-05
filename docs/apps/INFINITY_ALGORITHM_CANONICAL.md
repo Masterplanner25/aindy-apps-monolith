@@ -1,4 +1,16 @@
+---
+title: "Infinity Algorithm Canonical"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # Infinity Algorithm Canonical
+
+The canonical mathematical formalism of the Infinity Algorithm (app-owned; the
+implementation lives in `apps/analytics/services/{scoring,orchestration}/`). For the
+runtime-side view of loop closure at the execution altitude, see
+`aindy-runtime/docs/runtime/INFINITY_LOOP_AUDIT.md`.
 
 Support system (inputs, observation, feedback): `docs/apps/INFINITY_ALGORITHM_SUPPORT_SYSTEM.md`.
 

@@ -1,5 +1,14 @@
+---
+title: "Infinity Algorithm Formalization"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # Infinity Algorithm Formalization
-Support system (inputs, observation, feedback): docs/apps/INFINITY_ALGORITHM_SUPPORT_SYSTEM.md.\r\n\r\n
+
+Support system (inputs, observation, feedback): `docs/apps/INFINITY_ALGORITHM_SUPPORT_SYSTEM.md`.
+
 This document describes implemented execution behavior and algorithmic logic from the current codebase.
 
 **Core Computational Cycle**
@@ -133,7 +142,7 @@ Completed
   -> Completed (complete action; repeated completion is allowed by implementation)
 ```
 
-`complete_task` in `apps/tasks/services/task_service.py` sets `status = "completed"` without checking prior status, so repeated completion requests can keep the task in `completed` state and re-run completion-side effects.
+`complete_task` in `apps/tasks/services/task_service.py` sets `status = "completed"` without checking prior status, so repeated completion requests can keep the task in `completed` state and re-run completion-side effects. _(Tracked: `TECH_DEBT.md` → **TASK-COMPLETE-IDEMPOTENCY-1**.)_
 
 **Logic Separation**
 Deterministic logic:

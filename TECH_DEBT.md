@@ -1,5 +1,101 @@
 # Technical Debt
 
+## RIPPLETRACE-CONTENT-LLM-1: rippletrace content generation is template-only (LLM path dropped in the port)
+
+**Status:** Tracked (2026-07-05). App-owned. Found comparing the standalone RippleTrace MVP
+(`C:\dev\Rippletrace`) against this app's port.
+
+**Context:** The standalone `content_generator` generated post drafts via OpenAI
+`gpt-4o-mini` (platform-aware prompt: LinkedIn short-form / Medium long-form / general) with
+a deterministic template **fallback** and a `source` provenance field, and
+`generate_variations` produced genuinely different variants. This app's
+`apps/rippletrace/services/content_generator.py` kept only the template path
+(`_build_title` / `_build_hook` / `_build_body` string templates), and `generate_variations`
+merely appends "(1)/(2)/(3)" to the title/CTA (cosmetic, not real variation). The
+`/generate_content*` and `/generate_variations` endpoints therefore return canned copy, not
+model-authored drafts. Documented in `docs/apps/RIPPLETRACE.md` §7.
+
+**Fix when triggered:** route generation through the runtime LLM abstraction rather than a
+direct `openai` call — register a rippletrace content tool via `register_tool` (as
+analytics/search/arm do) or call the runtime LLM primitive, keeping the existing template
+output as the deterministic fallback (and under `settings.is_testing`) so app-profile runs
+stay offline/deterministic. Preserve a `source` field so callers can distinguish model vs
+template output.
+
+**Reopen trigger:** productizing rippletrace content generation, or any work on the
+`/generate_content*` surface.
+
+---
+
+## TASK-COMPLETE-IDEMPOTENCY-1: `complete_task` has no prior-status guard — repeated completion re-fires side effects
+
+**Status:** Tracked (2026-07-05). App-owned correctness issue in `apps/tasks`; not yet fixed
+(track-only per review). Flagged during the Infinity docset review.
+
+**Context:** `complete_task` (`apps/tasks/services/task_service.py:568`) sets
+`task.status = "completed"` without checking the task's current status. A second completion
+call on an already-completed task re-runs the full side-effect chain: downstream unlock
+(`_unlock_downstream_tasks`), a `TASK_COMPLETED` `SystemEvent`, the `ExecutionUnit` status
+update, and — via the task-completion orchestration path — an Infinity re-score and memory
+capture. Only the `time_spent` accrual is guarded (runs solely when `start_time` is set).
+Documented in `docs/apps/INFINITY_ALGORITHM_FORMALIZATION.md` (State Transition Diagram:
+"Completed → Completed … repeated completion is allowed by implementation").
+
+**Impact:** duplicate `TASK_COMPLETED` events, duplicate downstream-unlock effects, and
+duplicate Infinity loop runs / memory writes for one logical completion — double-counting the
+signal substrate the Infinity Algorithm depends on. Low frequency (needs a repeated complete
+call) but a real skew in analytics/loop signal counts.
+
+**Fix when triggered:** early-return / no-op when `task.status == "completed"` before mutating
+or emitting; add a regression test asserting a second complete is a no-op (no second event, no
+second unlock). Touches the integration-tier task-completion path, so deferred from the
+app-profile doc pass.
+
+**Reopen trigger:** any work on task completion, or evidence of double-counted completion
+signals in analytics / the Infinity loop.
+
+---
+
+## INFINITY-RUNTIME-HANDOFF-1: runtime-side Infinity loop closure + cross-doc linkage (handoff to aindy-runtime)
+
+**Status:** Tracked handoff (2026-07-05). The app-side Infinity docs
+(`docs/apps/INFINITY_ALGORITHM{,_CANONICAL,_FORMALIZATION,_SUPPORT_SYSTEM}.md`) were reviewed
+to complete-or-tracked; the items below are **runtime-owned** and belong in `aindy-runtime`,
+not this repo.
+
+**Context:** The Infinity scoring/orchestrator/loop is app-owned
+(`apps/analytics/services/{scoring,orchestration}/`). The runtime owns a complementary audit at
+`aindy-runtime/docs/runtime/INFINITY_LOOP_AUDIT.md` covering loop closure at the execution
+altitude (`Intent→Plan→Execute→Observe→Memory→Recall→Score→Improve`). Neither docset
+cross-references the other, and the runtime-side gaps gate the app-side "force execution through
+Infinity" phases.
+
+**Handoff items (all in `aindy-runtime`):**
+1. **Reciprocal cross-links** — link `INFINITY_LOOP_AUDIT.md` ↔ the app docset so the two
+   altitudes (runtime loop closure vs app KPI/scoring/support layer) are navigable. The app side
+   now points at the runtime audit; the runtime side does not yet point back.
+2. **The 5 structural runtime gaps** named in `INFINITY_LOOP_AUDIT.md` — recall→planning link
+   broken (Gap 1); event ledger missing `RecallUsed` / `ScoreComputed` / `NextActionChosen`
+   (Gap 2); no execution-level score record (Gap 3); no runtime-owned Next-Action engine
+   primitive (Gap 4); async jobs outside the loop (Gap 5). Gap 4 in particular gates the
+   app-side Infinity Phase 2 ("force major execution through the orchestrator" / pre-dispatch
+   control). Confirm they are tracked in `aindy-runtime`'s own TECH_DEBT.
+3. **Runtime-gated support inputs** (`INFINITY_ALGORITHM_SUPPORT_SYSTEM.md` Steps 3 & 4) —
+   observability aggregates (`AINDY/routes/observability_router.py`) and agent/async execution
+   metrics (`AINDY/agents/agent_event_service.py`, `AINDY/platform_layer/async_job_service.py`)
+   have no app-facing aggregate syscall/job. The app lever is a `dependency_adapter` fetch once
+   the runtime exposes the aggregate — a runtime feature request.
+
+**App-side dependencies:** the app-owned loop-depth residual is tracked separately in
+**APP-DEBT-MIGRATED-1** ("Infinity loop autonomy still shallow"); the watcher (a core support
+signal) is runtime-owned (`aindy-runtime/AINDY/watcher/`).
+
+**Reopen trigger:** an `aindy-runtime` release advancing loop closure (any of the 5 gaps) or
+exposing observability/execution aggregate syscalls; or a re-triage of the app-side Infinity
+phases as runtime capabilities land.
+
+---
+
 ## SOCIAL-IDENTITY-1: social profile ↔ canonical user (username bound; metrics/lifecycle deferred)
 
 **Status:** Username-binding slice DONE (2026-06-28). Remaining items deferred (below).
@@ -480,8 +576,11 @@ paths. It got the identical Glob-verified rewrite — mostly runtime-owned (`AIN
 `AINDY/routes/...`), with `db/models/agent_run.py`/`agent_event.py` → `apps/agent/models/...`.
 
 **Residuals (intentionally left, annotated inline in the docs):**
-- `services/deepseek_arm_service.py` (FORMULA) and `db/models/agent_run_event.py` (ARM) resolve to no
-  file in either repo (renamed/merged or never standalone) — carry `_(path unverified after split)_`.
+- `db/models/agent_run_event.py` (ARM) resolves to no file in either repo (renamed/merged or
+  never standalone) — carries `_(path unverified after split)_`. **Update (2026-07-05):**
+  `services/deepseek_arm_service.py` (FORMULA) is RESOLVED — the ARM analysis logic moved to the
+  app layer at `apps/arm/services/deepseek/deepseek_code_analyzer.py` (verified against the runtime
+  checkout, which no longer has it); `FORMULA_AND_ALGORITHM_OVERVIEW.md` was repointed accordingly.
 - "Files to create" / roadmap tokens (e.g. `services/freelance/intake_service.py`,
   `services/reasoning/*`, `db/models/client_account.py`, `services/infinity_state_service.py`) carry
   `_(planned; not yet present)_` or sit under explicit "Potential files to create" headings — they
@@ -588,8 +687,8 @@ application guard, the DB unique-index rejection, and that distinct sessions rem
 
 | Item | Domain | Effort | When to revisit |
 |------|--------|--------|-----------------|
-| Search orchestration unified (Steps 1–6 + v3 ranking + semantic seam, 2026-06-28) — shared `search_service`, unified `SearchResponse` contract, agent tool + `unified_search` workflow, shared lexical ranking, and the hybrid embedding-ranking seam (**SEARCH-RANKING-EMBEDDINGS-1**, RESOLVED) all shipped. No remaining search-ranking debt | search | — | done |
-| Freelance commercial workflow incomplete — payments/refunds/webhooks/idempotency/subscriptions and now lead→client→order lineage (Phase 1, 2026-06-28: `ClientAccount` + intake_service) exist; agent-driven execution (Phase 2) and the autonomous optimization loop (Phase 5) do not | freelance | M | before exposing freelance as a primary autonomous revenue path |
+| Search orchestration unified (Steps 1–6 + v3 ranking + semantic seam, 2026-06-28) — shared `search_service`, unified `SearchResponse` contract, agent tool + `unified_search` workflow, shared lexical ranking, and the hybrid embedding-ranking seam (**SEARCH-RANKING-EMBEDDINGS-1**, RESOLVED) all shipped. No remaining search-ranking debt. Two low-priority roadmap residuals remain (see `docs/apps/SEARCH_SYSTEM.md` §8/§9): Phase v4 outcome→query-weighting (outcomes are persisted + history is reusable, but prior outcomes don't yet re-weight future queries) and stubbed SEO *improvement* suggestions (§3.1) | search | S | when deepening search (v4 feedback loop) or productizing AI SEO |
+| Freelance commercial workflow incomplete — payments/refunds/webhooks/idempotency/subscriptions and now lead→client→order lineage (Phase 1, 2026-06-28: `ClientAccount` + intake_service) exist; agent-driven execution (Phase 2 — app-doable via `register_tool` + the runtime agent-run API; freelance has no `apps/freelance/agents/tools.py` yet), client workflow automation (Phase 3 — freelance flow definitions are app-doable via `register_flow`; freelance-specific Nodus `.nd` workflows are gated on the runtime `register_nodus_workflow` hook — see the "Nodus-native reasoning execution deferred (runtime)" row), and the autonomous optimization loop (Phase 5 — consumes the shipped `apps/analytics/services/reasoning/` layer) do not | freelance | M | before exposing freelance as a primary autonomous revenue path |
 | RippleTrace productization incomplete — execution-causality, graph edges, UI, and now end-to-end causal-graph validation (backend + frontend, Steps 1–2, 2026-06-28) exist; deeper insight generation and broader scenario coverage do not | rippletrace | M | before using RippleTrace as a primary incident/audit surface |
 | Masterplan dependency cascade + execution automation — anchor/ETA debt closed; ETA is now plan-scoped + cascade/critical-path aware (MASTERPLAN_SAAS Step 1, 2026-06-30, `apps/masterplan/services/eta_service.py`). task completion now returns the refreshed projection (Step 3, `_recalculate_active_masterplan_eta` → `task_orchestration.masterplan_projection`). the plan's ETA panel now surfaces the cascade metrics directly — basis chip, critical-chain depth, ready/blocked — and adopts the completion-response projection reactively via a `MasterplanProjectionProvider` context so completing a task refreshes the plan panel without a refetch (MASTERPLAN_SAAS Step 2, 2026-06-30, `client/src/components/app/MasterPlanDashboard.jsx`, `client/src/context/MasterplanProjectionContext.jsx`). ETA is now continuous-time: per-task `estimated_hours` drives a remaining-effort + effort-weighted-critical-path projection (`projection_basis="duration"`), reducing to count-based cascade when estimates are absent (2026-06-30, `apps/tasks/services/task_service.py`, `apps/masterplan/services/eta_service.py`). external automation connectors now reach external surfaces — CRM (stub → provider-agnostic outbound POST) and social (additive external delivery on top of the internal feed) join email/webhook/stripe, all wrapped in the runtime `perform_external_call` boundary (MASTERPLAN_SAAS Step 4, 2026-06-30, `apps/automation/services/automation_execution_service.py`, `tests/unit/test_automation_connectors.py`). Remaining is runtime-owned hardening only (see MASTERPLAN-CONNECTOR-RUNTIME-1 below), not app wiring | masterplan | L | mostly closed; residual is runtime-owned |
 | ARM low-risk config suggestions require manual apply — `auto_apply_safe` remains advisory, not auto-applied | arm | S | before positioning ARM as a self-tuning service |

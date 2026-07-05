@@ -1,4 +1,11 @@
-# Search System � Canonical Definition & Evolution Plan
+---
+title: "Search System"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
+# Search System — Canonical Definition & Evolution Plan
 
 ---
 
@@ -21,7 +28,7 @@ It is a **search orchestration layer** intended to:
 ## 2. Core Lifecycle (Canonical Pipeline)
 
 ```
-Query ? Processing ? Retrieval ? Ranking ? Output
+Query -> Processing -> Retrieval -> Ranking -> Output
 ```
 
 ### Query
@@ -205,12 +212,17 @@ This capability exists but is not wired into the Search System flows documented 
 
 The Search System is currently:
 
-> A fragmented set of partial search tools (SEO + LeadGen + Research) with an unintegrated semantic recall engine.
+> A unified multi-surface retrieval stack: SEO, LeadGen, and Research share one
+> `search_service`, a normalized `SearchRequest`/`SearchResponse` contract, a shared
+> lexical+hybrid ranking layer, a `search.query` agent tool, and the `unified_search`
+> workflow. Semantic memory recall is integrated into the leadgen/research flows.
 
-It is NOT:
+It is NOT yet:
 
-* a unified search platform
-* a full AI search optimization system
+* a full closed-loop AI search optimizer — outcomes are persisted and history is
+  reusable (`search_history`, `learning_context`), but prior outcomes do not yet
+  re-weight future queries (Phase v4 residual)
+* a complete AI SEO optimizer — SEO *improvement* suggestions remain stubbed (§3.1)
 
 ---
 
@@ -218,7 +230,7 @@ It is NOT:
 
 ---
 
-### Phase v1 � Stabilize Search Surfaces
+### Phase v1 — Stabilize Search Surfaces
 
 **Goal:** Align live endpoints with documented behaviors
 
@@ -226,23 +238,23 @@ It is NOT:
 
 * normalize SEO endpoints
 * remove stubbed responses or mark them explicitly
-* document leadgen retrieval integration ?
+* document leadgen retrieval integration ✅
 
 ---
 
-### Phase v2 � Retrieval Integration
+### Phase v2 — Retrieval Integration
 
 **Goal:** Enable real retrieval for leadgen + research
 
 **Actions:**
 
-* wire `apps/search/services/research_engine.py` into `/research/query` ?
-* replace mocked `run_ai_search()` results with real provider calls ?
-* integrate Memory Orchestrator recall into search flows ?
+* wire `apps/search/services/research_engine.py` into `/research/query` ✅
+* replace mocked `run_ai_search()` results with real provider calls ✅
+* integrate Memory Orchestrator recall into search flows ✅
 
 ---
 
-### Phase v3 � Ranking Unification
+### Phase v3 — Ranking Unification
 
 **Goal:** Shared ranking layer
 
@@ -269,7 +281,7 @@ lexical and deterministic (testing-mode embeddings return zero vectors → fallb
 
 ---
 
-### Phase v4 � Feedback & Memory Loop
+### Phase v4 — Feedback & Memory Loop
 
 **Goal:** Closed-loop search system
 
@@ -280,7 +292,7 @@ lexical and deterministic (testing-mode embeddings return zero vectors → fallb
 
 ---
 
-### Phase v5 � UI + Dashboard Integration - DONE
+### Phase v5 — UI + Dashboard Integration - DONE
 
 **Goal:** Operational surface
 
@@ -304,19 +316,24 @@ LeadGen each show a `SearchHistory` result-history view.
 
 ### Structural
 
-* search features exist in disconnected modules
-* no unified query processing layer
+* ✅ a unified query-processing layer now exists (`apps/search/services/search_service.py`)
+  — the previously-disconnected SEO/LeadGen/Research modules share it, the
+  `SearchResponse` contract, ranking, the `search.query` tool, and the
+  `unified_search` workflow
 
 ### Functional
 
-* ? leadgen search now uses real retrieval (orchestrator + provider)
-* ? research search executes via `/research/query`
-* ranking unified: shared lexical relevance + composite score order results across surfaces
-* SEO suggestions stubbed
+* ✅ leadgen search now uses real retrieval (orchestrator + provider)
+* ✅ research search executes via `/research/query`
+* ✅ ranking unified: shared lexical relevance + composite score order results across surfaces
+* SEO improvement suggestions still stubbed (§3.1) — the one remaining functional gap
+* Phase v4 residual: outcomes are persisted and history is reusable, but prior
+  outcomes do not yet re-weight future queries
 
 ### Conceptual
 
-* semantic search exists but is not part of Search System flows
+* ✅ semantic recall is now integrated into the leadgen/research flows (was previously
+  a separate, unintegrated system)
 
 ---
 
@@ -327,16 +344,16 @@ LeadGen each show a `SearchHistory` result-history view.
 | v1    | Surface Alignment    | Partial     | Normalize       |
 | v2    | Retrieval Integration| Complete    | Maintenance only |
 | v3    | Ranking Unification  | Complete    | Maintenance only |
-| v4    | Feedback Loop        | Missing     | Persist + reuse |
+| v4    | Feedback Loop        | Partial     | Query re-weighting from outcomes |
 | v5    | UI Integration       | Complete    | Maintenance only |
 
 ---
 
 ## 10. Next Steps
 
-### Step 1 - Create a unified search service
+### Step 1 - Create a unified search service - DONE
 **Files:** `apps/search/services/search_service.py`  
-**Outcome:** external, internal, semantic, and hybrid search requests route through one reusable interface.
+**Outcome:** external, internal, semantic, and hybrid search requests route through one reusable interface — `search_service.py` is the shipped single entry point backing every surface (dispatched via `sys.v1.search.query`, Steps 5–6).
 
 ### Step 2 - Standardize search request and result schemas - DONE
 **Files:** `apps/search/schemas/search_schema.py`, `apps/search/schemas/__init__.py`, `apps/search/services/search_service.py`, `apps/search/routes/leadgen_router.py`, `apps/search/flows/search_flows.py`  
@@ -346,13 +363,13 @@ LeadGen each show a `SearchHistory` result-history view.
 
 **Tests:** `tests/unit/test_search_schema_contract.py` (`-m app_profile`).
 
-### Step 3 - Move hybrid retrieval into the shared search layer
+### Step 3 - Move hybrid retrieval into the shared search layer - DONE
 **Files:** `apps/search/services/leadgen_service.py`, `apps/search/routes/research_results_router.py`, `apps/search/services/search_service.py`  
-**Outcome:** memory recall plus external retrieval is implemented once and reused across search surfaces.
+**Outcome:** memory recall plus external retrieval is implemented once in `search_service` and reused across search surfaces (`build_learning_context`/`attach_learning_context` thread recall through the shared layer).
 
-### Step 4 - Add shared search history and reuse
-**Files:** `apps/search/models/leadgen_model.py`, `apps/search/models/research_results.py`, `apps/search/services/research_results_service.py`, `apps/search/services/search_service.py`  
-**Outcome:** search outcomes become reusable across the system instead of staying siloed by feature.
+### Step 4 - Add shared search history and reuse - DONE
+**Files:** `apps/search/models/search_history.py`, `apps/search/models/leadgen_model.py`, `apps/search/models/research_results.py`, `apps/search/services/research_results_service.py`, `apps/search/services/search_service.py`  
+**Outcome:** search outcomes are persisted to a shared `SearchHistory` model and reusable across the system (`get_search_history` / `get_search_history_item` / `delete_search_history_item` in `search_service`), instead of staying siloed by feature. **Residual (Phase v4):** history is queryable but prior outcomes do not yet re-weight future queries.
 
 ### Step 5 - Integrate unified search into agent tools - DONE
 **Files:** `apps/search/agents/tools.py`, `apps/search/agents/capabilities.py`, `apps/search/syscalls.py`
@@ -381,7 +398,7 @@ LeadGen each show a `SearchHistory` result-history view.
 
 * Deviations must be recorded in:
 
-  * `docs/platform/engineering/TECH_DEBT.md`
+  * `TECH_DEBT.md`
   * `docs/apps/EVOLUTION_PLAN.md`
 
 ---

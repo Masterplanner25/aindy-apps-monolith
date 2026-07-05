@@ -1,3 +1,10 @@
+---
+title: "Agentics"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # AGENTICS
 
 Ownership note:
@@ -52,6 +59,43 @@ trigger evaluator (execute/defer/ignore policy), the agent ranking strategy, and
 the post-run completion hook that enforces the Infinity loop. The per-phase
 "Exact files/modules affected: `AINDY/...`" lists below should be read as the
 *runtime* work; the app-side levers are the registration hooks named here.
+
+## Status update — Phase B substantially resolved (2026-07-05)
+
+**Supersedes the "Nodus is not the primary execution path" conclusion throughout
+this doc (§1 *Partially working / Not implemented*, §4 Phase B, §5 *Verdict*, and
+the *Summary*).** Those sections predate the RTR-1 work and are retained below as
+the historical baseline the roadmap was built from — they are no longer current.
+
+- **`nodus_vm` is now this monolith's DEFAULT agent-execution backend** on every
+  non-test boot (`apps/agent/bootstrap.py::_select_execution_backend` →
+  `os.environ.setdefault("AINDY_AGENT_EXECUTION_BACKEND", "nodus_vm")`, PR #52,
+  2026-07-05). An explicit env value (ops override / pytest ini) always wins; the
+  integration harness stays on `agent_flow` because it runs no scheduler heartbeat.
+- **Phase B core objective is met at the app-default level.** RTR-1 §5 is fully
+  validated on live-Postgres CI (`tests/integration/test_nodus_vm.py`, runtime
+  `>=1.5.3`): both gates hard-assert that app-manifest tools **resolve, dispatch,
+  and complete their DB writes inside the `nodus_worker` subprocess**, and that a
+  WAIT/resume run drives to a terminal state. This closes the gap the doc's §1/§5
+  describe as "Nodus is used only for restricted ad hoc execution."
+- **Still open, and tracked (not app edits):**
+  - Full-surface validation of nodus_vm-as-default — real multi-step LLM plans,
+    completion hooks, and Infinity orchestration under the default — is not yet
+    CI-proven (only the two §5 gates are). Tracked: `TECH_DEBT.md`
+    → **RTR-1-NODUS-COMPLETION** (reopen trigger).
+  - `.nd` workflow authoring/storage/versioning in-repo and agent-plan→`.nd`
+    compilation (Phase B's remaining sub-goals) still have no app registration
+    surface — a runtime `register_nodus_workflow`-style hook is a feature request in
+    `aindy-runtime`. Tracked: `TECH_DEBT.md` → **APP-DEBT-MIGRATED-1** ("Nodus-native
+    reasoning execution deferred (runtime)").
+  - Phases D (multi-agent delegation/registry/conflict, minus the done ranking
+    lever) and E (durable workers, queue isolation) remain runtime-owned. Tracked:
+    `TECH_DEBT.md` → **APP-DEBT-MIGRATED-1** ("Agentics completion is runtime-owned").
+
+**Verdict:** this doc is **tracked**, and now **current** at the top; the body
+sections listed above are historical. Every open Agentics item has a `TECH_DEBT.md`
+entry with a reopen trigger, and the runtime-owned items are handed to
+`aindy-runtime`.
 
 ## 1. System Reality
 
@@ -389,6 +433,12 @@ Verdict:
 - Nodus is not yet the primary Agentics execution layer.
 - The current system is best described as an internal flow-engine-based Agentics layer with limited embedded Nodus support.
 
+> **Superseded (2026-07-05):** `nodus_vm` is now the app's default agent-execution
+> backend and §5 proves app-manifest tools execute to completion in the
+> `nodus_worker` subprocess. See the *Status update — Phase B substantially
+> resolved (2026-07-05)* section near the top. The verdict above is the pre-RTR-1
+> baseline.
+
 ## 6. Relationship to Other Roadmaps
 
 ### `TECH_DEBT.md`
@@ -422,3 +472,9 @@ Current truth:
 - A.I.N.D.Y. does not yet run Agentics primarily through real Nodus workflows and VM execution.
 
 That is the baseline this roadmap should be built from.
+
+> **Superseded (2026-07-05):** the last line is no longer true — `nodus_vm` is the
+> app's default agent-execution backend as of PR #52, and RTR-1 §5 proves execution
+> to completion through the Nodus VM subprocess. This summary is the pre-RTR-1
+> baseline; see the *Status update — Phase B substantially resolved (2026-07-05)*
+> section near the top for current state.
