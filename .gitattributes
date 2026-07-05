@@ -1,0 +1,5 @@
+# Container scripts must keep LF endings regardless of client core.autocrlf,
+# or the shebang breaks inside Linux images ("\r": no such file or directory").
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker/entrypoint.sh text eol=lf
