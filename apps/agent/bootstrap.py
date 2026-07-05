@@ -7,6 +7,7 @@ APP_DEPENDS_ON: list[str] = []
 
 
 def register() -> None:
+    _select_execution_backend()
     _register_models()
     _register_routers()
     _register_route_prefixes()
@@ -16,6 +17,34 @@ def register() -> None:
     _register_agent_runtime_extensions()
     _register_trigger_evaluators()
     _register_health_check()
+
+
+def _select_execution_backend() -> None:
+    """Make ``nodus_vm`` this monolith's default agent-execution backend.
+
+    RTR-1 §5 is fully validated on live-Postgres CI — both gates in
+    ``tests/integration/test_nodus_vm.py`` hard-assert that app-manifest tools resolve,
+    dispatch, and complete their DB writes inside the ``nodus_worker`` subprocess, and that a
+    WAIT/resume run drives to completion. The runtime ships ``agent_flow`` as its own default
+    (``AINDY_AGENT_EXECUTION_BACKEND`` unset), with ``nodus_vm`` opt-in; this opts every real
+    deployment of the app in.
+
+    Uses ``setdefault`` so an explicit ``AINDY_AGENT_EXECUTION_BACKEND`` always wins — an ops
+    override, or a pytest ini (e.g. the §5 suite's ``pytest.nodus.ini``). Gated on
+    ``not settings.is_testing``: the integration test harness runs no scheduler heartbeat, so a
+    parked/deferred nodus_vm continuation would never complete there — the default must stay
+    ``agent_flow`` under test unless a suite opts in explicitly. Production boots
+    (``aindy-runtime-api``) DO run the scheduler (``AINDY.startup._start_scheduler_and_jobs``),
+    which drives nodus_vm continuation to a terminal state. Approval parking stays off unless
+    ``AINDY_AGENT_WAIT_BEFORE_HIGH_RISK`` is set (runtime default ``False``).
+    """
+    import os
+
+    from AINDY.config import settings
+
+    if settings.is_testing:
+        return
+    os.environ.setdefault("AINDY_AGENT_EXECUTION_BACKEND", "nodus_vm")
 
 
 def _register_models() -> None:
