@@ -52,7 +52,7 @@ import AINDY.main as main
 payload = TestClient(main.app, raise_server_exceptions=False).get('/api/version').json()
 print(json.dumps(payload['runtime'], sort_keys=True))
 "
-# Expected: boot_profile=default-apps, app_plugins_loaded=True, app_plugin_count=16
+# Expected: boot_profile=default-apps, app_plugins_loaded=True, app_plugin_count=17
 ```
 
 ---
@@ -63,7 +63,7 @@ print(json.dumps(payload['runtime'], sort_keys=True))
 
 This repo owns:
 
-- `apps/` — 16 domain app modules
+- `apps/` — 17 domain app modules
 - `client/` — React/Vite frontend
 - `aindy_plugins.json` — app-owned plugin manifest
 - `alembic/` — app-owned DB migrations
@@ -72,14 +72,14 @@ This repo owns:
 It does **not** own `AINDY/`. Runtime code, runtime-only entrypoints, and runtime-only
 docs live in `aindy-runtime` and are consumed as a published dependency.
 
-### 16 domain apps
+### 17 domain apps
 
 `tasks`, `analytics`, `arm`, `authorship`, `automation`, `autonomy`, `bridge`,
-`dashboard`, `freelance`, `identity`, `masterplan`, `network_bridge`, `rippletrace`,
-`search`, `social`, `agent`
+`dashboard`, `freelance`, `identity`, `masterplan`, `memory`, `network_bridge`,
+`rippletrace`, `search`, `social`, `agent`
 
-**Core domains** (`IS_CORE_DOMAIN = True`): `tasks`, `identity`, `agent` — startup fails
-if any of these fail to register.
+**Core domains** (`IS_CORE_DOMAIN = True`): `tasks`, `identity` — startup fails
+if either fails to register.
 
 All other domains are degradable peripherals — startup continues with a warning.
 
@@ -129,7 +129,7 @@ Full pattern documentation: `docs/architecture/PLUGIN_REGISTRY_PATTERN.md`
 | Profile | Manifest | Plugins loaded |
 |---|---|---|
 | `platform-only` | `AINDY/runtime_plugins.json` | none |
-| `default-apps` | `./aindy_plugins.json` | `apps.bootstrap` → 16 apps |
+| `default-apps` | `./aindy_plugins.json` | `apps.bootstrap` → 17 apps |
 
 Running `aindy-runtime-api` from this repo root automatically selects `aindy_plugins.json`.
 Set `AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json` explicitly if the CWD is different.
