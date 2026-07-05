@@ -67,22 +67,31 @@ across `duration` (hours) and `time_spent` (seconds).
 
 ---
 
-## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion unverified in-app; resume continuation emits `execution.started` outside the pipeline
+## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion — RESOLVED (aindy-runtime 1.5.2)
 
-**Status:** **aindy-runtime 1.5.1 (#152) fix is INCOMPLETE — reopened.** The 1.5.0
-symptom looked gone on the passive re-run (run 28727775436) only because, with no
-scheduler heartbeat, the resume callback is never dispatched. Driving the scheduler
-in-process (`get_scheduler_engine().schedule()`, run 28728594828, 2026-07-05) actually
-RUNS the resumed segment — and it **still raises** `execution.started emitted outside
-pipeline` (`pipeline.py:326` → `system_event_service.py:453`). The 1.5.1 fix wraps the
-resume *callback* in an async-execution context
-(`nodus_execution_service.py:617-631`), but the inner **flow-runner pipeline** that
-emits `execution.started` runs in a context that does not inherit it. The raised error
-aborts the run's DB transaction (→ `InFailedSqlTransaction`, cascading auth 401s).
-Gate 2 now drives the scheduler and **xfails** on this incomplete fix (auto-passes if a
-later runtime fix makes it complete). Separate thread: Gate 1 (app-tool via
-`anthropic_chat`) still blocked by a planner **create-500**. Tracked by the CI job
-`nodus-vm-integration.yml` / `tests/integration/test_nodus_vm.py`.
+**Status:** **RESOLVED in aindy-runtime 1.5.2 (2026-07-05).** The reopened #152 was
+fully fixed upstream via PR #155: `ExecutionPipeline.run()` now marks itself active
+**before** emitting its own `execution.started`, so a nested pipeline (the inner
+flow-runner reached during a scheduler-driven nodus_vm resume) no longer trips the
+ExecutionContract guard at `system_event_service.py:453`. The apps repo adopted the fix
+by raising the pin floor to `aindy-runtime>=1.5.2,<2.0` (`pyproject.toml`), and Gate 2
+of `tests/integration/test_nodus_vm.py` was flipped from `xfail` to a **hard assert**:
+after the resume route parks + releases the run, it drives the scheduler in-process
+(`get_scheduler_engine().schedule()`) and now asserts the resumed segment reaches a
+terminal status. The CI verify step also requires `>=1.5.2`. **Remaining open thread:**
+Gate 1 (app-tool via `anthropic_chat`) is still blocked by a planner **create-500** —
+tracked separately as **RTR-1-NODUS-APPTOOL-500** below; unaffected by the 1.5.2 fix.
+
+**History (the reopened-then-fixed arc):** on 1.5.1 the symptom looked gone on the
+passive re-run (run 28727775436) only because, with no scheduler heartbeat, the resume
+callback was never dispatched. Driving the scheduler in-process
+(`get_scheduler_engine().schedule()`, run 28728594828, 2026-07-05) actually RAN the
+resumed segment — and it **still raised** `execution.started emitted outside pipeline`
+(`pipeline.py:326` → `system_event_service.py:453`). The 1.5.1 fix wrapped the resume
+*callback* in an async-execution context (`nodus_execution_service.py:617-631`), but the
+inner **flow-runner pipeline** that emits `execution.started` ran in a context that did
+not inherit it, aborting the run's DB transaction (→ `InFailedSqlTransaction`, cascading
+auth 401s). 1.5.2 closed exactly that gap.
 
 **Context:** RTR-1 shipped the opt-in `nodus_vm` agent-execution backend
 (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`). §5 asked whether tools registered via
@@ -129,12 +138,13 @@ report: `HANDOFF-runtime-nodus-resume-pipeline-context-bug.md`.
 propagated into) the inner flow-runner emission, not only around the outer callback.
 Empirically shown by driving the scheduler (run 28728594828). **Reopened upstream.**
 
-**Current handling:** `test_nodus_vm.py` Gate 2 (deterministic `stub` planner →
-`memory.recall`) hard-asserts parking + resume acceptance + delivery
+**Current handling (post-fix):** `test_nodus_vm.py` Gate 2 (deterministic `stub`
+planner → `memory.recall`) hard-asserts parking + resume acceptance + delivery
 (`waiters_notified>=1`), then drives the scheduler in-process to run the resumed
-segment and **xfails** on the incomplete fix (it auto-passes if a later runtime fix
-makes the run reach a terminal state). Tool *resolution* in the subprocess remains
-proven; execute-to-completion is blocked on the reopened #152.
+segment and **hard-asserts** it reaches a terminal status. On `aindy-runtime>=1.5.2`
+this passes end-to-end; a regression of the #152 fix would fail it red. Tool
+*resolution* in the subprocess was already proven; execute-to-completion is now proven
+too.
 
 **Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 would prove an **app-manifest** tool
 (`task.create`, no runtime default) executes in the subprocess, driven by the

@@ -28,16 +28,17 @@ Run:
 History: on aindy-runtime 1.5.0 the resumed segment ran outside an ExecutionPipeline
 and raised 'execution.started emitted outside pipeline' (filed as aindy-runtime#152).
 1.5.1 shipped a partial fix (wraps the resume callback in an async-execution context)
-— but Gate 2 here drives the scheduler in-process to actually RUN the resumed segment
-and shows the error STILL occurs: the inner flow-runner pipeline that emits
-execution.started runs in a context the fix doesn't reach. So #152 is reopened, and
-Gate 2 xfails on the incomplete fix. The main-branch run masks this because, with no
-scheduler heartbeat, the resume callback is never dispatched. See TECH_DEBT
-RTR-1-NODUS-COMPLETION.
+that Gate 2 — driving the scheduler in-process to actually RUN the resumed segment —
+showed was incomplete: the inner flow-runner pipeline that emits execution.started ran
+in a context the callback wrapper didn't reach, so the guard still fired. #152 was
+reopened and fully fixed in aindy-runtime 1.5.2 (PR #155): ExecutionPipeline.run() now
+marks itself active BEFORE emitting its own execution.started, so the nested flow-runner
+pipeline no longer trips the ExecutionContract guard and the resumed nodus_vm segment
+runs to completion. Gate 2 now hard-asserts that completion (pin floor is >=1.5.2). See
+TECH_DEBT RTR-1-NODUS-COMPLETION (RESOLVED).
 """
 from __future__ import annotations
 
-import contextlib
 import os
 import time
 import uuid
@@ -291,32 +292,26 @@ class TestNodusVmWaitResume:
 
         # Resume enqueues the continuation onto the scheduler queue. The TestClient
         # harness runs no heartbeat, so drive the scheduler directly — the in-process
-        # equivalent of the 1s scheduler_heartbeat_tick — to actually dispatch and RUN
-        # the resumed segment. This is what exposes the real state: on aindy-runtime
-        # 1.5.1 the resumed segment STILL raises 'execution.started emitted outside
-        # pipeline' (the #152 fix wraps the resume callback in an async-execution
-        # context, but the inner flow-runner pipeline that emits execution.started runs
-        # in a context that doesn't inherit it). The runtime swallows the error and
-        # aborts the run's DB transaction, which can poison the auth session — so read
-        # the final status tolerantly. See TECH_DEBT RTR-1-NODUS-COMPLETION.
+        # equivalent of the 1s scheduler_heartbeat_tick — to dispatch and RUN the
+        # resumed segment inline. On aindy-runtime >=1.5.2 (#152 fully fixed, PR #155)
+        # ExecutionPipeline.run() marks itself active before emitting execution.started,
+        # so the nested flow-runner pipeline no longer trips the ExecutionContract guard
+        # and the resumed nodus_vm segment runs to completion. If the fix regressed, the
+        # runtime would raise 'execution.started emitted outside pipeline' here and abort
+        # the run's DB transaction — surfacing as a non-terminal status (or a poisoned
+        # auth session on the poll), failing this assertion red.
         from AINDY.kernel.scheduler import get_scheduler_engine
 
-        with contextlib.suppress(Exception):
-            get_scheduler_engine().schedule()  # dispatch + run the resumed segment, inline
+        get_scheduler_engine().schedule()  # dispatch + run the resumed segment, inline
 
-        final = "unknown"
-        with contextlib.suppress(Exception):
-            g = client.get(f"/apps/agent/runs/{run_id}", headers=_auth(token))
-            if g.status_code == 200:
-                final = _status_from(g.json())
-
-        if final in TERMINAL_STATUSES:
-            return  # completion works end-to-end (i.e. the runtime fix has fully landed)
-
-        pytest.xfail(
-            "aindy-runtime 1.5.1 #152 fix is incomplete: driving the scheduler dispatches "
-            "the resume callback, but the resumed nodus_vm segment still raises "
-            "'execution.started emitted outside pipeline' and does not complete "
-            f"(observed status={final!r}). Reopened upstream; see TECH_DEBT "
-            "RTR-1-NODUS-COMPLETION."
+        final = _status_from(
+            _poll_run(client, token, run_id, until=lambda s: s in TERMINAL_STATUSES, timeout=30.0)
+        )
+        assert final in TERMINAL_STATUSES, (
+            "resumed nodus_vm segment did not run to completion "
+            f"(observed status={final!r}); expected the aindy-runtime>=1.5.2 #152 fix "
+            "(ExecutionPipeline marks itself active before emitting execution.started) "
+            "to let the continuation reach a terminal state. If this fails, the "
+            "'execution.started emitted outside pipeline' guard likely fired again — "
+            "reopen TECH_DEBT RTR-1-NODUS-COMPLETION."
         )
