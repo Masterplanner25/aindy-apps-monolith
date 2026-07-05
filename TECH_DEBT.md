@@ -67,43 +67,30 @@ across `duration` (hours) and `time_spent` (seconds).
 
 ---
 
-## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion — #152 FIXED in 1.5.2, but completion now blocked by a next-layer idempotency-gate bug
+## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion — RESOLVED (aindy-runtime 1.5.3)
 
-**Status:** **#152 FIXED in aindy-runtime 1.5.2; execute-to-completion STILL blocked
-(new runtime bug).** 1.5.2 (upstream PR #155) fully fixed the reopened #152:
-`ExecutionPipeline.run()` now marks itself active **before** emitting its own
-`execution.started`, so the nested flow-runner pipeline reached during a scheduler-driven
-nodus_vm resume no longer trips the ExecutionContract guard at
-`system_event_service.py:453` — **verified: zero `execution.started emitted outside
-pipeline` occurrences in CI run 28734012605 on 1.5.2 (2026-07-05).** The apps repo
-adopted the fix (pin floor `aindy-runtime>=1.5.2,<2.0`). **But** driving the resumed
-segment to completion now trips a **different runtime-owned defect** — see
-**RTR-1-NODUS-IDEMPOTENCY-UUID** below — so Gate 2 of
-`tests/integration/test_nodus_vm.py` **remains an `xfail`** on completion (it hard-asserts
-parking + resume + delivery, drives the scheduler, and xfails when the run doesn't reach
-a terminal state; it auto-passes once the run completes). A `hard-assert` flip was
-attempted (CI run 28734012605) and **reverted** — completion does not yet work. Separate
-thread: Gate 1 (app-tool via `anthropic_chat`) is still blocked by a planner
-**create-500** — **RTR-1-NODUS-APPTOOL-500** below; unaffected by 1.5.2.
+**Status:** **RESOLVED in aindy-runtime 1.5.3 (2026-07-05).** nodus_vm execute-to-completion
+was blocked by two stacked, PG-only, transaction-poisoning runtime bugs (SQLite masked both);
+both are now fixed and published, and Gate 2 of `tests/integration/test_nodus_vm.py`
+hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.5.3,<2.0`):
 
-**RTR-1-NODUS-IDEMPOTENCY-UUID (new, runtime-owned; exposed by the #152 fix):** with the
-"outside pipeline" guard cleared, the resumed segment reaches the syscall dispatcher,
-whose **idempotency gate** does an execution-unit lookup for `sys.v1.nodus.execute`
-binding the run-scoped `execution_unit_id` (`run_<uuid>`, e.g.
-`run_897ef792-4918-44fa-856a-ebdbbd548859`) to a **UUID** column —
-`psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type uuid`
-(`AINDY/kernel/syscall_dispatcher.py:511`). The error is caught and logged as a warning
-("idempotency gate EU lookup skipped") **but without a savepoint rollback**, so the
-psycopg2 transaction is already aborted; the subsequent `INSERT INTO flow_runs` fails
-with `InFailedSqlTransaction` (`syscall_dispatcher.py:591` →
-`nodus_execution_service.py:871` "agent segment chain failed"), the run never completes,
-and the poisoned session cascades into auth 401s. Two runtime fixes are implied: (a) do
-not cast a `run_`-prefixed execution-unit id to a bare UUID in the idempotency-gate
-query; (b) wrap the caught lookup error in a savepoint so a benign miss does not poison
-the outer transaction. Both are `aindy-runtime`-owned; nothing app-side can close them.
-**Filed:** `aindy-runtime` issue **#157** (full file:line repro; CI runs 28734012605 +
-28734198382 on 1.5.2). Related upstream: #152 (the pipeline-context bug this one hid
-behind).
+1. **#152** (PR #155, v1.5.2) — `ExecutionPipeline.run()` emitted its own `execution.started`
+   *before* marking itself active, so the nested flow-runner pipeline reached during a
+   scheduler-driven resume tripped the ExecutionContract guard at `system_event_service.py:453`
+   ('execution.started emitted outside pipeline'); the swallowed error poisoned the PG txn.
+   Fixed by setting `pipeline_active` before the first emit. Verified: zero occurrences in CI
+   run 28734012605 on 1.5.2.
+2. **#157 / RTR-1-NODUS-IDEMPOTENCY-UUID** (PR #158, v1.5.3) — with #152 cleared, the syscall
+   dispatcher's **idempotency gate** cast the run-scoped `execution_unit_id` (`run_<uuid>`, e.g.
+   `run_897ef792-...`) to the `ExecutionUnit.id` UUID column
+   (`psycopg2.errors.InvalidTextRepresentation`, `syscall_dispatcher.py:511`); the caught error,
+   lacking a savepoint, left the txn aborted, so the subsequent `INSERT INTO flow_runs` failed
+   with `InFailedSqlTransaction` (`syscall_dispatcher.py:591` → `nodus_execution_service.py:871`)
+   and the run never completed. Fixed by only looking up bare-UUID ids and SAVEPOINT/rollbacking
+   the lookup. Reproduced on CI runs 28734012605 + 28734198382 (1.5.2); closed in 1.5.3.
+
+**Remaining thread (separate):** Gate 1 (app-tool via `anthropic_chat`) is still blocked by a
+planner **create-500** — **RTR-1-NODUS-APPTOOL-500** below; independent of the completion path.
 
 **History (the reopened-then-fixed arc for #152):** on 1.5.1 the symptom looked gone on
 the passive re-run (run 28727775436) only because, with no scheduler heartbeat, the
@@ -164,10 +151,10 @@ Empirically shown by driving the scheduler (run 28728594828). **Reopened upstrea
 **Current handling:** `test_nodus_vm.py` Gate 2 (deterministic `stub` planner →
 `memory.recall`) hard-asserts parking + resume acceptance + delivery
 (`waiters_notified>=1`), then drives the scheduler in-process to run the resumed segment
-and **xfails** when it doesn't reach a terminal status (auto-passes once both runtime
-blockers clear). On `aindy-runtime` 1.5.2 the #152 guard is cleared but the
-idempotency-gate UUID cast (RTR-1-NODUS-IDEMPOTENCY-UUID) still prevents completion.
-Tool *resolution* in the subprocess remains proven; execute-to-completion is not.
+and **hard-asserts** it reaches a terminal status. On `aindy-runtime>=1.5.3` (both #152
+and #157 fixed) this passes end-to-end; a regression of either fix would poison the run's
+PG transaction and fail it red. Tool *resolution* in the subprocess and
+execute-to-completion are both now proven.
 
 **Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 would prove an **app-manifest** tool
 (`task.create`, no runtime default) executes in the subprocess, driven by the
@@ -201,13 +188,12 @@ boundary** RTR-1-NODUS-COMPLETION and §5 turn on. Left `skip`-on-500 (green) wi
 diagnostics in place; closing it needs runtime-side visibility into where the
 `anthropic_chat` backend is resolved/executed under `nodus_vm`.
 
-**Reopen trigger:** (a) **RTR-1-NODUS-IDEMPOTENCY-UUID** — a runtime fix for the
-idempotency-gate UUID cast (+ savepoint) so the resumed nodus_vm segment reaches a
-terminal state; when it ships, re-run `nodus-vm-integration.yml` and flip Gate 2's
-completion `xfail` to a hard assert. (b) **RTR-1-NODUS-APPTOOL-500** (Gate 1) — fix the
-`anthropic_chat` planner path so an app-manifest tool executes end-to-end. (c) any move
-to make `nodus_vm` the default (`AINDY_AGENT_EXECUTION_BACKEND`), which requires both
-(a) and (b) closed.
+**Reopen trigger:** (a) **RTR-1-NODUS-APPTOOL-500** (Gate 1) — fix the `anthropic_chat`
+planner path so an app-manifest tool executes end-to-end (the last remaining nodus_vm
+thread now that completion is resolved in 1.5.3). (b) any move to make `nodus_vm` the
+default (`AINDY_AGENT_EXECUTION_BACKEND`), which requires (a) closed. (c) any regression of
+the execute-to-completion path — Gate 2 hard-asserts it, so a runtime regression would
+fail CI red rather than silently reopen this.
 
 ---
 
