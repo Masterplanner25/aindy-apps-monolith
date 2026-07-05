@@ -576,8 +576,11 @@ paths. It got the identical Glob-verified rewrite — mostly runtime-owned (`AIN
 `AINDY/routes/...`), with `db/models/agent_run.py`/`agent_event.py` → `apps/agent/models/...`.
 
 **Residuals (intentionally left, annotated inline in the docs):**
-- `services/deepseek_arm_service.py` (FORMULA) and `db/models/agent_run_event.py` (ARM) resolve to no
-  file in either repo (renamed/merged or never standalone) — carry `_(path unverified after split)_`.
+- `db/models/agent_run_event.py` (ARM) resolves to no file in either repo (renamed/merged or
+  never standalone) — carries `_(path unverified after split)_`. **Update (2026-07-05):**
+  `services/deepseek_arm_service.py` (FORMULA) is RESOLVED — the ARM analysis logic moved to the
+  app layer at `apps/arm/services/deepseek/deepseek_code_analyzer.py` (verified against the runtime
+  checkout, which no longer has it); `FORMULA_AND_ALGORITHM_OVERVIEW.md` was repointed accordingly.
 - "Files to create" / roadmap tokens (e.g. `services/freelance/intake_service.py`,
   `services/reasoning/*`, `db/models/client_account.py`, `services/infinity_state_service.py`) carry
   `_(planned; not yet present)_` or sit under explicit "Potential files to create" headings — they

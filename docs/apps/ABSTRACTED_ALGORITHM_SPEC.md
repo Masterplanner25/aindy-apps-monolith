@@ -1,11 +1,18 @@
+---
+title: "Abstracted Algorithm Spec"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # Abstracted Algorithm Spec
 
-This document formalizes computational logic into implementation-agnostic mathematical representations.
+This document formalizes computational logic into implementation-agnostic mathematical representations. Formulas verified against code 2026-07-05.
 
 **SEO Scoring**
 Scoring formulas:
 - Word count: `W = count(words)`
-- Readability: `R = 100 - (W / 200 × 10)`
+- Readability: `R = flesch_reading_ease(text)` — standard Flesch Reading Ease via the `textstat` library (`apps/search/services/seo_services.py::seo_analysis`). The former inline heuristic `100 - (W / 200 × 10)` is no longer used.
 - Keyword density (percentage): `D(k) = round((count(k) / W) × 100, 2)`
 - Top keywords: select up to 5 keywords with highest `count(k)`.
 Output structure:

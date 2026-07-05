@@ -1,15 +1,19 @@
 ---
 title: "Client Ownership"
-last_verified: "2026-05-10"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
 ---
 # Client Ownership
 
-The current `client/` tree belongs to the future `aindy-apps-monolith` repo.
+> **Status (2026-07-05).** The repo split is complete — this repo *is*
+> `aindy-apps-monolith`, and `client/` is app-owned here. The text below records the
+> standing ownership decision (written pre-split); it is now the operative state, not a plan.
 
-That is a deliberate product decision, not an accident of the current
+The `client/` tree belongs to the `aindy-apps-monolith` repo.
+
+That is a deliberate product decision, not an accident of the prior
 monolith.
 
 ## Decision
@@ -26,14 +30,14 @@ Why:
 
 ## What This Means
 
-After the split, the apps repo should own:
+The apps repo owns:
 
 - `client/`
 - frontend tests under `client/src/test/` and `client/e2e/`
 - app-shell routing and auth flows
 - runtime-only UI behavior that adapts to runtime boot state through API data
 
-The runtime repo should own:
+The runtime repo owns:
 
 - the HTTP/API surfaces the client reads
 - the runtime mode/version metadata exposed by `/api/version` and
