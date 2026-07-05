@@ -125,6 +125,46 @@ def _poll_run(client, token, run_id, *, until, timeout=90.0, interval=2.0) -> di
     return body
 
 
+def _diagnose_anthropic_planner(goal: str) -> str:
+    """Reproduce the anthropic_chat plan-gen failure directly, in the TEST thread.
+
+    The runtime swallows the real reason into a ``threading.local`` (``_plan_failure``
+    set on the FastAPI threadpool worker, unreadable from here) and a ``required``
+    ``agent_plan_generation`` SystemEvent that can itself be lost to the
+    ``system_events_user_id_fkey`` violation. Plan generation runs **in-process**
+    regardless of the execution backend (``create_run`` -> ``generate_plan``; the
+    backend only affects ``apply_wait_policy`` *after* generation), so calling the app
+    backend directly here reproduces the create-500 cause with no ``nodus_worker``
+    subprocess involved. See TECH_DEBT RTR-1-NODUS-APPTOOL-500.
+    """
+    try:
+        from apps.agent.agents.planner_anthropic import claude_planner_backend
+    except Exception as exc:  # pragma: no cover - import guard
+        return f"could not import claude_planner_backend: {type(exc).__name__}: {exc}"
+
+    class _Req:
+        objective = goal
+        run_type = "default"
+        user_id = None
+        system_prompt = (
+            "You are A.I.N.D.Y.'s planner. Available tools: task.create, task.complete, "
+            "memory.recall, memory.write. Produce a plan using only these tools."
+        )
+        tools = ({"name": "task.create"}, {"name": "task.complete"}, {"name": "memory.recall"})
+        runtime_api = None
+        metadata = {}
+
+    try:
+        plan = claude_planner_backend(_Req())
+        steps = plan.get("steps") if isinstance(plan, dict) else None
+        return (
+            f"direct backend call SUCCEEDED (steps={len(steps or [])}) — the create-500 "
+            "is in the runtime dispatch/context, NOT the anthropic_chat backend"
+        )
+    except Exception as exc:
+        return f"direct backend call raised {type(exc).__name__}: {str(exc)[:400]}"
+
+
 def _assert_no_tool_resolution_failure(steps: list[dict], run_body: dict) -> None:
     """The failure mode §5 hunts: a tool that never resolved in the subprocess."""
     haystacks = [str(run_body.get("error") or "")]
@@ -176,7 +216,11 @@ class TestNodusVmAppTool:
         goal = f"Create a task titled 'nodus-vm smoke {uuid.uuid4().hex[:6]}' to verify the deploy."
         r = client.post("/apps/agent/run", json={"goal": goal}, headers=_auth(token))
         if r.status_code in (202, 500):
-            pytest.skip(f"run deferred or planner unavailable (status={r.status_code}): {r.text[:300]}")
+            diag = _diagnose_anthropic_planner(goal) if r.status_code == 500 else "n/a (deferred)"
+            pytest.skip(
+                f"run deferred or planner unavailable (status={r.status_code}): "
+                f"{r.text[:200]} || RTR-1-NODUS-APPTOOL-500 diagnosis: {diag}"
+            )
         assert r.status_code in (200, 201), f"create: {r.status_code} {r.text[:200]}"
 
         body = r.json()
