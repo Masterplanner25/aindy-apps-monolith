@@ -1,6 +1,6 @@
 ---
 title: Boot Profiles
-last_verified: "2026-05-10"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"

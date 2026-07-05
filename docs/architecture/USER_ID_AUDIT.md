@@ -1,6 +1,6 @@
 ---
 title: "User-ID Scoping Audit"
-last_verified: "2026-04-20"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -8,6 +8,10 @@ owner: "platform-team"
 # User-ID Scoping Audit
 
 **Date:** 2026-04-20  
+**Re-verified:** 2026-07-05 — the three CRITICAL fixes remain in place (each
+function still filters by `user_id`). Line numbers below are as of the original
+2026-04-20 audit and have since shifted (e.g. `_check_reminders_once` is now at
+`task_service.py:879`, `update_goal_progress` at `goal_service.py:95`).  
 **Scope:** All `db.query(...)` calls in `apps/*/services/*.py` and `apps/automation/flows/*.py`
 
 A.I.N.D.Y. is a single-tenant-per-user system (`tenant_id == user_id`). Every domain

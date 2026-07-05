@@ -1,6 +1,6 @@
 ---
 title: "Public Surface Contracts"
-last_verified: "2026-05-02"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -11,6 +11,12 @@ owner: "platform-team"
 Cross-domain callers must import only from `apps/{app}/public.py`.
 Public surfaces are thin wrappers over provider-owned internals and must be the
 only supported Python-level contract between domain apps.
+
+Every function listed below is exported from the provider's `public.py` (verified
+2026-07-05). Some cross-domain reads now go through syscalls (`sys.v1.<domain>.<op>`)
+rather than a Python import; the "Consumers" column names the domains that use each
+surface, by import or via syscall. See
+[Public Surface Audit](./PUBLIC_SURFACE_AUDIT.md) for the concrete call sites.
 
 | Providing app | Public function | Consumers |
 |---|---|---|

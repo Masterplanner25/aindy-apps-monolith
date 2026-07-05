@@ -21,6 +21,8 @@ REQUIRED_DIRECTORIES = [
     Path("docs/memory"),
     Path("docs/nodus"),
     Path("docs/sdk"),
+    Path("docs/api"),
+    Path("CHANGELOG.md"),
 ]
 REQUIRED_FIELDS = ("title", "last_verified", "api_version", "status", "owner")
 VALID_STATUS = {"current", "outdated", "draft"}

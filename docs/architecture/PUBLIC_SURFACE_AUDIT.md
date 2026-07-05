@@ -1,12 +1,19 @@
 ---
 title: "Public Surface Audit"
-last_verified: "2026-04-26"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
 ---
 
 # Public Surface Audit
+
+> **Re-verified 2026-07-05.** This is the 2026-04-26 audit snapshot, updated to
+> current state. Since the original audit, several cross-app Python imports
+> flagged below have moved to syscalls (`sys.v1.*`); those rows now read
+> `MOVED_TO_SYSCALL`, and the two `MIGRATE` bypass items were resolved.
+> [Cross-Domain Coupling §7](./CROSS_DOMAIN_COUPLING.md#7-remediation-status) is
+> the authoritative live tracker for coupling remediation.
 
 ## Function Audit
 
@@ -21,8 +28,8 @@ owner: "platform-team"
 
 | function | purpose | parameters | returns | imported by callers | bypass violations observed |
 | --- | --- | --- | --- | --- | --- |
-| `save_calculation` | Persists one analytics calculation result row. | `db: Session`, `metric_name: str`, `value: float`, `user_id: str | None` | `CalculationResult | None` | Yes: `apps/network_bridge/services/network_bridge_services.py` | `apps/search/routes/seo_routes.py`, `apps/network_bridge/routes/network_bridge_router.py` import `apps.analytics.services.calculations.calculation_services.save_calculation` directly |
-| `get_user_kpi_snapshot` | Returns the latest KPI snapshot for one user. | `user_id: str`, `db: Session` | `UserKpiSnapshotDict | None` | Historical runtime-agent callers plus `apps/agent/flows/agent_flows.py`, `apps/analytics/syscalls.py` | None found |
+| `save_calculation` | Persists one analytics calculation result row. | `db: Session`, `metric_name: str`, `value: float`, `user_id: str | None` | `CalculationResult | None` | Yes: `apps/search/routes/seo_routes.py` (via `apps.analytics.public`); `network_bridge` reads via `sys.v1.analytics.save_calculation` | None — the former direct `calculation_services.save_calculation` imports were migrated (search → public, network_bridge → syscall) |
+| `get_user_kpi_snapshot` | Returns the latest KPI snapshot for one user. | `user_id: str`, `db: Session` | `UserKpiSnapshotDict | None` | `apps/analytics/syscalls.py` exposes it as `sys.v1.analytics.get_kpi_snapshot`; `agent` and other domains consume via that syscall | None found |
 | `run_infinity_orchestrator` | Runs the analytics infinity orchestrator for one trigger event. | `user_id: str`, `trigger_event: str`, `db: Session` | `InfinityOrchestratorResult` | Yes: `apps/arm/services/deepseek/deepseek_code_analyzer.py` | None found |
 | `get_user_score` | Returns one `UserScore` row as a plain dict. | `user_id: str`, `db: Session` | `UserScoreDict | None` | No caller imports found | None found |
 | `get_user_scores` | Returns a batch of user score dicts keyed by user ID. | `user_ids: list[str]`, `db: Session` | `dict[str, UserScoreDict]` | Yes: `apps/social/__init__.py`, `apps/social/services/__init__.py`, `apps/social/services/social_service.py` | None found |
@@ -45,14 +52,14 @@ owner: "platform-team"
 | automation | `apps/freelance/services/freelance_service.py` | `apps.automation.public.execute_automation_action` | yes | KEEP |
 | automation | `apps/bridge/services/bridge_service.py` | `apps.automation.public.BridgeUserEvent` | yes | KEEP |
 | automation | `apps/masterplan/services/masterplan_execution_service.py` | `apps.automation.public.list_automation_logs` | no | MOVED_TO_SYSCALL |
-| automation | `apps/analytics/services/scoring/policy_adaptation_service.py` | `apps.automation.public.LoopAdjustment` | yes | KEEP |
-| automation | `apps/analytics/services/scoring/kpi_weight_service.py` | `apps.automation.public.LoopAdjustment` | yes | KEEP |
-| automation | `apps/analytics/services/integration/dependency_adapter.py` | `apps.automation.public.LoopAdjustment`, `apps.automation.public.UserFeedback` | yes | KEEP |
-| automation | `apps/analytics/flows/analytics_flows.py` | `apps.automation.public.UserFeedback` | yes | KEEP |
+| automation | `apps/analytics/services/scoring/policy_adaptation_service.py` | `sys.v1.automation.list_loop_adjustments` (syscall) | n/a | MOVED_TO_SYSCALL |
+| automation | `apps/analytics/services/scoring/kpi_weight_service.py` | (no direct import; loop-adjustment reads go through the dependency adapter's automation syscalls) | n/a | MOVED_TO_SYSCALL |
+| automation | `apps/analytics/services/integration/dependency_adapter.py` | `sys.v1.automation.list_loop_adjustments`, `list_feedback`, `create_loop_adjustment`, `update_loop_adjustment` (syscalls) | n/a | MOVED_TO_SYSCALL |
+| automation | `apps/analytics/flows/analytics_flows.py` | `sys.v1.automation.list_feedback` (syscall) | n/a | MOVED_TO_SYSCALL |
 | analytics | `AINDY/routes/agent_router.py` | historical runtime-owned suggestion path (removed) | yes | REMOVED |
-| analytics | `apps/agent/flows/agent_flows.py` | `apps.analytics.public.get_user_kpi_snapshot` | yes | KEEP |
+| analytics | `apps/agent/flows/agent_flows.py` | `sys.v1.analytics.get_kpi_snapshot` (syscall) | n/a | MOVED_TO_SYSCALL |
 | analytics | `apps/arm/services/deepseek/deepseek_code_analyzer.py` | `apps.analytics.public.run_infinity_orchestrator` | yes | KEEP |
-| analytics | `apps/network_bridge/services/network_bridge_services.py` | `apps.analytics.public.save_calculation` | yes | KEEP |
+| analytics | `apps/network_bridge/services/network_bridge_services.py` | `sys.v1.analytics.save_calculation` (syscall) | n/a | MOVED_TO_SYSCALL |
 | analytics | `apps/social/__init__.py` | `apps.analytics.public.get_user_scores` | yes | KEEP |
 | analytics | `apps/social/services/__init__.py` | `apps.analytics.public.get_user_scores` | yes | KEEP |
 | analytics | `apps/social/services/social_service.py` | `apps.analytics.public.get_user_scores` | yes | KEEP |
@@ -62,8 +69,8 @@ owner: "platform-team"
 | analytics | `apps/rippletrace/services/narrative_engine.py` | `apps.analytics.public.list_score_snapshots` | yes | KEEP |
 | analytics | `apps/rippletrace/services/learning_engine.py` | `apps.analytics.public.list_score_snapshots` | yes | KEEP |
 | analytics | `apps/rippletrace/services/delta_engine.py` | `apps.analytics.public.list_score_snapshot_drop_point_ids`, `apps.analytics.public.list_score_snapshots` | yes | KEEP |
-| analytics | `apps/search/routes/seo_routes.py` | `apps.analytics.services.calculations.calculation_services.save_calculation` | no | MIGRATE |
-| analytics | `apps/network_bridge/routes/network_bridge_router.py` | `apps.analytics.services.calculations.calculation_services.save_calculation` | no | MIGRATE |
+| analytics | `apps/search/routes/seo_routes.py` | `apps.analytics.public.save_calculation` | yes | KEEP (migrated from the internal path to public) |
+| analytics | `apps/network_bridge/routes/network_bridge_router.py` | `sys.v1.analytics.save_calculation` (syscall) | n/a | MOVED_TO_SYSCALL |
 | tasks | `apps/freelance/services/freelance_service.py` | `apps.tasks.public.get_task_by_id`, `apps.tasks.public.queue_task_automation` | yes | KEEP |
 | tasks | `apps/masterplan/services/masterplan_execution_service.py` | `apps.tasks.public.count_tasks`, `apps.tasks.public.list_tasks_for_masterplan`, `apps.tasks.public.delete_tasks_by_ids` | no | MOVED_TO_SYSCALL |
 | tasks | `apps/masterplan/services/eta_service.py` | `apps.tasks.public.count_tasks`, `apps.tasks.public.count_tasks_completed_since` | no | MOVED_TO_SYSCALL |

@@ -1,6 +1,6 @@
 ---
 title: "Cross-Domain Coupling"
-last_verified: "2026-05-02"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -46,13 +46,15 @@ produces a `next_action` recommendation by synthesising the user's current
 KPI state, recent task history, goal alignment, memory signals, system state,
 and social performance.
 
-It is implemented across three files in `apps/analytics/services/`:
+It is implemented across three modules under `apps/analytics/services/`. The bare
+`infinity_*.py` files in that directory are thin re-export shims; the
+implementations live in the `orchestration/` and `scoring/` subpackages:
 
-| File | Role |
+| Module | Role |
 |---|---|
-| `infinity_service.py` | KPI snapshot calculation, score context |
-| `infinity_loop.py` | Decision engine — `_decide()`, weighting functions, loop evaluation |
-| `infinity_orchestrator.py` | Entrypoint — acquires execution lease, gathers inputs, calls loop |
+| `scoring/infinity_service.py` | KPI snapshot calculation, score context |
+| `orchestration/infinity_loop.py` | Decision engine — weighting functions, loop evaluation |
+| `orchestration/infinity_orchestrator.py` | Entrypoint — acquires execution lease, gathers inputs, calls loop |
 
 ### 2.2 The Dependency Map
 
@@ -105,51 +107,36 @@ query engine**. It reads from tasks, masterplan, identity, social, and memory.
 It writes only to the analytics domain (LoopAdjustment, UserScore). It does
 not mutate task state, goal state, or identity state.
 
-### 2.4 The Cascade Import Risk
+### 2.4 The Cascade Import Risk (Resolved)
 
-`infinity_loop.py` has two module-level cross-domain imports:
-
-```python
-# Line 7 — module level
-from apps.tasks.services.task_service import get_next_ready_task
-
-# Line 10 — module level
-from apps.masterplan.services.goal_service import calculate_goal_alignment
-```
-
-`infinity_orchestrator.py` has four module-level cross-domain imports:
-
-```python
-# Lines 14–22 — module level
-from apps.identity.services.identity_boot_service import get_recent_memory, get_user_metrics
-from apps.masterplan.services.goal_service import rank_goals
-from apps.social.services.social_performance_service import get_social_performance_signals
-from apps.tasks.services.task_service import get_task_graph_context
-```
-
-**The risk**: if any of these target modules fails to import at startup
-(circular import, missing dependency, syntax error, migration failure), the
-entire `infinity_orchestrator` module fails to import. This cascades:
+Historically `orchestration/infinity_loop.py` and
+`orchestration/infinity_orchestrator.py` reached into other domains with
+**module-level** imports (`apps.tasks.services.task_service`,
+`apps.masterplan.services.goal_service`,
+`apps.identity.services.identity_boot_service`, and
+`apps.social.services.social_performance_service`). That created a startup
+cascade: if any target module failed to import, the whole orchestrator module
+failed, which failed analytics flow registration, which failed `apps.bootstrap`,
+which aborted `main.py` startup:
 
 ```
 infinity_orchestrator fails to import
-    → infinity_orchestrator cannot be imported by analytics_flows.py
-        → analytics_flows.py fails
-            → flow_definitions_extended.register_extended_flows() fails
-                → apps.bootstrap._register_flows() fails
-                    → apps.bootstrap.bootstrap() fails
-                        → load_plugins() raises
-                            → main.py lifespan() aborts
-                                → server fails to start
+    → cannot be imported by the analytics flow registration
+        → analytics flow register() fails
+            → apps.bootstrap._register_flows() fails
+                → apps.bootstrap.bootstrap() fails
+                    → load_plugins() raises
+                        → main.py lifespan() aborts
+                            → server fails to start
 ```
 
-A bug in `apps/tasks/services/task_service.py` can prevent the entire
-platform from starting. This is the primary structural risk.
-
-**The fix** (tracked in Prompt 11): convert all cross-domain module-level
-imports in `infinity_loop.py` and `infinity_orchestrator.py` to deferred
-imports inside the function bodies that use them. The algorithm's logic does
-not change; only the import timing changes.
+**Resolved (Prompt 11).** Every cross-domain read in `infinity_loop.py` and
+`infinity_orchestrator.py` is now a deferred import inside the function body that
+uses it, so a bug in another domain can no longer stop the platform from
+starting. The only module-level `apps.*` import remaining in `infinity_loop.py`
+is intra-analytics (`apps.analytics.services.reasoning`), which is not a
+cross-domain edge. New module-level cross-domain imports here are regressions
+(Safe Modification Rule 1 below).
 
 ### 2.5 The Bidirectional analytics ↔ identity Coupling
 
@@ -198,81 +185,85 @@ When working in `infinity_loop.py` or `infinity_orchestrator.py`:
 
 ### 3.1 What It Is
 
-`apps/automation/flows/` is the cross-domain flow orchestration layer. It
-registers every node function and flow graph that domain apps expose through
-the AINDY Flow Engine. When a route handler calls `run_flow("task_complete",
-state, db)`, the flow engine looks up the flow graph and node functions that
-were registered here.
+`apps/automation/flows/` registers the flow node functions and flow graphs that
+the automation domain and a few platform-adapter surfaces expose through the
+AINDY Flow Engine. When a route handler calls `run_flow("task_complete", state,
+db)`, the flow engine looks up the flow graph and node functions registered at
+startup.
 
-The layer is structured as:
+This layer used to be the all-domain flow hub, but the per-domain node files
+were split back to the domains that own them (see `SPLIT_MANIFEST.md`,
+2026-04-26). Each domain now owns its flows under
+`apps/<domain>/flows/<domain>_flows.py` — `apps/agent/flows/agent_flows.py`,
+`apps/analytics/flows/analytics_flows.py`, `apps/arm/flows/arm_flows.py`,
+`apps/freelance/flows/freelance_flows.py`,
+`apps/masterplan/flows/masterplan_flows.py`,
+`apps/search/flows/search_flows.py`, `apps/tasks/flows/tasks_flows.py` — and
+registers them from its own bootstrap.
+
+`apps/automation/flows/` now holds only automation-owned and system /
+platform-adapter flows:
 
 ```
 apps/automation/flows/
-├─ _flow_registration.py       helper: register_nodes(), register_single_node_flows()
-├─ flow_definitions.py         platform flow nodes (ARM, task, memory entry points)
-├─ flow_definitions_extended.py  coordinator: imports all domain flow files,
-│                                calls register() on each, exposes register_extended_flows()
-│
-├─ analytics_flows.py          score, KPI, infinity loop nodes
-├─ arm_flows.py                ARM analysis and suggestion nodes
-├─ automation_flows.py         agent runs, memory CRUD, flow engine state,
-│                              observability, watcher, dashboard, autonomy nodes
-├─ freelance_flows.py          freelance delivery and invoice nodes
-├─ masterplan_flows.py         plan, goal, genesis, score nodes
-├─ search_flows.py             lead gen, SEO, research nodes
-└─ tasks_flows.py              task lifecycle nodes
+├─ automation_flows.py           thin delegator: register() wires the modules below
+├─ system_flows.py               automation logs, scheduler status, task-trigger nodes
+├─ watcher_flows.py              watcher signal + trigger-evaluation nodes
+├─ dashboard_autonomy_flows.py   dashboard overview + autonomy decision nodes
+├─ memory_flows.py               compatibility shim to AINDY.runtime.flow_definitions_memory
+├─ automation_system_flows.py    compatibility re-export of the system nodes
+├─ flow_definitions.py           platform flow-node entry points
+├─ flow_definitions_extended.py  coordinator for the automation domain flow modules
+└─ SPLIT_MANIFEST.md             record of the 2026-04-26 split + immutable node names
 ```
 
 ### 3.2 How Registration Works
 
-Each domain flow file defines node functions and a `register()` function:
+Each flow file defines node functions and a `register()` function:
 
 ```python
-# apps/automation/flows/tasks_flows.py
+# apps/tasks/flows/tasks_flows.py
 def task_create_node(state, context):
-    from apps.tasks.services.task_service import create_task
+    from apps.tasks.services.task_service import create_task   # deferred import
     db = context.get("db")
     result = create_task(db, ...)
     return {"status": "SUCCESS", "output_patch": {"task": result}}
 
 def register() -> None:
-    register_nodes({"task_create_node": task_create_node})
-    register_single_node_flows({"task_create": "task_create_node"})
+    ...  # register node functions and single-node flows
 ```
 
-`flow_definitions_extended.register_extended_flows()` calls `register()` on
-every domain flow file. This is called from `apps/bootstrap._register_flows()`
-which runs during `load_plugins()` at startup.
+Each domain registers its own flow module from its bootstrap — e.g.
+`apps/tasks/bootstrap._register_flows()` publishes the module's symbols via
+`register_symbols(...)` and calls `register_flow(tasks_flows.register)`. Inside
+`apps/automation/flows/`, `flow_definitions_extended.register_extended_flows()`
+is the coordinator for the automation domain modules (`memory_flows`,
+`system_flows`, `dashboard_autonomy_flows`): it deferred-imports them, injects the
+`FLOW_REGISTRY` / `register_flow` bindings, publishes their symbols, and calls
+`register()` on each.
 
-### 3.3 The Cross-Domain Nature of automation_flows.py
+### 3.3 automation_flows.py Is Now a Thin Delegator
 
-`automation_flows.py` is the largest file in the layer (1,530 lines, 59 node
-functions). It is cross-domain by design because it serves as a **generic
-adapter layer**: it exposes flow nodes for capabilities that don't belong to
-a single domain — agent runtime operations, memory operations, observability,
-and system-level flow management.
-
-Its imports inside node functions cross into:
+`automation_flows.py` was historically the largest file in the layer — a
+~1,530-line, 59-node cross-domain adapter exposing flow nodes for capabilities
+spanning agent runtime, memory, observability, and system flow management. The
+2026-04-26 split (`SPLIT_MANIFEST.md`) moved those nodes to the surfaces that own
+them:
 
 ```
-apps.agent          ← AINDY.agents.agent_runtime (approved public API)
-apps.analytics      ← analytics_router KPI snapshot
-AINDY.runtime       ← flow_engine run_flow, MemoryOrchestrator
-AINDY.agents        ← agent_runtime, agent_tools, capability_service
+agent run / trust / tools / suggestion nodes → apps/agent/flows/agent_flows.py
+memory runtime nodes                         → AINDY.runtime.flow_definitions_memory (via memory_flows.py)
+flow-run state + observability nodes         → AINDY.runtime.flow_definitions_engine / flow_definitions_observability
+automation log / scheduler / task-trigger    → system_flows.py
+watcher nodes                                → watcher_flows.py
+dashboard / autonomy nodes                   → dashboard_autonomy_flows.py
 ```
 
-The problematic import in this file:
-
-```python
-# apps/automation/flows/automation_flows.py — inside agent_run_approve_node
-from AINDY.agents.agent_runtime import _run_to_dict  # private function
-```
-
-`_run_to_dict` is prefixed `_` indicating it is private to `agent_runtime`.
-This coupling means any refactor of `agent_runtime`'s internal serialization
-format can silently break `agent_run_approve_node` and related nodes. The fix
-is tracked in Prompt 3: expose `run_to_dict` as a public alias and update
-all callers.
+`automation_flows.py` is now a ~29-line delegator whose `register()` simply calls
+the moved modules' `register()` functions. The former private-API coupling —
+`from AINDY.agents.agent_runtime import _run_to_dict` — no longer exists here; the
+agent nodes moved to `apps/agent/flows/` and use the public agent runtime API
+(resolved, Prompt 3).
 
 ### 3.4 Node Function Contract
 
@@ -294,42 +285,37 @@ def my_node(state: dict, context: dict) -> dict:
 
 All domain imports inside node functions must be deferred (inside the function
 body). Node functions must never import at module level from other domains —
-a module-level import failure in a domain would prevent all 59+ nodes in the
-file from registering.
+a module-level import failure in a domain would prevent every node in that file
+from registering.
 
 ### 3.5 flow_definitions_extended.py — The Coordinator
 
-`flow_definitions_extended.py` uses star-imports (`from ... import *`) from
-each domain flow file. This is intentional: it creates a single namespace
-where any node function can be referenced by name. The star-imports are the
-mechanism by which `register_extended_flows()` has access to all node
-functions from all domains.
+`flow_definitions_extended.py` is the coordinator for the automation domain flow
+modules. `register_extended_flows()` deferred-imports `memory_flows`,
+`system_flows`, and `dashboard_autonomy_flows`, injects the runtime
+`FLOW_REGISTRY` / `register_flow` bindings into each (so a test harness can
+substitute them), publishes each module's public symbols to the platform symbol
+registry via `register_symbols(...)`, and then calls `register()` on each module.
 
-This pattern means that adding a new node function to any domain flow file
-automatically makes it available to `register_extended_flows()` without
-modifying the coordinator. The trade-off is that the coordinator's namespace
-contains every node function from every domain, which makes static analysis
-harder.
-
-The star-imports do NOT cause circular imports because all cross-domain calls
-within node functions are deferred (inside function bodies, not at module
-level).
+All cross-domain calls happen inside node function bodies (deferred), so
+importing these modules at registration time cannot trigger a circular import.
+An earlier revision of this file used `from ... import *` star-imports across
+every domain flow file; that coupling went away when the per-domain flows moved
+back to their own domains.
 
 ### 3.6 The Separation Constraint
 
-The automation flow layer **cannot be separated from any domain app** without
-moving the node functions for that domain into the domain app itself. Currently
-`automation_flows.py` owns agent run nodes, memory nodes, observability nodes,
-and watcher nodes even though those belong conceptually to `apps/agent`,
-`AINDY/memory`, and `AINDY/watcher`.
+The per-domain split (Prompt 10, `SPLIT_MANIFEST.md`) is done: `automation_flows.py`
+is a thin delegator, agent run nodes live in `apps/agent/flows/`, and memory,
+flow-engine, and observability nodes are runtime-owned under `AINDY.runtime.*`.
+What remains in `apps/automation/flows/` is genuinely automation-scoped or
+platform-adapter work: automation logs / scheduler / task-trigger
+(`system_flows.py`), watcher signals (`watcher_flows.py`), and dashboard /
+autonomy read nodes (`dashboard_autonomy_flows.py`).
 
-The correct long-term direction is:
-- `apps/agent/flows/` owns agent run nodes
-- `AINDY/memory` nodes move into a platform flow file
-- `automation_flows.py` shrinks to system-level orchestration only
-
-This migration is tracked in Prompt 10, which splits `automation_flows.py`
-into domain-grouped files as a first step.
+The remaining constraint is the ordinary one: a flow module can only be separated
+from a domain by moving its node functions into that domain's
+`apps/<domain>/flows/` file — exactly the pattern the split established.
 
 ### 3.7 Safe Modification Rules
 
@@ -503,8 +489,8 @@ coupling sites.
 
 | Source | Imports from | Type | Risk |
 |---|---|---|---|
-| `analytics/infinity_orchestrator` | `identity`, `masterplan`, `tasks`, `social` | deferred | RESOLVED — converted to deferred imports (Prompt 11) |
-| `analytics/infinity_loop` | `tasks`, `masterplan`, `automation.models` | module-level + deferred | CASCADE for module-level |
+| `analytics/orchestration/infinity_orchestrator` | `identity`, `masterplan`, `tasks`, `social` | deferred | RESOLVED — converted to deferred imports (Prompt 11) |
+| `analytics/orchestration/infinity_loop` | `tasks`, `masterplan`, `automation.models` | deferred | RESOLVED — module-level cross-domain imports deferred (Prompt 11) |
 | `analytics/bootstrap.py` | `identity`, `tasks` boot ordering | stale bootstrap edge | RESOLVED — call-time only, no startup edge needed |
 | `analytics/routes` | `masterplan.services` | deferred in handler | ACCEPTED — handler-deferred, declared in APP_DEPENDS_ON |
 | `analytics/flows` | `automation.public.get_user_feedback` | syscall dispatch | RESOLVED — sys.v1.automation.list_feedback (Prompt 6) |
@@ -519,8 +505,8 @@ coupling sites.
 | `automation/syscalls/syscall_handlers` | `task`, `leadgen`, `arm`, `genesis`, `analytics`, `authorship`, `rippletrace`, `goal`, `research` | syscall dispatch wrappers | boundary restored (Prompt 2) |
 | `automation/syscalls/syscall_handlers` | `automation.models` | deferred | acceptable |
 | `automation/syscalls/syscall_handlers` | `tasks.syscalls.register_task_syscall_handlers` | explicit re-registration call (removed) | RESOLVED (Prompt 12) |
-| `automation/flows/automation_flows` | `AINDY.agents.agent_runtime._run_to_dict` | deferred | private API (Prompt 3) |
-| `automation/flows/analytics_flows` | `analytics.services` | deferred | acceptable |
+| `agent/flows/agent_flows` | `AINDY.agents.agent_runtime.run_to_dict` | deferred (public API) | RESOLVED — private `_run_to_dict` replaced; nodes moved out of automation (Prompt 3) |
+| `analytics/flows/analytics_flows` | `analytics.services` | intra-domain deferred | acceptable — same-domain after the flow split |
 
 Automation bootstrap note (2026-05-02): `apps.automation.bootstrap`
 no longer declares cross-app `BOOTSTRAP_DEPENDS_ON` or `APP_DEPENDS_ON`

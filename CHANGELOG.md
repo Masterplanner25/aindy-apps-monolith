@@ -1,6 +1,6 @@
 ---
 title: "App HTTP REST API Changelog"
-last_verified: "2026-06-27"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -8,9 +8,9 @@ owner: "apps-team"
 # App HTTP REST API Changelog
 
 Tracks **breaking and additive changes** to the **app-owned** HTTP REST surface in
-this repo — the domain route families under `/apps/*` plus the app-domain routes
-`/masterplans/*` and `/bridge/*`. Extracted from the pre-split monolith changelog
-during DOCS-MIGRATION-2.
+this repo — the domain route families under `/apps/*`, including the app-domain
+families `/apps/masterplans/*` and `/apps/bridge/*`. Extracted from the pre-split
+monolith changelog during DOCS-MIGRATION-2.
 
 Runtime-owned routes (`/platform/*`, `/agent/*`, `/observability/*`, `GET /api/version`)
 are documented in the `aindy-runtime` changelog, not here. For the programmatic
@@ -39,13 +39,13 @@ App-route surface verified against the live route tree on 2026-04-26.
 
 ### Added
 
-- `POST /masterplans/lock` — locks a synthesized genesis draft into a masterplan.
-- `POST /masterplans/{plan_id}/activate-cascade` — evaluates task dependencies and activates ready
+- `POST /apps/masterplans/lock` — locks a synthesized genesis draft into a masterplan.
+- `POST /apps/masterplans/{plan_id}/activate-cascade` — evaluates task dependencies and activates ready
   tasks. Response includes `activated`, `count`, and `masterplan_id`.
 
 ### Breaking
 
-- `GET /masterplans/` — response shape changed from a bare JSON list to `{"plans": [...]}`.
+- `GET /apps/masterplans/` — response shape changed from a bare JSON list to `{"plans": [...]}`.
   Migration: update clients to read `response.plans` instead of treating the response body as the list.
 
 ### Deprecated
@@ -63,7 +63,8 @@ App-route surface verified against the live route tree on 2026-04-26.
 - The remaining app routers — ARM, RippleTrace, Freelance, Authorship, search/SEO, research results,
   dashboard, and social — now also require JWT authentication.
   Migration: add `Authorization: Bearer <token>` to existing integrations.
-- `POST /bridge/nodes`, `GET /bridge/nodes`, and `POST /bridge/link` now require JWT authentication.
-  `POST /bridge/user_event` requires API-key authentication (the configured service key).
+- `POST /apps/bridge/nodes`, `GET /apps/bridge/nodes`, and `POST /apps/bridge/link` now require JWT
+  authentication. `POST /apps/bridge/user_event` requires API-key authentication (the configured
+  service key).
   Migration: add the Bearer token for interactive bridge calls and the service API key for
-  `POST /bridge/user_event`.
+  `POST /apps/bridge/user_event`.

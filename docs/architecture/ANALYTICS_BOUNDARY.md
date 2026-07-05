@@ -1,6 +1,6 @@
 ---
 title: "Analytics Boundary (app-owned)"
-last_verified: "2026-06-27"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "apps-team"

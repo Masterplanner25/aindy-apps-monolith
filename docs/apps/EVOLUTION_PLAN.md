@@ -24,7 +24,7 @@ This plan defines controlled evolution aligned with current architecture and gov
 > point to the historical pre-split register; the app-domain items from it are now tracked in this
 > repo's `TECH_DEBT.md` under **APP-DEBT-MIGRATED-1**. `docs/platform/governance/release_notes.md` was
 > not carried over — app release history starts fresh from the split (git history and
-> `docs/api/CHANGELOG.md`).
+> `CHANGELOG.md`).
 
 ## 1. Guiding Principles
 - Preserve all invariants in `docs/platform/governance/INVARIANTS.md`.
