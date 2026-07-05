@@ -27,14 +27,17 @@ upgrades.
 
 Validated on `2026-07-05`:
 
-- installed runtime version: `1.5.2`
-- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.5.2,<2.0`
+- installed runtime version: `1.5.3`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.5.3,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
 
-The `>=1.5.2` floor requires the nodus_vm execute-to-completion fix (aindy-runtime#152
-/ PR #155): `ExecutionPipeline.run()` marks itself active before emitting its own
-`execution.started`, so a resumed nodus_vm segment's nested flow-runner pipeline no
-longer trips the ExecutionContract guard. See TECH_DEBT `RTR-1-NODUS-COMPLETION`.
+The `>=1.5.3` floor requires **both** nodus_vm execute-to-completion fixes: aindy-runtime
+#152 / PR #155 (v1.5.2 — `ExecutionPipeline.run()` marks itself active before emitting its
+own `execution.started`) and aindy-runtime #157 / PR #158 (v1.5.3 — the syscall idempotency
+gate no longer casts a run-scoped `execution_unit_id` to a UUID column and wraps the lookup
+in a savepoint). Together they let a resumed nodus_vm segment run to a terminal state; Gate 2
+of `tests/integration/test_nodus_vm.py` hard-asserts that completion. See TECH_DEBT
+`RTR-1-NODUS-COMPLETION`.
 
 `aindy-runtime` is published on PyPI (`PYPI-PUBLISH-1` is closed), so this is the
 live, published dependency contract — not a pre-publication staging arrangement.
@@ -43,7 +46,7 @@ live, published dependency contract — not a pre-publication staging arrangemen
 
 `aindy-runtime` is installed from PyPI as a normal pinned dependency:
 
-- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.5.2,<2.0`
+- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.5.3,<2.0`
 - CI installs it via `pip install -e .[test]` (no runtime-repo checkout, no source
   install)
 - CI verifies the installed runtime version and that `/api/version` reports the

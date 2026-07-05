@@ -25,23 +25,23 @@ Run:
     docker compose -f docker-compose.test.yml up -d
     ANTHROPIC_API_KEY=sk-ant-... pytest -c pytest.nodus.ini tests/integration/test_nodus_vm.py -v
 
-History: on aindy-runtime 1.5.0 the resumed segment ran outside an ExecutionPipeline
-and raised 'execution.started emitted outside pipeline' (filed as aindy-runtime#152).
-1.5.1 shipped a partial fix; 1.5.2 (PR #155) fully fixed #152 — ExecutionPipeline.run()
-now marks itself active BEFORE emitting its own execution.started, and that guard no
-longer fires (verified: zero occurrences in CI run 28734012605 on 1.5.2). BUT driving
-the resumed segment to completion now trips a DIFFERENT runtime bug: the syscall
-dispatcher's idempotency gate binds the run-scoped execution_unit_id ('run_<uuid>') to a
-UUID column ('invalid input syntax for type uuid'), and the caught error is not rolled
-back to a savepoint, so it poisons the transaction (InFailedSqlTransaction) — the
-flow_runs INSERT fails, the segment chain aborts, and the run never completes (the
-poisoned auth session then 401s). So execute-to-completion is STILL blocked, now on this
-next-layer defect, and Gate 2 xfails on it (auto-passes once a later runtime fix makes
-the run terminal). See TECH_DEBT RTR-1-NODUS-COMPLETION.
+History: execute-to-completion of a resumed nodus_vm segment was blocked by two stacked
+runtime bugs, both PG-only (SQLite masked them) and both surfaced by driving the scheduler
+in-process here:
+  1. aindy-runtime#152 — ExecutionPipeline emitted its own execution.started BEFORE marking
+     itself active, so the nested flow-runner pipeline tripped the ExecutionContract guard
+     ('execution.started emitted outside pipeline'); the swallowed error poisoned the PG txn.
+     Fixed in 1.5.2 (PR #155): set pipeline_active before the first emit.
+  2. aindy-runtime#157 — with #152 cleared, the syscall dispatcher's idempotency gate cast
+     the run-scoped execution_unit_id ('run_<uuid>') to the ExecutionUnit.id UUID column
+     (InvalidTextRepresentation); the caught error, lacking a savepoint, poisoned the txn
+     (InFailedSqlTransaction), so the flow_runs INSERT failed and the run never completed.
+     Fixed in 1.5.3 (PR #158): only look up bare-UUID ids + SAVEPOINT/rollback the lookup.
+With both fixed (pin floor >=1.5.3), the resumed segment runs to a terminal state, so Gate 2
+hard-asserts completion. See TECH_DEBT RTR-1-NODUS-COMPLETION (RESOLVED).
 """
 from __future__ import annotations
 
-import contextlib
 import os
 import time
 import uuid
@@ -298,37 +298,24 @@ class TestNodusVmWaitResume:
         # equivalent of the 1s scheduler_heartbeat_tick — to dispatch and RUN the
         # resumed segment inline.
         #
-        # aindy-runtime 1.5.2 (#152 / PR #155) DID clear the original blocker: the
-        # 'execution.started emitted outside pipeline' ExecutionContract guard no longer
-        # fires (verified — zero occurrences, CI run 28734012605). But running the segment
-        # to completion now trips a DIFFERENT runtime bug: the syscall dispatcher's
-        # idempotency gate does an execution-unit lookup for 'sys.v1.nodus.execute'
-        # binding the run-scoped execution_unit_id ('run_<uuid>') to a UUID column, raising
-        # InvalidTextRepresentation. It is caught as a warning but WITHOUT a savepoint
-        # rollback, so it poisons the surrounding transaction (InFailedSqlTransaction) —
-        # the flow_runs INSERT then fails, the segment chain aborts, the run never
-        # completes, and the poisoned auth session returns 401 on the next poll. Runtime-
-        # owned; read the final status tolerantly. See TECH_DEBT RTR-1-NODUS-COMPLETION.
+        # On aindy-runtime >=1.5.3 both blockers are fixed: #152 / PR #155 (v1.5.2 —
+        # ExecutionPipeline marks itself active before emitting execution.started) and
+        # #157 / PR #158 (v1.5.3 — the idempotency gate no longer casts the run-scoped
+        # execution_unit_id 'run_<uuid>' to the ExecutionUnit.id UUID column, and wraps the
+        # lookup in a savepoint). So the resumed nodus_vm segment now runs to a terminal
+        # state. A regression of either fix would poison the run's PG transaction and leave
+        # it non-terminal (or 401 the poll on the poisoned session), failing the assert red.
         from AINDY.kernel.scheduler import get_scheduler_engine
 
-        with contextlib.suppress(Exception):
-            get_scheduler_engine().schedule()  # dispatch + run the resumed segment, inline
+        get_scheduler_engine().schedule()  # dispatch + run the resumed segment, inline
 
-        final = "unknown"
-        with contextlib.suppress(Exception):
-            g = client.get(f"/apps/agent/runs/{run_id}", headers=_auth(token))
-            if g.status_code == 200:
-                final = _status_from(g.json())
-
-        if final in TERMINAL_STATUSES:
-            return  # completion works end-to-end (both runtime blockers cleared)
-
-        pytest.xfail(
-            "aindy-runtime 1.5.2 fixes #152 (no more 'execution.started emitted outside "
-            "pipeline'), but the resumed nodus_vm segment still does not complete: the "
-            "syscall idempotency gate casts the 'run_<uuid>' execution-unit id to UUID "
-            "(InvalidTextRepresentation) and, with no savepoint rollback, poisons the "
-            f"transaction (InFailedSqlTransaction). Observed status={final!r}. New runtime "
-            "bug exposed by the #152 fix — filed as aindy-runtime#157; see TECH_DEBT "
-            "RTR-1-NODUS-COMPLETION."
+        final = _status_from(
+            _poll_run(client, token, run_id, until=lambda s: s in TERMINAL_STATUSES, timeout=30.0)
+        )
+        assert final in TERMINAL_STATUSES, (
+            "resumed nodus_vm segment did not run to completion "
+            f"(observed status={final!r}); expected the aindy-runtime>=1.5.3 fixes "
+            "(#152 pipeline-active + #157 idempotency-gate UUID/savepoint) to let the "
+            "continuation reach a terminal state. If this fails, a run's PG transaction "
+            "was likely poisoned again — reopen TECH_DEBT RTR-1-NODUS-COMPLETION."
         )
