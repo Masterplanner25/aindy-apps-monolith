@@ -136,16 +136,37 @@ segment and **xfails** on the incomplete fix (it auto-passes if a later runtime 
 makes the run reach a terminal state). Tool *resolution* in the subprocess remains
 proven; execute-to-completion is blocked on the reopened #152.
 
-**Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 proves an **app-manifest** tool
+**Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 would prove an **app-manifest** tool
 (`task.create`, no runtime default) executes in the subprocess, driven by the
-`anthropic_chat` LLM planner — but on the 1.5.1 re-run `POST /apps/agent/run` returned
-**500** ("planner unavailable"), so it `skip`ped. The skip now surfaces the response
-body (`r.text[:300]`) so the next run reveals the planner error. The app planner
-(`apps/agent/agents/planner_anthropic.py`) calls `client.messages.create(model="claude-opus-4-8",
-max_tokens=2048, tools=[submit_plan])`; the 500 is likely an Anthropic API error
-(model access / tool-use response shape) or `AnthropicPlannerError` bubbling to a 500.
-Until this is fixed, the app-manifest *execution* leg is proven only for *resolution*,
-not full execute-to-completion.
+`anthropic_chat` LLM planner — but `POST /apps/agent/run` returns a generic **500**
+`{"message":"Failed to generate plan"}` (`AINDY/agents/runtime_api.py:146` — `create_run`
+returned falsy), so it `skip`s.
+
+Investigated across several CI runs (2026-07-05, runtime 1.5.1) with `anthropic` 0.116.0
+installed and the `ANTHROPIC_API_KEY` secret present:
+- Added error surfacing + an entry-log to `apps/agent/agents/planner_anthropic.py`
+  and `-o log_cli=true` to the job. **The app planner backend
+  (`claude_planner_backend`) is never entered** — its top-of-function log never fires,
+  and the runtime logs nothing about why `create_run` returned None. The failure is
+  upstream of the app backend, and silent.
+- `anthropic_chat` is registered (`runtime_extensions.py:230` →
+  `register_agent_planner_backend("anthropic_chat", claude_planner_backend)`), and the
+  model id `claude-opus-4-8` + forced-tool request shape are valid (checked against the
+  claude-api reference — no `thinking`/`temperature` that would 400).
+- Gate 2's `stub` planner, monkeypatched the **same way** into
+  `settings.AINDY_AGENT_PLANNER_BACKEND`, **does** run and produce a plan. Forcing
+  `anthropic_chat` via the identical settings monkeypatch still does **not** invoke the
+  backend. The only functional difference: `stub` needs no key/network; `anthropic_chat`
+  needs both.
+
+**Hypothesis (needs runtime-side confirmation):** under `nodus_vm`, plan generation for
+`anthropic_chat` is dispatched into (or resolved within) the `nodus_worker` subprocess,
+where either the app backend isn't reachable or `ANTHROPIC_API_KEY`/network isn't
+available — so `_make_client()` fails there, its log goes to the subprocess (not captured
+by the parent's `log_cli`), and `create_run` returns None. This is the **same subprocess
+boundary** RTR-1-NODUS-COMPLETION and §5 turn on. Left `skip`-on-500 (green) with the
+diagnostics in place; closing it needs runtime-side visibility into where the
+`anthropic_chat` backend is resolved/executed under `nodus_vm`.
 
 **Reopen trigger:** the app-tool-500 (Gate 1) — fix the planner path so an app-manifest
 tool executes end-to-end; or any move to make `nodus_vm` the default
