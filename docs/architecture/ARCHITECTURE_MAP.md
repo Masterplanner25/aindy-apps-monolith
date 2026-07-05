@@ -277,7 +277,7 @@ Key files:
 - `AINDY/db/models/`
 - `AINDY/db/database.py`
 - `apps/bootstrap.py`
-- `alembic/versions/`
+- `alembic/alembic/versions/`
 
 ### MongoDB (Social App Only)
 MongoDB is isolated to the social domain. The client lifecycle and timeout configuration live in `AINDY/db/mongo_setup.py`, while the main Mongo-backed service code is in `apps/social/services/social_performance_service.py` and `apps/social/routes/social_router.py`. MongoDB degradation affects social features and platform health status, but it is not a core platform dependency.

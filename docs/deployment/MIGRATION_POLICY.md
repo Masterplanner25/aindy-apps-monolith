@@ -1,3 +1,10 @@
+---
+title: "Migration Policy"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # Migration Policy
 
 Repository ownership:
@@ -18,16 +25,17 @@ the runtime repo's Repo Compatibility Policy.
 
 ## 1. Alembic Source of Truth
 
-- All schema migrations live in `alembic/versions/`.
-- `alembic/env.py` configures Alembic to read `DATABASE_URL` from the `AINDY/config.py` `Settings` object.
-- `alembic.ini` is the Alembic configuration file; `script_location = alembic`.
+- All schema migrations live in `alembic/alembic/versions/`.
+- `alembic/alembic/env.py` reads `DATABASE_URL` from the environment (it errors if unset, expecting a `.env` in the repo root or `AINDY/`).
+- `alembic.ini` (at the repo root) is the Alembic configuration file; `script_location = alembic/alembic`.
 - Alembic is the sole mechanism for schema changes in production. SQLAlchemy models alone do not alter the live database.
-- In the current monolith, `alembic/env.py` loads runtime-owned models through `AINDY.db.model_registry` and then loads app-owned models through `apps.bootstrap.bootstrap_models()`.
+- In the current monolith, `alembic/alembic/env.py` loads runtime-owned models through `AINDY.db.model_registry` and then loads app-owned models through `apps.bootstrap.bootstrap_models()`.
+- App migrations run against the standard `alembic_version` table (the runtime's own migrations use `alembic_version_runtime`).
 - After the repo split, the expected steady state is still one migration authority per deployed database, owned by `aindy-apps-monolith`, even though runtime-owned models come from the installed `aindy-runtime` dependency.
 
 ### Verification Commands
 ```bash
-# From AINDY/ directory:
+# From the repo root (where alembic.ini lives), with DATABASE_URL set:
 alembic current          # what revision the DB is on
 alembic heads            # what revision(s) are at the head
 alembic history          # full revision chain
@@ -93,7 +101,7 @@ Ownership rule before authoring a migration:
 
 ## 4. Known Migration Debt
 
-- Multiple overlapping migrations and no automated migration validation in CI (see `docs/platform/engineering/TECH_DEBT.md §2`).
+- Multiple overlapping migrations and no automated migration validation in CI (see `TECH_DEBT.md`).
 - Some application-level constraints (e.g., genesis session locking, synthesis_ready gate) are not enforced at DB level — they depend on application code only.
 - Several FK relationships exist in ORM models but are not backed by DB-level FK constraints in all migrations.
 - `AINDY/version.json` and `AINDY/system_manifest.json` are not auto-updated by migrations; they must be manually updated when a release is tagged.

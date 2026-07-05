@@ -152,8 +152,9 @@ Violation consequence: the import scan exits non-zero and blocks CI.
 
 ## Alembic
 
-App-owned migrations live in `alembic/versions/`. Runtime migrations live in
-`aindy-runtime/alembic/`.
+App-owned migrations live in `alembic/alembic/versions/` (the repo-root
+`alembic.ini` sets `script_location = alembic/alembic`). Runtime migrations live
+in `aindy-runtime/alembic/`.
 
 - The runtime uses the `alembic_version_runtime` table; apps use the standard
   `alembic_version` table.
@@ -161,6 +162,9 @@ App-owned migrations live in `alembic/versions/`. Runtime migrations live in
   `DATABASE_URL` pointing at the app database).
 - All migrations must use `IF NOT EXISTS` / `IF EXISTS` guards — same idempotency
   rule as the runtime.
+
+Full migration discipline (revision workflow, additive-only policy, integrity and
+merge rules): `docs/deployment/MIGRATION_POLICY.md`.
 
 ---
 
@@ -229,7 +233,8 @@ Use `disabled` (set in `pytest.integration.ini`), **not** `stub`. The `stub` bac
 | Bootstrap validator (AST-based) | `apps/_bootstrap_validator.py` |
 | Cross-app import checker | `scripts/check_app_imports.py` |
 | API reference drift guard | `scripts/check_api_reference.py` |
-| App-owned Alembic migrations | `alembic/versions/` |
+| App-owned Alembic migrations | `alembic/alembic/versions/` |
+| Migration policy | `docs/deployment/MIGRATION_POLICY.md` |
 | Plugin registry pattern doc | `docs/architecture/PLUGIN_REGISTRY_PATTERN.md` |
 | Boot profiles doc | `docs/architecture/BOOT_PROFILES.md` |
 | Cross-domain coupling doc | `docs/architecture/CROSS_DOMAIN_COUPLING.md` |
