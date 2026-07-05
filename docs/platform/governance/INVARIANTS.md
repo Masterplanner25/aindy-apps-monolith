@@ -1,6 +1,6 @@
 ---
 title: "Invariants (app-owned)"
-last_verified: "2026-06-27"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -27,9 +27,10 @@ must not redefine them.
 
 ### (8) Single Active MasterPlan on Activation
 - Activating a masterplan deactivates all other plans.
-- Enforcement: `apps/masterplan/routes/genesis_router.py: activate_masterplan` and
-  `apps/masterplan/routes/masterplan_router.py: activate_masterplan` — both run
-  `db.query(MasterPlan).update({"is_active": False})` before setting the selected plan active.
+- Enforcement: `apps/masterplan/flows/masterplan_flows.py: masterplan_activate_node` (the
+  `masterplan_activate` flow) and `apps/masterplan/services/genesis_service.py: activate_masterplan_genesis`
+  — both run `db.query(MasterPlan).filter(MasterPlan.user_id == user_id).update({"is_active": False})`
+  before setting the selected plan active. The `activate_masterplan` route handlers delegate to these.
 - Violation: multiple masterplans active simultaneously.
 - Type: Application-enforced.
 
@@ -80,7 +81,7 @@ must not redefine them.
 
 ### (19) DropPoint Presence Before Ping Creation
 - Ripple-event logging creates a DropPoint if the referenced `drop_point_id` does not exist.
-- Enforcement: `apps/rippletrace/services/rippletrace_service.py: log_ripple_event` inserts the
+- Enforcement: `apps/rippletrace/services/rippletrace_services.py: log_ripple_event` inserts the
   DropPoint before Ping creation.
 - Violation: Ping insertion fails on FK constraint.
 - Type: Application-enforced.

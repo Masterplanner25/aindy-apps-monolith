@@ -1,6 +1,6 @@
 ---
 title: "Testing Strategy"
-last_verified: "2026-05-10"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -27,13 +27,13 @@ This section describes the currently validated test baseline. Older sprint-by-sp
   - `tests.helpers.runtime` is the recommended helper path for runtime-only tests
   - `tests.helpers.app_profile` is the recommended helper path for tests that intentionally depend on local `apps/`
   - `tests.helpers.bootstrap` remains only as a compatibility shim during the transition
-- Fixture profile split:
+- Fixture profile split (`tests/fixtures/client.py`):
   - `client` / `app` are app-profile fixtures and may load `apps.bootstrap`
-  - `runtime_only_client` / `runtime_only_app` are runtime-only fixtures and must not require `apps.bootstrap`
+  - `_fresh_main_app(runtime_only=..., require_apps=...)` carries the runtime-vs-app knob; dedicated runtime-only fixtures live in the `aindy-runtime` repo
   - shared DB setup imports runtime-owned models by default and bootstraps app models only when the `apps/` tree is present
-- Marker split:
-  - `@pytest.mark.runtime_only` is reserved for tests that must pass with no `apps/` tree present
-  - `@pytest.mark.app_profile` is required for tests that import `apps.*`, require `apps.bootstrap`, or validate app-profile boot behavior
+- Markers registered in `pytest.ini`: `integration`, `app_profile`, `postgres`, `redis`, `multi_instance`.
+  - `@pytest.mark.app_profile` is required for tests that import `apps.*`, require `apps.bootstrap`, or validate app-profile boot behavior.
+  - Runtime-only markers/fixtures (for tests that must pass with no `apps/` tree) now live in the `aindy-runtime` repo, not here.
 - Async heavy execution is off by default in tests and is enabled only per-test when the `202` queueing contract is under test.
 - Test env defaults are injected in `tests/conftest.py`, including:
   - `SECRET_KEY`
@@ -44,32 +44,18 @@ This section describes the currently validated test baseline. Older sprint-by-sp
   - `tests/unit/`
   - `tests/integration/`
   - `tests/api/`
-- `tests/system/`
+  - plus `tests/conftest.py` and `tests/test_bootstrap_completeness.py`
 
-**Runtime/app subset commands**
-- Runtime-owned subset: `python -m pytest tests/unit/test_bootstrap_helpers.py tests/unit/test_runtime_only_test_fixtures.py tests/unit/test_platform_only_startup.py tests/unit/test_plugin_profiles.py -m "runtime_only and not app_profile" -q`
-- Representative app-profile subset: `python -m pytest tests/unit/test_plugin_profiles.py tests/unit/test_import_boundaries.py tests/unit/test_runtime_agent_api_ownership.py tests/test_bootstrap_completeness.py -m app_profile -q`
-- Full monolith behavior remains covered by the normal suite entrypoints; these marker-based commands exist to make runtime extraction and app-profile assumptions explicit.
+**App-profile subset command**
+- The canonical app-profile subset is documented in `CLAUDE.md` (Commands). The full app-profile suite runs via `python -m pytest tests -m app_profile -q`.
 
-**Runtime CI subset**
-- The future standalone runtime repo should run a narrow contract suite only:
-  - startup and runtime-only boot: `test_bootstrap_helpers.py`, `test_runtime_only_test_fixtures.py`, `test_platform_only_startup.py`
-  - profile and manifest resolution: runtime-only-marked cases from `test_plugin_profiles.py`
-  - packaging/install shape: `test_runtime_packaging.py`
-  - runtime boundary checks: `test_runtime_boundary.py`
-  - runtime public contract stability: runtime-only-marked assertions in `test_runtime_public_api_contract.py`
-  - generic agent runtime baseline: runtime-only-marked assertions in `test_agent_runtime_enrichment_boundary.py`
-  - runtime version surface: `tests/api/test_version_api.py`
-- The monolith currently hosts this future runtime CI shape in `.github/workflows/runtime-ci.yml`.
+**Runtime CI subset (moved to `aindy-runtime`)**
+- Runtime-only contract tests — `platform-only` boot, profile/manifest resolution, packaging shape, runtime boundary and public-contract stability, the generic agent-runtime baseline, and the runtime version surface — now live in the `aindy-runtime` repo and run in that repo's CI. They are no longer present in this repo's `tests/` tree.
 - Runtime CI must not require `apps.bootstrap`, app-profile fixtures, PostgreSQL, Redis, or MongoDB.
-- Runtime CI should install the package in editable mode and validate the published console entrypoints before running tests.
-- Runtime-only helper guidance:
-  - prefer `tests.helpers.runtime`
-  - runtime-only fixtures may call app-profile helpers only behind explicit optional behavior such as `required=False`
 
 **App CI subset**
 - App CI keeps tests that require `apps.bootstrap`, app-owned route shims, app enrichment, or app-to-runtime import validation.
-- Examples: `test_import_boundaries.py`, `test_runtime_agent_api_ownership.py`, app-profile cases in `test_plugin_profiles.py`, `test_bootstrap_completeness.py`, and app-profile enrichment checks in `test_agent_runtime_enrichment_boundary.py`.
+- Examples: `test_import_boundaries.py`, `test_runtime_agent_api_ownership.py`, `test_bootstrap_completeness.py`, and the app-manifest/public-contract tests under `tests/unit/`.
 - The future `aindy-apps-monolith` repo should also own the shared app-profile
   helpers and fixtures that assume installed runtime plus local `apps/`:
   `tests/helpers/app_profile.py`, the transitional shim `tests/helpers/bootstrap.py`,
@@ -87,30 +73,14 @@ This section describes the currently validated test baseline. Older sprint-by-sp
   [Runtime Dependency](../../apps/RUNTIME_DEPENDENCY.md).
 
 **Current system-level invariant coverage**
-- `tests/system/test_invariants.py` validates:
-  - execution emits durable events
-  - cross-user isolation holds across core routes
-  - capability denial changes the real execution path
-  - memory create/read consistency holds
-  - request metrics and dashboard summaries reflect executed actions
-- Agent runtime invariants are additionally covered in:
-  - `tests/system/test_agent_events.py`
-  - `tests/system/test_deterministic_agent.py`
-  - `tests/system/test_capability_system.py`
-- Runtime hardening invariants are covered in:
-  - `tests/system/test_hardening.py`
-  - async jobs never disappear without an `AutomationLog` terminal state
-  - failed async jobs roll back partial DB writes before persisting failure state
-  - scheduler lease exclusivity holds across competing workers
-  - canonical execution event chains stay complete
-  - invalid agent run IDs fail cleanly as `400` instead of surfacing as `500`
-- These suites use real persisted `AgentRun`, `AgentStep`, `AgentEvent`, `SystemEvent`, and `AutomationLog` rows with only boundary mocks for external planners/executors.
+- There is no `tests/system/` tree in this repo. App-profile invariant and execution behavior is covered under `tests/integration/` (e.g. `test_agent.py`, `test_execution_contract.py`, `test_data_ownership.py`) and `tests/unit/`.
+- Cross-user isolation, memory create/read consistency, and request-metrics/dashboard reflection are exercised through the app-profile integration tests using real persisted `AgentRun`, `AgentEvent`, `SystemEvent`, and `AutomationLog` rows, with only boundary mocks for external planners/executors.
+- The deeper runtime-hardening invariants (durable event emission, scheduler-lease exclusivity across workers, canonical event-chain completeness, deterministic agent execution, capability-denial execution paths) are runtime-owned and live in the `aindy-runtime` repo.
 
 **Current validated baseline**
-- Local `pytest -o addopts='' --tb=no` on 2026-04-05: **2064 passed, 19 skipped, 0 failed**
-- Local `pytest --cov=. -q` on 2026-04-05: **69% total coverage**
-- Discovery root remains `tests/` via `pytest.ini`
-- Coverage policy remains enforced at **69%**
+- A representative local run on 2026-04-05 recorded **2064 passed, 19 skipped, 0 failed** (informational snapshot, not a gate).
+- Discovery root remains `tests/` via `pytest.ini` (`addopts = -q --disable-warnings`).
+- Coverage is measured ad hoc; there is no `--cov` gate in `pytest.ini` or `app-ci.yml`.
 
 **Current runtime guarantees validated by the green suite**
 - UUID identity normalization holds across route/service/system paths.
@@ -150,7 +120,7 @@ The inventory below is retained as an archived progress record from earlier spri
 | `tests/test_memory_bridge_phase2.py` | 24 | Memory Bridge Phase 2 (2026-03-18): TestEmbeddingService (7) — OpenAI call, retry, zero-vector fallback, C++ kernel path, cosine_similarity_python correctness; TestMemoryNodeEmbeddingColumn (2) — column presence in model + DB; TestResonanceScoring (4) — formula correctness (semantic/tag/recency weights); TestMemoryTypeEnforcement (4) — Literal validation at API boundary, ORM event listener; TestMemoryRoutePhase2 (7) — POST /memory/nodes/search, POST /memory/recall (auth, 400 on no query/tags, scoring metadata). |
 | `tests/test_memory_bridge_phase3.py` | 22 | Memory Bridge Phase 3 (2026-03-18): TestRecallMemoriesBridge (4) — no-db returns [], DAO delegation, failure returns [], node_type filter; TestCreateMemoryNodeBridge (3) — no-db transient, new DAO used, default node_type=None; TestARMAnalysisMemoryHook (4) — write fires on success, recall fires before prompt, skipped when no user_id, failure does not raise; TestARMCodegenMemoryHook (3) — write fires, failure silenced, skipped when no user_id; TestTaskCompletionMemoryHook (4) — write fires, skipped when no user_id, failure silenced, user_id kwarg accepted; TestGenesisMemoryHooks (4) — lock writes decision node, lock memory failure safe, activate writes decision node, activate memory failure safe. |
 
-Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.3.0`, `pytest-cov==7.0.0`, `python-jose==3.5.0`, `passlib==1.7.4`, `bcrypt==4.0.1`, `slowapi==0.1.9` in `requirements.txt`. Discovery and coverage configured in `pytest.ini` and `AINDY/.coveragerc`.
+Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.3.0`, `pytest-cov==7.0.0`, `python-jose==3.5.0`, `passlib==1.7.4`, `bcrypt==4.0.1`, `slowapi==0.1.9` in `requirements.txt`. Discovery configured in `pytest.ini` (no separate coverage config in this repo).
 
 **Historical sprint note (Sprint 6+7 / CI Sprint):**
 
@@ -158,9 +128,9 @@ Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.
 |------|-------|----------|
 | `tests/test_sprint6_sprint7.py` | 24 | SQLAlchemy 2.0 import path (4), Genesis memory hook signature/behavior (9), LeadGen memory hook signature/behavior (11) |
 
-**CI enforcement (current):** All tests run automatically on every push and PR to `main` via `.github/workflows/ci.yml`. Coverage threshold is 69%. Ruff lint is enforced in a separate job. `tests/validate_memory_loop.py` remains excluded from CI because it requires live OpenAI + a real DB.
+**CI enforcement (current):** Tests run on every push and PR to `main` via `.github/workflows/app-ci.yml` — job `app-contracts` runs `python -m pytest tests -m app_profile -q` (no coverage gate), `app-lint` runs `ruff check apps/ tests/`, and `app-docs` runs the doc/contract checks. There is no coverage threshold.
 
-**Execution-contract lint (current):** `.github/workflows/lint.yml` now runs `python tools/execution_contract_linter.py --strict`. The same check is available locally through `.pre-commit-config.yaml`. This is architecture enforcement rather than behavioral test coverage; it statically rejects route-entry, direct-memory, and direct-event patterns that bypass the execution pipeline.
+**Execution-contract enforcement (current):** Execution-pipeline discipline — rejecting route-entry, direct-memory, and direct-event patterns that bypass the pipeline — is covered by `tests/integration/test_execution_contract.py`. There is no standalone linter workflow or pre-commit hook in this repo.
 
 **Historical note on root test files**
 - Legacy root-level test files have been migrated out of `tests/` and replaced by the structured layout above.
@@ -172,7 +142,7 @@ Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.
 ## 2. Required Coverage Areas (Policy)
 
 ### A. Invariant Coverage
-- Tests must validate all invariants defined in `docs/governance/INVARIANTS.md`.
+- Tests must validate all invariants defined in `docs/platform/governance/INVARIANTS.md`.
 - Any change affecting invariants requires updated tests.
 
 ### B. Service-Level Unit Tests
@@ -185,7 +155,7 @@ Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.
 - Validate success responses.
 - Validate error classification (4xx vs 5xx).
 - Validate response schema shape.
-- API contracts must match `docs/interfaces/API_CONTRACTS.md`.
+- API contracts must match `docs/platform/interfaces/API_CONTRACTS.md`.
 
 ### D. Background Task Behavior
 - Background loop functions must be tested in isolation.
@@ -193,7 +163,7 @@ Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.
 - Thread behavior must not require real daemon threads in tests.
 
 ### E. Invariant Tests
-- Cross-domain guarantees belong in `tests/system/test_invariants.py` or another `tests/system/` file.
+- Cross-domain guarantees belong in `tests/integration/` (app-profile); runtime-owned invariants live in the `aindy-runtime` repo.
 - These tests should use real persisted state and assert durable side effects, not just response codes.
 
 ## 3. Mocking Policy for External Model Providers
@@ -233,7 +203,7 @@ Test infrastructure: `pytest==9.0.2`, `pytest-mock==3.15.1`, `pytest-asyncio==1.
 - Tests must confirm:
 - Proper 4xx vs 5xx classification.
 - No HTML error pages for API routes.
-- JSON error structure matches `docs/governance/ERROR_HANDLING_POLICY.md`.
+- JSON error structure matches the `aindy-runtime` repo's error-handling policy (runtime-owned).
 
 ## 7. Minimum Merge Requirements (Policy Gate)
 A change cannot be merged if:
@@ -242,20 +212,19 @@ A change cannot be merged if:
 - It alters invariants without validation tests.
 - It changes API contract without route-level test updates.
 - The `Last updated` date in `docs/GOVERNANCE_INDEX.md` is not refreshed after doc changes.
-- **CI checks fail** — every PR must pass the `lint` and `test` jobs in `.github/workflows/ci.yml` before merge. Coverage must remain at or above 69%.
+- **CI checks fail** — every PR must pass the `app-lint`, `app-docs`, and `app-contracts` jobs in `.github/workflows/app-ci.yml` before merge.
 
 ## 8. Known Gaps
 - Some structured tests still retain targeted mocks for external boundaries, especially older memory-bridge and model-provider coverage. That is acceptable only where the boundary is truly external or nondeterministic.
 - The historical counts above are preserved for traceability, but they do not describe the current suite layout anymore.
-- ? **Resolved (2026-03-18 CI/CD Sprint):** Coverage metrics tooling configured — `pytest-cov`, `.coveragerc`, and `--cov-fail-under=64` in `pytest.ini`. Baseline: 69%.
-- ? **Resolved (2026-03-18 CI/CD Sprint):** CI enforcement live — GitHub Actions `ci.yml` enforces lint + test + coverage on every push/PR.
+- ? **Resolved (2026-03-18 CI/CD Sprint):** Coverage tooling (`pytest-cov`) is available, but the current `pytest.ini` and `app-ci.yml` set no coverage gate — the earlier `.coveragerc` / `--cov-fail-under` config was removed post-split.
+- ? **Resolved (2026-03-18 CI/CD Sprint):** CI enforcement live — GitHub Actions (`app-ci.yml`) runs lint + app-profile tests on every push/PR (no coverage gate).
 - No migration validation tests (`alembic/` has no test harness).
 - No tests for background task loops (`apps/tasks/services/task_service.py`).
-- No error handling contract tests validating JSON error structure per `docs/governance/ERROR_HANDLING_POLICY.md`.
+- No error handling contract tests validating JSON error structure per the `aindy-runtime` repo's error-handling policy (runtime-owned).
 - ? **Resolved (2026-03-22):** Duplicate `test_get_results` names in `test_routes.py` renamed to unique identifiers. Other root tests still mirror names across files but are unique within each file.
 - ? **Resolved (2026-03-22):** Migration drift guard added via `tests/test_migrations.py` (asserts `alembic current` equals `alembic heads`).
-- ? **Resolved (2026-03-17 Phase 2):** Security gap tests (authentication, CORS, rate limiting) are all passing. No intentional failures remain in the test suite. See `docs/platform/engineering/TECH_DEBT.md` §6.
-- ? **Resolved (2026-03-17 ARM Phase 2):** `test_arm.py` expanded with 16 new tests for Thinking KPI System: `TestARMMetrics` (route-level auth + structure), `TestARMMetricsService` (pure unit — no DB, uses `__new__` + `MagicMock`), `TestARMConfigSuggestions` (pure unit — no DB). Pattern established: service unit tests bypass DB entirely using `ARMMetricsService.__new__()` to isolate calculation logic.
+- ? **Resolved (2026-03-17 Phase 2):** Security gap tests (authentication, CORS, rate limiting) are all passing. No intentional failures remain in the test suite.- ? **Resolved (2026-03-17 ARM Phase 2):** `test_arm.py` expanded with 16 new tests for Thinking KPI System: `TestARMMetrics` (route-level auth + structure), `TestARMMetricsService` (pure unit — no DB, uses `__new__` + `MagicMock`), `TestARMConfigSuggestions` (pure unit — no DB). Pattern established: service unit tests bypass DB entirely using `ARMMetricsService.__new__()` to isolate calculation logic.
 - ? **Resolved (2026-03-17 Genesis Blocks 4-6):** `test_genesis_flow.py` added with 55 tests covering: `validate_draft_integrity()` with mocked OpenAI (including retry and fail-safe paths), `POST /genesis/audit` route registration + auth, factory hardening (`synthesis_ready` gate, `db.rollback()` path), `POST /masterplans/lock` endpoint, `GET /masterplans/` response shape, duplicate route removal, synthesis prompt schema, posture description helper. Total: 301 passing.
 - ? **Resolved (2026-03-18 Memory Bridge Phase 1):** `test_memory_bridge_phase1.py` added with 36 tests. Bug-documenting tests in `test_memory_bridge.py` and `test_routes_leadgen.py` flipped to regression guards. Total: 338 passing.
 - ? **Resolved (2026-03-18 Memory Bridge Phase 2):** `test_memory_bridge_phase2.py` added with 24 tests covering embedding service, resonance scoring, type enforcement (Pydantic Literal + ORM event), and Phase 2 API endpoints (`/memory/nodes/search`, `/memory/recall`). All OpenAI calls mocked. `test_models.py::test_memory_node_has_no_embedding_column` renamed and inverted to confirm column presence. Total: 362 passing.
