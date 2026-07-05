@@ -150,7 +150,18 @@ def _require_nodus_vm():
 # --------------------------------------------------------------------------- #
 class TestNodusVmAppTool:
 
-    def test_app_tool_resolves_and_executes_in_subprocess(self, client):
+    @pytest.fixture
+    def _anthropic_planner(self, monkeypatch):
+        # Select the LLM planner via settings (not just env) — the create path
+        # resolves the backend from settings.AINDY_AGENT_PLANNER_BACKEND, and the
+        # reloaded-app test harness doesn't reliably reflect the ini env into it
+        # (Gate 2 monkeypatches the same way for the stub planner).
+        from AINDY.config import settings
+
+        monkeypatch.setattr(settings, "AINDY_AGENT_PLANNER_BACKEND", "anthropic_chat", raising=False)
+        return "anthropic_chat"
+
+    def test_app_tool_resolves_and_executes_in_subprocess(self, client, _anthropic_planner):
         if not _has_real_anthropic_key():
             pytest.skip("needs a real ANTHROPIC_API_KEY (anthropic_chat planner) to select an app tool")
 

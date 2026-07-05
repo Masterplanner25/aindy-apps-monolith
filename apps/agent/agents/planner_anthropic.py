@@ -51,14 +51,16 @@ def _make_client():
     try:
         import anthropic
     except ImportError as exc:  # pragma: no cover - exercised when SDK absent
-        raise AnthropicPlannerError(
+        detail = (
             "The 'anthropic' SDK is not installed; cannot use the anthropic_chat "
             "planner backend. Install it (it is declared in pyproject)."
-        ) from exc
-    if not (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
-        raise AnthropicPlannerError(
-            "ANTHROPIC_API_KEY is not set; cannot use the anthropic_chat planner backend."
         )
+        logger.error("[AnthropicPlanner] %s", detail)
+        raise AnthropicPlannerError(detail) from exc
+    if not (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+        detail = "ANTHROPIC_API_KEY is not set; cannot use the anthropic_chat planner backend."
+        logger.error("[AnthropicPlanner] %s", detail)
+        raise AnthropicPlannerError(detail)
     return anthropic.Anthropic()
 
 
@@ -108,6 +110,11 @@ def claude_planner_backend(request) -> dict[str, Any]:
     ``.objective``, ``.system_prompt`` (already includes the tool catalog and
     KPI/memory context), and ``.tools`` (the registered tool dicts).
     """
+    logger.warning(
+        "[AnthropicPlanner] backend invoked (objective=%r, tools=%d)",
+        getattr(request, "objective", None),
+        len(request.tools or ()),
+    )
     tool_names = sorted(
         {
             t["name"]
