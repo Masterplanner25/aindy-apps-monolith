@@ -69,10 +69,20 @@ across `duration` (hours) and `time_spent` (seconds).
 
 ## RTR-1-NODUS-COMPLETION: nodus_vm execute-to-completion unverified in-app; resume continuation emits `execution.started` outside the pipeline
 
-**Status:** Runtime fix shipped in **aindy-runtime 1.5.1** (#152); app pin bumped
-to `>=1.5.1`. Awaiting the §5 CI re-run to confirm execute-to-completion is now
-observable in-harness, after which the test `xfail`s flip to hard asserts. Tracked
-by the CI job `nodus-vm-integration.yml` / `tests/integration/test_nodus_vm.py`.
+**Status:** **aindy-runtime 1.5.1 (#152) fix is INCOMPLETE — reopened.** The 1.5.0
+symptom looked gone on the passive re-run (run 28727775436) only because, with no
+scheduler heartbeat, the resume callback is never dispatched. Driving the scheduler
+in-process (`get_scheduler_engine().schedule()`, run 28728594828, 2026-07-05) actually
+RUNS the resumed segment — and it **still raises** `execution.started emitted outside
+pipeline` (`pipeline.py:326` → `system_event_service.py:453`). The 1.5.1 fix wraps the
+resume *callback* in an async-execution context
+(`nodus_execution_service.py:617-631`), but the inner **flow-runner pipeline** that
+emits `execution.started` runs in a context that does not inherit it. The raised error
+aborts the run's DB transaction (→ `InFailedSqlTransaction`, cascading auth 401s).
+Gate 2 now drives the scheduler and **xfails** on this incomplete fix (auto-passes if a
+later runtime fix makes it complete). Separate thread: Gate 1 (app-tool via
+`anthropic_chat`) still blocked by a planner **create-500**. Tracked by the CI job
+`nodus-vm-integration.yml` / `tests/integration/test_nodus_vm.py`.
 
 **Context:** RTR-1 shipped the opt-in `nodus_vm` agent-execution backend
 (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`). §5 asked whether tools registered via
@@ -108,25 +118,38 @@ context. This is not a harness limitation; it is an `aindy-runtime` defect.
 **Filed:** `aindy-runtime` issue **#152** (full file:line diagnosis and repro). Local
 report: `HANDOFF-runtime-nodus-resume-pipeline-context-bug.md`.
 
-**Fixed in aindy-runtime 1.5.1** (confirmed in the installed source): the resumed
-segment now wraps `_execute_agent_segment_chain` in `activate_async_execution_context()`
-(`AINDY/runtime/nodus_execution_service.py:617-631`, comment cites #152), so every
-`execution.*` event in the resumed chain satisfies the `ENFORCE_EXECUTION_CONTRACT`
-guard instead of raising and stranding the run at `executing`.
+**Partial fix in aindy-runtime 1.5.1 (INCOMPLETE):** the resume callback now wraps
+`_execute_agent_segment_chain` in `activate_async_execution_context()`
+(`AINDY/runtime/nodus_execution_service.py:617-631`, comment cites #152). But the
+`execution.started` that raises is emitted one layer deeper — the inner flow-runner
+`ExecutionPipeline` reached via `run_nodus_script_via_flow` → `sys.v1.nodus.execute`
+(`nodus_execution_service.py:482,239`) — and that pipeline runs in a context where
+`is_async_execution_active()` is still False, so the guard at
+`system_event_service.py:453` fires. The async context must be established at (or
+propagated into) the inner flow-runner emission, not only around the outer callback.
+Empirically shown by driving the scheduler (run 28728594828). **Reopened upstream.**
 
-**Current handling / remaining unknown:** `test_nodus_vm.py` hard-asserts the validated
-legs (parking, resume acceptance, no resolution failure) and marks execute-to-completion
-`xfail` (imperative — it *auto-passes* if the run reaches a terminal state). The context
-bug is fixed, but the resume callback is **scheduler-driven**, and the §5 job runs under
-`TestClient` — so completion is only observable if the callback is actually dispatched in
-that harness. The §5 re-run on 1.5.1 settles it: if it now completes, convert the
-conditional `xfail`s to plain hard asserts; if it still parks at `waiting`, the residual
-is purely a harness gap (no scheduler tick) — close it with a manual
-`get_scheduler_engine().schedule()` drive in the test or a live-server harness.
+**Current handling:** `test_nodus_vm.py` Gate 2 (deterministic `stub` planner →
+`memory.recall`) hard-asserts parking + resume acceptance + delivery
+(`waiters_notified>=1`), then drives the scheduler in-process to run the resumed
+segment and **xfails** on the incomplete fix (it auto-passes if a later runtime fix
+makes the run reach a terminal state). Tool *resolution* in the subprocess remains
+proven; execute-to-completion is blocked on the reopened #152.
 
-**Reopen trigger:** the §5 re-run result (flip `xfail`s → hard asserts on green), or any
-move to make `nodus_vm` the default (`AINDY_AGENT_EXECUTION_BACKEND`) — which cannot
-happen until execute-to-completion with real app tools is proven end-to-end.
+**Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 proves an **app-manifest** tool
+(`task.create`, no runtime default) executes in the subprocess, driven by the
+`anthropic_chat` LLM planner — but on the 1.5.1 re-run `POST /apps/agent/run` returned
+**500** ("planner unavailable"), so it `skip`ped. The skip now surfaces the response
+body (`r.text[:300]`) so the next run reveals the planner error. The app planner
+(`apps/agent/agents/planner_anthropic.py`) calls `client.messages.create(model="claude-opus-4-8",
+max_tokens=2048, tools=[submit_plan])`; the 500 is likely an Anthropic API error
+(model access / tool-use response shape) or `AnthropicPlannerError` bubbling to a 500.
+Until this is fixed, the app-manifest *execution* leg is proven only for *resolution*,
+not full execute-to-completion.
+
+**Reopen trigger:** the app-tool-500 (Gate 1) — fix the planner path so an app-manifest
+tool executes end-to-end; or any move to make `nodus_vm` the default
+(`AINDY_AGENT_EXECUTION_BACKEND`).
 
 ---
 

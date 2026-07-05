@@ -121,14 +121,47 @@ def claude_planner_backend(request) -> dict[str, Any]:
         )
 
     client = _make_client()
-    message = client.messages.create(
-        model=_planner_model(),
-        max_tokens=2048,
-        system=request.system_prompt or "",
-        tools=[_plan_tool(tool_names)],
-        tool_choice={"type": "tool", "name": "submit_plan"},
-        messages=[{"role": "user", "content": f"Objective: {request.objective}"}],
-    )
+    model = _planner_model()
+    try:
+        message = client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=request.system_prompt or "",
+            tools=[_plan_tool(tool_names)],
+            tool_choice={"type": "tool", "name": "submit_plan"},
+            messages=[{"role": "user", "content": f"Objective: {request.objective}"}],
+        )
+    except Exception as exc:  # surface the real cause — the runtime wraps this in a generic 500
+        import anthropic
+
+        if isinstance(exc, anthropic.APIStatusError):
+            detail = (
+                f"Anthropic API {exc.status_code} ({getattr(exc, 'type', None)}) "
+                f"for model {model!r}: {exc.message} "
+                f"[request_id={getattr(exc, 'request_id', None) or getattr(exc, '_request_id', None)}]"
+            )
+        elif isinstance(exc, anthropic.APIConnectionError):
+            detail = f"Anthropic API connection error for model {model!r}: {exc}"
+        else:
+            detail = f"Anthropic planner call failed for model {model!r}: {type(exc).__name__}: {exc}"
+        logger.error("[AnthropicPlanner] %s", detail)
+        raise AnthropicPlannerError(detail) from exc
+
+    # Forced tool_choice should always emit the tool; a non-tool stop means the
+    # model refused or the output was truncated — both surface as a missing plan.
+    stop_reason = getattr(message, "stop_reason", None)
+    if stop_reason == "refusal":
+        detail = (
+            f"Anthropic planner refused the request for model {model!r} "
+            f"(stop_reason=refusal, stop_details={getattr(message, 'stop_details', None)})."
+        )
+        logger.error("[AnthropicPlanner] %s", detail)
+        raise AnthropicPlannerError(detail)
+    if stop_reason == "max_tokens":
+        logger.warning(
+            "[AnthropicPlanner] hit max_tokens for model %s — the plan tool_use may be truncated",
+            model,
+        )
 
     for block in message.content:
         if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "submit_plan":
@@ -144,4 +177,10 @@ def claude_planner_backend(request) -> dict[str, Any]:
             )
             return plan
 
-    raise AnthropicPlannerError("Anthropic planner did not emit the submit_plan tool.")
+    block_types = [getattr(b, "type", None) for b in message.content]
+    detail = (
+        f"Anthropic planner did not emit the submit_plan tool for model {model!r} "
+        f"(stop_reason={stop_reason}, blocks={block_types})."
+    )
+    logger.error("[AnthropicPlanner] %s", detail)
+    raise AnthropicPlannerError(detail)

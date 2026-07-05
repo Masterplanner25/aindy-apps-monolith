@@ -25,15 +25,19 @@ Run:
     docker compose -f docker-compose.test.yml up -d
     ANTHROPIC_API_KEY=sk-ant-... pytest -c pytest.nodus.ini tests/integration/test_nodus_vm.py -v
 
-Validated on live Postgres (CI, 2026-07-04): under nodus_vm, plan generation, WAIT
-parking, and the §4 resume route (event publish) all work. Execute-to-completion is
-NOT observable in this TestClient harness — the runtime drives the resumed
-continuation via a scheduler that isn't running here, and emits 'execution.started'
-outside the pipeline. Those legs are therefore asserted as far as the harness allows
-and marked xfail beyond that. See TECH_DEBT RTR-1-NODUS-COMPLETION.
+History: on aindy-runtime 1.5.0 the resumed segment ran outside an ExecutionPipeline
+and raised 'execution.started emitted outside pipeline' (filed as aindy-runtime#152).
+1.5.1 shipped a partial fix (wraps the resume callback in an async-execution context)
+— but Gate 2 here drives the scheduler in-process to actually RUN the resumed segment
+and shows the error STILL occurs: the inner flow-runner pipeline that emits
+execution.started runs in a context the fix doesn't reach. So #152 is reopened, and
+Gate 2 xfails on the incomplete fix. The main-branch run masks this because, with no
+scheduler heartbeat, the resume callback is never dispatched. See TECH_DEBT
+RTR-1-NODUS-COMPLETION.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 import uuid
@@ -157,7 +161,7 @@ class TestNodusVmAppTool:
         goal = f"Create a task titled 'nodus-vm smoke {uuid.uuid4().hex[:6]}' to verify the deploy."
         r = client.post("/apps/agent/run", json={"goal": goal}, headers=_auth(token))
         if r.status_code in (202, 500):
-            pytest.skip(f"run deferred or planner unavailable (status={r.status_code})")
+            pytest.skip(f"run deferred or planner unavailable (status={r.status_code}): {r.text[:300]}")
         assert r.status_code in (200, 201), f"create: {r.status_code} {r.text[:200]}"
 
         body = r.json()
@@ -245,7 +249,7 @@ class TestNodusVmWaitResume:
             headers=_auth(token),
         )
         if r.status_code in (202, 500):
-            pytest.skip(f"stub planner unavailable or run deferred (status={r.status_code})")
+            pytest.skip(f"stub planner unavailable or run deferred (status={r.status_code}): {r.text[:300]}")
         assert r.status_code in (200, 201), f"create: {r.status_code} {r.text[:200]}"
 
         body = r.json()
@@ -270,18 +274,38 @@ class TestNodusVmWaitResume:
             f"unexpected resume envelope: {resumed}"
         )
 
-        # Best-effort completion. The TestClient harness has no running scheduler to
-        # drive the resumed continuation, so a run that stays 'waiting' is an expected,
-        # documented limitation (the runtime emits 'execution.started' outside the
-        # pipeline in this path) — not a failure. See TECH_DEBT RTR-1-NODUS-COMPLETION.
-        after = _poll_run(client, token, run_id, until=lambda s: s != "waiting", timeout=45.0)
-        if _status_from(after) == "waiting":
-            pytest.xfail(
-                "resume route published 'agent.approval.granted' (waiters_notified="
-                f"{resumed.get('waiters_notified')!r}) but the continuation did not run to "
-                "completion in the TestClient harness — nodus_vm execute-to-completion needs a "
-                "running scheduler (TECH_DEBT RTR-1-NODUS-COMPLETION)"
-            )
-        assert _status_from(after) in TERMINAL_STATUSES, (
-            f"run left 'waiting' but not to a terminal state: {_status_from(after)}"
+        assert resumed.get("waiters_notified", 0) >= 1, (
+            f"resume notified no waiters — event not delivered: {resumed}"
+        )
+
+        # Resume enqueues the continuation onto the scheduler queue. The TestClient
+        # harness runs no heartbeat, so drive the scheduler directly — the in-process
+        # equivalent of the 1s scheduler_heartbeat_tick — to actually dispatch and RUN
+        # the resumed segment. This is what exposes the real state: on aindy-runtime
+        # 1.5.1 the resumed segment STILL raises 'execution.started emitted outside
+        # pipeline' (the #152 fix wraps the resume callback in an async-execution
+        # context, but the inner flow-runner pipeline that emits execution.started runs
+        # in a context that doesn't inherit it). The runtime swallows the error and
+        # aborts the run's DB transaction, which can poison the auth session — so read
+        # the final status tolerantly. See TECH_DEBT RTR-1-NODUS-COMPLETION.
+        from AINDY.kernel.scheduler import get_scheduler_engine
+
+        with contextlib.suppress(Exception):
+            get_scheduler_engine().schedule()  # dispatch + run the resumed segment, inline
+
+        final = "unknown"
+        with contextlib.suppress(Exception):
+            g = client.get(f"/apps/agent/runs/{run_id}", headers=_auth(token))
+            if g.status_code == 200:
+                final = _status_from(g.json())
+
+        if final in TERMINAL_STATUSES:
+            return  # completion works end-to-end (i.e. the runtime fix has fully landed)
+
+        pytest.xfail(
+            "aindy-runtime 1.5.1 #152 fix is incomplete: driving the scheduler dispatches "
+            "the resume callback, but the resumed nodus_vm segment still raises "
+            "'execution.started emitted outside pipeline' and does not complete "
+            f"(observed status={final!r}). Reopened upstream; see TECH_DEBT "
+            "RTR-1-NODUS-COMPLETION."
         )
