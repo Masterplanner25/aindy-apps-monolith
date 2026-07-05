@@ -86,9 +86,11 @@ User Action -> Task API -> Task Service -> DB -> Algorithm Input
 
 #### Source
 
-* Runtime-owned: `aindy-runtime/AINDY/watcher/` (`watcher_service.py`,
-  `watcher_router.py`, `watcher_contract.py`) — the watcher moved into the runtime
-  at the repo split (was `The Masterplan SaaS/Watcher.txt` in the pre-split archive).
+* Runtime-owned (`aindy-runtime`): `AINDY/platform_layer/watcher_service.py`,
+  `AINDY/platform_layer/watcher_contract.py`, `AINDY/routes/watcher_router.py`
+  (`AINDY/watcher/` itself holds only `__init__.py` + `constants.py`) — the watcher
+  moved into the runtime at the repo split (was `The Masterplan SaaS/Watcher.txt` in
+  the pre-split archive).
 
 #### Intended Capabilities
 

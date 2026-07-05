@@ -32,8 +32,8 @@ owner: "apps-team"
 > (`apps/analytics/services/reasoning/`), not a freelance-specific engine. Read the
 > `AINDY/…` file lists below as runtime internals for context, not app work.
 >
-> `nodus_vm` is now the default agent-execution backend (PR #52), so freelance agent
-> runs would execute through it; freelance-specific `.nd` workflows (Phase 3 "later")
+> the monolith now defaults to `nodus_vm` (PR #52; the runtime's own default remains
+> `agent_flow`), so freelance agent runs would execute through it; freelance-specific `.nd` workflows (Phase 3 "later")
 > still await the runtime `register_nodus_workflow` surface. The remaining freelance
 > gaps (Phase 2 agent execution, Phase 3 client workflow automation / freelance `.nd`
 > workflows, Phase 5 autonomous loop) are tracked in `TECH_DEBT.md` →
