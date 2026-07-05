@@ -27,13 +27,17 @@ Run:
 
 History: on aindy-runtime 1.5.0 the resumed segment ran outside an ExecutionPipeline
 and raised 'execution.started emitted outside pipeline' (filed as aindy-runtime#152).
-1.5.1 shipped a partial fix (wraps the resume callback in an async-execution context)
-— but Gate 2 here drives the scheduler in-process to actually RUN the resumed segment
-and shows the error STILL occurs: the inner flow-runner pipeline that emits
-execution.started runs in a context the fix doesn't reach. So #152 is reopened, and
-Gate 2 xfails on the incomplete fix. The main-branch run masks this because, with no
-scheduler heartbeat, the resume callback is never dispatched. See TECH_DEBT
-RTR-1-NODUS-COMPLETION.
+1.5.1 shipped a partial fix; 1.5.2 (PR #155) fully fixed #152 — ExecutionPipeline.run()
+now marks itself active BEFORE emitting its own execution.started, and that guard no
+longer fires (verified: zero occurrences in CI run 28734012605 on 1.5.2). BUT driving
+the resumed segment to completion now trips a DIFFERENT runtime bug: the syscall
+dispatcher's idempotency gate binds the run-scoped execution_unit_id ('run_<uuid>') to a
+UUID column ('invalid input syntax for type uuid'), and the caught error is not rolled
+back to a savepoint, so it poisons the transaction (InFailedSqlTransaction) — the
+flow_runs INSERT fails, the segment chain aborts, and the run never completes (the
+poisoned auth session then 401s). So execute-to-completion is STILL blocked, now on this
+next-layer defect, and Gate 2 xfails on it (auto-passes once a later runtime fix makes
+the run terminal). See TECH_DEBT RTR-1-NODUS-COMPLETION.
 """
 from __future__ import annotations
 
@@ -291,14 +295,20 @@ class TestNodusVmWaitResume:
 
         # Resume enqueues the continuation onto the scheduler queue. The TestClient
         # harness runs no heartbeat, so drive the scheduler directly — the in-process
-        # equivalent of the 1s scheduler_heartbeat_tick — to actually dispatch and RUN
-        # the resumed segment. This is what exposes the real state: on aindy-runtime
-        # 1.5.1 the resumed segment STILL raises 'execution.started emitted outside
-        # pipeline' (the #152 fix wraps the resume callback in an async-execution
-        # context, but the inner flow-runner pipeline that emits execution.started runs
-        # in a context that doesn't inherit it). The runtime swallows the error and
-        # aborts the run's DB transaction, which can poison the auth session — so read
-        # the final status tolerantly. See TECH_DEBT RTR-1-NODUS-COMPLETION.
+        # equivalent of the 1s scheduler_heartbeat_tick — to dispatch and RUN the
+        # resumed segment inline.
+        #
+        # aindy-runtime 1.5.2 (#152 / PR #155) DID clear the original blocker: the
+        # 'execution.started emitted outside pipeline' ExecutionContract guard no longer
+        # fires (verified — zero occurrences, CI run 28734012605). But running the segment
+        # to completion now trips a DIFFERENT runtime bug: the syscall dispatcher's
+        # idempotency gate does an execution-unit lookup for 'sys.v1.nodus.execute'
+        # binding the run-scoped execution_unit_id ('run_<uuid>') to a UUID column, raising
+        # InvalidTextRepresentation. It is caught as a warning but WITHOUT a savepoint
+        # rollback, so it poisons the surrounding transaction (InFailedSqlTransaction) —
+        # the flow_runs INSERT then fails, the segment chain aborts, the run never
+        # completes, and the poisoned auth session returns 401 on the next poll. Runtime-
+        # owned; read the final status tolerantly. See TECH_DEBT RTR-1-NODUS-COMPLETION.
         from AINDY.kernel.scheduler import get_scheduler_engine
 
         with contextlib.suppress(Exception):
@@ -311,12 +321,14 @@ class TestNodusVmWaitResume:
                 final = _status_from(g.json())
 
         if final in TERMINAL_STATUSES:
-            return  # completion works end-to-end (i.e. the runtime fix has fully landed)
+            return  # completion works end-to-end (both runtime blockers cleared)
 
         pytest.xfail(
-            "aindy-runtime 1.5.1 #152 fix is incomplete: driving the scheduler dispatches "
-            "the resume callback, but the resumed nodus_vm segment still raises "
-            "'execution.started emitted outside pipeline' and does not complete "
-            f"(observed status={final!r}). Reopened upstream; see TECH_DEBT "
+            "aindy-runtime 1.5.2 fixes #152 (no more 'execution.started emitted outside "
+            "pipeline'), but the resumed nodus_vm segment still does not complete: the "
+            "syscall idempotency gate casts the 'run_<uuid>' execution-unit id to UUID "
+            "(InvalidTextRepresentation) and, with no savepoint rollback, poisons the "
+            f"transaction (InFailedSqlTransaction). Observed status={final!r}. New runtime "
+            "bug exposed by the #152 fix — filed as aindy-runtime#157; see TECH_DEBT "
             "RTR-1-NODUS-COMPLETION."
         )
