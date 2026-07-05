@@ -101,6 +101,9 @@ and the poisoned session cascades into auth 401s. Two runtime fixes are implied:
 not cast a `run_`-prefixed execution-unit id to a bare UUID in the idempotency-gate
 query; (b) wrap the caught lookup error in a savepoint so a benign miss does not poison
 the outer transaction. Both are `aindy-runtime`-owned; nothing app-side can close them.
+**Filed:** `aindy-runtime` issue **#157** (full file:line repro; CI runs 28734012605 +
+28734198382 on 1.5.2). Related upstream: #152 (the pipeline-context bug this one hid
+behind).
 
 **History (the reopened-then-fixed arc for #152):** on 1.5.1 the symptom looked gone on
 the passive re-run (run 28727775436) only because, with no scheduler heartbeat, the

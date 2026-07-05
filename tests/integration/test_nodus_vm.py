@@ -329,5 +329,6 @@ class TestNodusVmWaitResume:
             "syscall idempotency gate casts the 'run_<uuid>' execution-unit id to UUID "
             "(InvalidTextRepresentation) and, with no savepoint rollback, poisons the "
             f"transaction (InFailedSqlTransaction). Observed status={final!r}. New runtime "
-            "bug exposed by the #152 fix; see TECH_DEBT RTR-1-NODUS-COMPLETION."
+            "bug exposed by the #152 fix — filed as aindy-runtime#157; see TECH_DEBT "
+            "RTR-1-NODUS-COMPLETION."
         )
