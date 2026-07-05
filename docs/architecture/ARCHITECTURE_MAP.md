@@ -1,6 +1,6 @@
 ---
 title: "AINDY Architecture Map"
-last_verified: "2026-05-10"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -157,6 +157,7 @@ Boot classification comes from `apps/bootstrap.py`. Core domains are `tasks` and
 | `freelance` | Orders, payments, refunds, and revenue metrics | Peripheral |
 | `identity` | Authentication, signup initialization, and identity bootstrap | Core |
 | `masterplan` | Goals, masterplans, genesis sessions, and score reactions | Peripheral |
+| `memory` | Memory nodes, traces, recall, and federated memory routes/syscalls | Peripheral |
 | `network_bridge` | Network bridge routes and service integrations | Peripheral |
 | `rippletrace` | Ripple graphs, playbooks, predictions, and learning signals | Peripheral |
 | `search` | Search, research, and lead generation workflows | Peripheral |
@@ -204,12 +205,13 @@ are declared in `APP_DEPENDS_ON` and validated by the V1-VAL-015 CI gate.
 ### Boot Order
 Startup order is resolved by the app-owned plugin module `apps/bootstrap.py` using dependency metadata declared in each app bootstrap file as `BOOTSTRAP_DEPENDS_ON`. Ordering is resolved by `AINDY/platform_layer/bootstrap_graph.py` using Kahn's algorithm. The current core domains are `tasks` and `identity`. Core domains abort the entire startup when their bootstrap fails; all other domains, including `agent`, degrade gracefully once the selected app plugin profile has loaded `apps/bootstrap.py` successfully. A missing requested plugin module, import-time crash, or plugin bootstrap exception is not treated as degraded mode; startup fails instead unless the operator explicitly selected a zero-plugin profile such as `platform-only`. Each core app self-declares by including `IS_CORE_DOMAIN: bool = True` in its `bootstrap.py`. The platform reads this at startup via `apps/bootstrap._get_core_domains_from_metadata()`. The constant `CORE_DOMAINS` no longer exists in `AINDY/config.py` — the domain names are not hardcoded anywhere in the platform layer.
 
-Representative dependency declarations in `apps/bootstrap.py`:
-- `analytics` depends on `identity` and `tasks`
-- `automation` has no cross-app `BOOTSTRAP_DEPENDS_ON`; its calls to `agent`, `analytics`, `arm`, `masterplan`, `tasks`, and `search` are runtime syscalls or automation-owned syscall registrations rather than boot-order edges
-- `arm` depends on `analytics`
-- `masterplan` depends on `automation`, `identity`, and `tasks`
-- `network_bridge` depends on `authorship`
+Representative dependency declarations from the app `bootstrap.py` files:
+- `arm`, `search`, and `social` each depend on `analytics`
+- `freelance` and `bridge` each depend on `automation`
+- `rippletrace` depends on `analytics` and `automation`
+- `network_bridge` depends on `authorship` and `rippletrace`
+- `automation` declares no cross-app `BOOTSTRAP_DEPENDS_ON`; its calls to `agent`, `analytics`, `arm`, `masterplan`, `tasks`, and `search` are runtime syscalls or automation-owned syscall registrations rather than boot-order edges
+- `analytics`, `masterplan`, `agent`, `memory`, and the core apps `tasks` and `identity` likewise declare no boot-order cross-app deps (`BOOTSTRAP_DEPENDS_ON = []`); their cross-domain needs go through syscalls or `APP_DEPENDS_ON` rather than boot-order edges
 
 In addition to `BOOTSTRAP_DEPENDS_ON`, each app may declare
 `APP_DEPENDS_ON` — a broader set of runtime import dependencies that do not
@@ -347,4 +349,4 @@ config and DB setup
 - [Runtime Dependency](../apps/RUNTIME_DEPENDENCY.md)
 
 ## Last Verified
-2026-05-02
+2026-07-05
