@@ -415,7 +415,7 @@ desired, beyond the current system/public-origin gate.
 * Any deviations must be recorded in:
 
   * `TECH_DEBT.md`
-  * `docs/platform/governance/EVOLUTION_PLAN.md`
+  * `docs/apps/EVOLUTION_PLAN.md`
 
 ---
 

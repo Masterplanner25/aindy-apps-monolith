@@ -55,16 +55,16 @@ App code and docs must conform to these and must not contradict or redefine them
 - `docs/platform/engineering/TESTING_STRATEGY.md`
 - `docs/deployment/MIGRATION_POLICY.md`
 - `docs/apps/CI_OWNERSHIP.md`, `docs/apps/GITHUB_SETTINGS_CHECKLIST.md`
-- `docs/platform/engineering/IMPLEMENTATION_DOCS_AUDIT.md`
+- `docs/apps/IMPLEMENTATION_DOCS_AUDIT.md`
 
 ### Level 5 — Evolution, risk & domain guides
 - `TECH_DEBT.md` (repo root) — debt register.
-- `docs/platform/governance/EVOLUTION_PLAN.md` — phased app evolution roadmap.
+- `docs/apps/EVOLUTION_PLAN.md` — phased app evolution roadmap.
 - `LIVE_VERIFICATION_SCOPE.md` — live-stack verification scope.
 - Domain guides under `docs/apps/`: `AGENTICS`, `AUTONOMOUS_REASONING_MODULE`,
   `INFINITY_ALGORITHM*`, `RIPPLETRACE`, `SEARCH_SYSTEM`, `SOCIAL_LAYER`,
   `FREELANCING_SYSTEM`, `ABSTRACTED_ALGORITHM_SPEC`,
-  `FORMULA_AND_ALGORITHM_OVERVIEW`; `docs/platform/governance/MASTERPLAN_SAAS.md`.
+  `FORMULA_AND_ALGORITHM_OVERVIEW`; `docs/apps/MASTERPLAN_SAAS.md`.
 
 ## 2. Authority Rules
 - Upstream runtime contracts (Level 0) are authoritative; app docs may depend on
@@ -123,6 +123,6 @@ modifications. For runtime behavior, defer to the runtime repo's authority docs.
 ## 9. Out of Scope (owned elsewhere)
 - Runtime behavior, execution/retry semantics, memory bridge, syscalls,
   invariants, deployment model → `aindy-runtime` (`docs/runtime/`).
-- The app evolution roadmap lives at `docs/platform/governance/EVOLUTION_PLAN.md`
+- The app evolution roadmap lives at `docs/apps/EVOLUTION_PLAN.md`
   (Level 5). Its Phase 1–4 runtime/platform hardening is owned upstream by
   `aindy-runtime` and retained there only as historical context.
