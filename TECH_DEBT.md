@@ -89,8 +89,15 @@ hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>
    and the run never completed. Fixed by only looking up bare-UUID ids and SAVEPOINT/rollbacking
    the lookup. Reproduced on CI runs 28734012605 + 28734198382 (1.5.2); closed in 1.5.3.
 
-**Remaining thread (separate):** Gate 1 (app-tool via `anthropic_chat`) is still blocked by a
-planner **create-500** — **RTR-1-NODUS-APPTOOL-500** below; independent of the completion path.
+**Gate 1 (app-manifest tool in the subprocess) — RESOLVED, full hard pass (2026-07-05):**
+reworked from an LLM-driven proof to the deterministic `stub_app_tool` planner (emits a
+high-risk `task.create` step — an app-manifest-only tool with no runtime default),
+mirroring Gate 2's park→resume→scheduler-drive path with no LLM/key/network. It
+**hard-asserts** that `task.create` resolves, dispatches to its syscall, AND its DB write
+**completes end-to-end** inside the `nodus_worker` subprocess — the core §5 question,
+answered YES. The DB-visibility artifact (`tasks_user_id_fkey`) was closed by committing the
+test user via `testing_session_factory` so the subprocess's committed-only connection sees
+it (`_login_committed_user`). See **RTR-1-NODUS-APPTOOL-500** below.
 
 **History (the reopened-then-fixed arc for #152):** on 1.5.1 the symptom looked gone on
 the passive re-run (run 28727775436) only because, with no scheduler heartbeat, the
@@ -156,44 +163,86 @@ and #157 fixed) this passes end-to-end; a regression of either fix would poison 
 PG transaction and fail it red. Tool *resolution* in the subprocess and
 execute-to-completion are both now proven.
 
-**Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 would prove an **app-manifest** tool
-(`task.create`, no runtime default) executes in the subprocess, driven by the
-`anthropic_chat` LLM planner — but `POST /apps/agent/run` returns a generic **500**
+**RTR-1-NODUS-APPTOOL-500 — §5 resolution PROVEN; two blockers retired, one harness
+artifact remains (2026-07-05).** Gate 1 (deterministic `stub_app_tool` planner,
+`apps/agent/agents/runtime_extensions.py`, emitting a high-risk `task.create` step) now
+**hard-asserts** that an app-manifest-only tool (no runtime default) resolves AND dispatches
+to its syscall inside the `nodus_worker` subprocess — the core §5 question, answered YES,
+with no LLM/key/network. Two things this retired:
+- the **egress blocker** (the old LLM-driven Gate 1's create-500 was an
+  `anthropic.APIConnectionError` — the runner can't reach `api.anthropic.com`; plan-gen is
+  in-process so an LLM was never needed — see History below). The
+  `nodus-vm-integration.yml` `ANTHROPIC_API_KEY` preflight gate is removed; the job runs
+  unconditionally.
+- the **subprocess-boundary hypothesis** (debunked — plan-gen never enters the subprocess).
+
+**`RTR-1-NODUS-APPTOOL-500-DBVIS` — RESOLVED (2026-07-05).** After resolving+dispatching,
+`task.create`'s DB write initially failed on `tasks_user_id_fkey` (CI run 28744121782). Root
+cause was in the integration harness (`tests/fixtures/client.py`), **not** the product: on
+PostgreSQL it registers the test user in a **transactional session that rolls back**
+(`db_session_factory` → `db_connection.rollback()`) and monkeypatches `SessionLocal`
+**in-process** to that transaction. The `nodus_worker` subprocess uses a **separate,
+committed-only** DB connection the in-process monkeypatch cannot reach, so the uncommitted
+test user was invisible to it → FK violation. (Same cause as the non-fatal
+`system_events_user_id_fkey` violations seen in every completion run — masked there because
+those events are non-fatal and `memory.recall` writes no user-FK'd row. In production users
+are committed, so a real subprocess sees them.) **Fix:** Gate 1 now creates the test user
+**committed** via `testing_session_factory` (engine-bound, commits independently of the
+app's rolled-back outer transaction) in `_login_committed_user`, then logs in — so the
+subprocess connection sees the user and the write completes. `cleanup_committed_test_state`
+TRUNCATEs it between tests. The `task.create` step is now a **hard assert**.
+
+**History — why the old LLM-driven Gate 1 skipped:** it drove `task.create` via the
+`anthropic_chat` planner, but `POST /apps/agent/run` returned a generic **500**
 `{"message":"Failed to generate plan"}` (`AINDY/agents/runtime_api.py:146` — `create_run`
-returned falsy), so it `skip`s.
+returned falsy), so it `skip`ped.
 
-Investigated across several CI runs (2026-07-05, runtime 1.5.1) with `anthropic` 0.116.0
-installed and the `ANTHROPIC_API_KEY` secret present:
-- Added error surfacing + an entry-log to `apps/agent/agents/planner_anthropic.py`
-  and `-o log_cli=true` to the job. **The app planner backend
-  (`claude_planner_backend`) is never entered** — its top-of-function log never fires,
-  and the runtime logs nothing about why `create_run` returned None. The failure is
-  upstream of the app backend, and silent.
-- `anthropic_chat` is registered (`runtime_extensions.py:230` →
-  `register_agent_planner_backend("anthropic_chat", claude_planner_backend)`), and the
-  model id `claude-opus-4-8` + forced-tool request shape are valid (checked against the
-  claude-api reference — no `thinking`/`temperature` that would 400).
-- Gate 2's `stub` planner, monkeypatched the **same way** into
-  `settings.AINDY_AGENT_PLANNER_BACKEND`, **does** run and produce a plan. Forcing
-  `anthropic_chat` via the identical settings monkeypatch still does **not** invoke the
-  backend. The only functional difference: `stub` needs no key/network; `anthropic_chat`
-  needs both.
+**ROOT CAUSE (confirmed 2026-07-05, runtime 1.5.3, CI run 28743569180):** the create-500
+is `anthropic.APIConnectionError` — **the CI runner cannot open an outbound HTTPS
+connection to `api.anthropic.com`.** The exact skip-surfaced reason:
+`AnthropicPlannerError: Anthropic API connection error for model 'claude-opus-4-8':
+Connection error.` The SDK already retries connection errors twice by default, so this is
+a hard egress block, not a transient blip. The app backend IS entered, constructs the
+client (key present, else `_make_client` raises a different error), and the outbound call
+fails.
 
-**Hypothesis (needs runtime-side confirmation):** under `nodus_vm`, plan generation for
-`anthropic_chat` is dispatched into (or resolved within) the `nodus_worker` subprocess,
-where either the app backend isn't reachable or `ANTHROPIC_API_KEY`/network isn't
-available — so `_make_client()` fails there, its log goes to the subprocess (not captured
-by the parent's `log_cli`), and `create_run` returns None. This is the **same subprocess
-boundary** RTR-1-NODUS-COMPLETION and §5 turn on. Left `skip`-on-500 (green) with the
-diagnostics in place; closing it needs runtime-side visibility into where the
-`anthropic_chat` backend is resolved/executed under `nodus_vm`.
+**The prior subprocess-boundary hypothesis is WRONG.** Runtime trace (aindy-runtime 1.5.3):
+`create_run` → `compat.generate_plan` runs plan generation **in-process** on the request
+thread (`AINDY/agents/agent_runtime/creation.py:36`); the execution backend only affects
+`apply_wait_policy` **after** the plan is generated (`planning.py:307`). Plan-gen for
+`anthropic_chat` therefore never enters the `nodus_worker` subprocess, and this 500 would
+occur identically under `agent_flow` — it is **not** nodus_vm-specific.
 
-**Reopen trigger:** (a) **RTR-1-NODUS-APPTOOL-500** (Gate 1) — fix the `anthropic_chat`
-planner path so an app-manifest tool executes end-to-end (the last remaining nodus_vm
-thread now that completion is resolved in 1.5.3). (b) any move to make `nodus_vm` the
-default (`AINDY_AGENT_EXECUTION_BACKEND`), which requires (a) closed. (c) any regression of
-the execute-to-completion path — Gate 2 hard-asserts it, so a runtime regression would
-fail CI red rather than silently reopen this.
+**Why the reason stayed invisible across three sessions (triple blind spot):**
+1. `generate_plan` catches all backend exceptions and stores the reason on a
+   `threading.local` (`_plan_failure`, `AINDY/agents/agent_runtime/shared.py:19`), set on
+   the FastAPI threadpool worker and unreadable from the test thread.
+2. Its backup `required` `agent_plan_generation` SystemEvent (`creation.py:39-49`) can be
+   lost to the `system_events_user_id_fkey` violation observed in the same runs.
+3. pytest discards captured logs for **skipped** tests, so the app backend's entry-log
+   (PR #48) never displayed — which is why "backend never entered" was recorded, wrongly.
+
+The model id (`claude-opus-4-8`) and forced-tool request shape are valid (claude-api
+reference: current `/v1/messages` model; `planner_anthropic.py` omits the
+`temperature`/`top_p`/`budget_tokens` that 400 on Opus 4.8). Gate 2's `stub` planner works
+because it needs no key/network; `anthropic_chat` needs egress the runner doesn't have.
+
+The model id (`claude-opus-4-8`) and forced-tool request shape were themselves valid
+(claude-api reference: current `/v1/messages` model; `planner_anthropic.py` omits the
+`temperature`/`top_p`/`budget_tokens` that 400 on Opus 4.8) — the failure was purely the
+runner's lack of egress. **How it was diagnosed:** a temporary in-thread diagnostic
+(`_diagnose_anthropic_planner`, since removed with the LLM path) called the backend
+directly and folded the real exception into the skip reason (CI run 28743569180). The fix
+sidesteps it entirely — the `anthropic_chat` backend and `planner_anthropic.py` stay
+registered/available for real use, but the §5 gate no longer depends on them.
+
+**Reopen trigger / next step:** §5 is **fully proven** and both gates **hard-assert** with no
+LLM/key/network: an app-manifest tool resolves, dispatches, AND completes its DB write inside
+the `nodus_worker` subprocess (Gate 1), and execute-to-completion works over a runtime-default
+tool (Gate 2). The only remaining nodus_vm forward step is making it the **default** execution
+backend (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`) — now unblocked from the app side; any
+regression of either gate fails CI red. The `anthropic_chat` LLM planner remains available for
+real (non-CI) use; exercising it in CI would require runner egress to `api.anthropic.com`.
 
 ---
 

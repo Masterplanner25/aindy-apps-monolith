@@ -194,7 +194,12 @@ def handle_agent_run_completed(context: dict):
 
 
 def stub_planner_backend(request) -> dict:
-    """Canned plan for smoke testing — activates via AINDY_AGENT_PLANNER_BACKEND=stub."""
+    """Canned plan for smoke testing — activates via AINDY_AGENT_PLANNER_BACKEND=stub.
+
+    Emits a runtime-default tool (`memory.recall`), so it exercises the plan ->
+    park -> resume -> execute path without needing the app manifest. See
+    `stub_app_tool_planner_backend` for the app-manifest-tool variant.
+    """
     objective = getattr(request, "objective", "") or ""
     return {
         "executive_summary": "Stub plan for smoke testing. No LLM required.",
@@ -204,6 +209,33 @@ def stub_planner_backend(request) -> dict:
                 "args": {"query": objective[:80] or "smoke test"},
                 "risk_level": "high",
                 "description": "Stub step: recall memories (smoke test only).",
+            }
+        ],
+        "overall_risk": "high",
+    }
+
+
+def stub_app_tool_planner_backend(request) -> dict:
+    """Canned plan whose single step is an APP-MANIFEST-only tool (`task.create`) —
+    activates via AINDY_AGENT_PLANNER_BACKEND=stub_app_tool. Deterministic; no LLM,
+    key, or network.
+
+    `task.create` has no runtime default (unlike `memory.recall`), so a run that
+    executes it end-to-end proves the app plugin manifest resolved AND executed inside
+    the `nodus_worker` subprocess — the §5 gate. `risk_level="high"` so
+    AINDY_AGENT_WAIT_BEFORE_HIGH_RISK parks the run before the step, mirroring the
+    stub/`memory.recall` park->resume path exactly with an app tool swapped in. The
+    syscall behind the tool (`sys.v1.task.create`) requires a `name`/`task_name`.
+    """
+    objective = getattr(request, "objective", "") or ""
+    return {
+        "executive_summary": "Stub plan exercising an app-manifest tool (task.create). No LLM required.",
+        "steps": [
+            {
+                "tool": "task.create",
+                "args": {"name": objective[:60] or "nodus-vm app-tool smoke"},
+                "risk_level": "high",
+                "description": "Stub step: create a task (app-manifest tool; smoke test only).",
             }
         ],
         "overall_risk": "high",
@@ -224,6 +256,9 @@ def register() -> None:
     register_run_tool_provider("default", get_tools_for_run)
     register_agent_completion_hook("default", handle_agent_run_completed)
     register_agent_planner_backend("stub", stub_planner_backend)
+    # Deterministic app-manifest-tool planner (task.create) for the §5 nodus_vm Gate 1 —
+    # proves app-tool execution in the subprocess with no LLM/key/network.
+    register_agent_planner_backend("stub_app_tool", stub_app_tool_planner_backend)
     # App-owned LLM planner: select via AINDY_AGENT_PLANNER_BACKEND=anthropic_chat.
     # The runtime ships disabled/runtime_local/openai_chat_compat; this adds Claude
     # without touching the runtime package.
