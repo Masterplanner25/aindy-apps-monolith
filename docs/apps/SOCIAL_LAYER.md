@@ -1,3 +1,10 @@
+---
+title: "Social Layer"
+last_verified: "2026-07-05"
+api_version: "1.0"
+status: current
+owner: "apps-team"
+---
 # Social Layer — Canonical Definition & Evolution Plan
 
 ---
@@ -252,12 +259,16 @@ _Closed: comment/reply content model, durable analytics history, bridge-event su
 
 The Social Layer is currently:
 
-> A social interaction and analytics layer backed by MongoDB with visibility scoring, performance feedback, and bridge persistence, but without threaded discussion or broader narrative surfaces.
+> A social interaction and analytics layer backed by MongoDB with visibility scoring,
+> performance feedback, bridge persistence, and threaded comment/reply discussion.
+> Identity is bound to the canonical `users.username`; full cross-repo profile
+> unification is the remaining scope (see §13 / `TECH_DEBT.md` SOCIAL-IDENTITY-1).
 
 It is NOT:
 
-* an influence graph
-* a complete narrative/event-driven social system
+* an influence graph (that is RippleTrace's domain)
+* a fully unified identity system yet — the social profile and system identity still
+  project from separate stores pending the runtime-owned canonical profile
 
 ---
 
