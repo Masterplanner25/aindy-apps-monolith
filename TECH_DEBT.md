@@ -236,13 +236,24 @@ directly and folded the real exception into the skip reason (CI run 28743569180)
 sidesteps it entirely — the `anthropic_chat` backend and `planner_anthropic.py` stay
 registered/available for real use, but the §5 gate no longer depends on them.
 
-**Reopen trigger / next step:** §5 is **fully proven** and both gates **hard-assert** with no
-LLM/key/network: an app-manifest tool resolves, dispatches, AND completes its DB write inside
-the `nodus_worker` subprocess (Gate 1), and execute-to-completion works over a runtime-default
-tool (Gate 2). The only remaining nodus_vm forward step is making it the **default** execution
-backend (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`) — now unblocked from the app side; any
-regression of either gate fails CI red. The `anthropic_chat` LLM planner remains available for
-real (non-CI) use; exercising it in CI would require runner egress to `api.anthropic.com`.
+**nodus_vm is now the app default (2026-07-05).** §5 is fully proven (both gates
+hard-assert), so `nodus_vm` was promoted to this monolith's default agent-execution backend:
+`apps/agent/bootstrap.py::_select_execution_backend()` does
+`os.environ.setdefault("AINDY_AGENT_EXECUTION_BACKEND", "nodus_vm")` on every **non-test** boot
+(`settings.is_testing` gate — the integration harness runs no scheduler heartbeat, so it stays
+on `agent_flow`; the §5 suite opts in via `pytest.nodus.ini`). An explicit env value (ops, or a
+pytest ini) always wins. Production `aindy-runtime-api` boots run the scheduler heartbeat
+(`AINDY.startup._start_scheduler_and_jobs`), which drives nodus_vm continuation to completion;
+approval-parking stays off unless `AINDY_AGENT_WAIT_BEFORE_HIGH_RISK=true` (runtime default
+`False`). Documented in `.env.example`; the `settings.is_testing` gate is regression-locked by
+`tests/unit/test_agent_execution_backend_default.py` (if it broke, the test suite would flip to
+nodus_vm and hang for lack of a scheduler). The `anthropic_chat` LLM planner remains available
+for real (non-CI) use; exercising it in CI would require runner egress to `api.anthropic.com`.
+
+**Reopen trigger:** any regression of either §5 gate (CI red); a decision to revert the default
+to `agent_flow` (set the env explicitly, or drop `_select_execution_backend`); or broadening
+nodus_vm validation beyond the two §5 gates to the full agent surface (real multi-step LLM
+plans, completion hooks, infinity orchestration) under nodus_vm-as-default.
 
 ---
 
