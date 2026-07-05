@@ -200,7 +200,7 @@ remains: domain-agnostic memory-context planning and duplicated KPI suggestion
 heuristics should be separated more cleanly from analytics-owned enrichment
 without moving analytics policy into the runtime core.
 Remaining deferred imports between apps
-are declared in `APP_DEPENDS_ON` and validated by the V1-VAL-015 CI gate.
+are declared in `APP_DEPENDS_ON` and validated by `scripts/check_app_imports.py` in CI.
 
 ### Boot Order
 Startup order is resolved by the app-owned plugin module `apps/bootstrap.py` using dependency metadata declared in each app bootstrap file as `BOOTSTRAP_DEPENDS_ON`. Ordering is resolved by `AINDY/platform_layer/bootstrap_graph.py` using Kahn's algorithm. The current core domains are `tasks` and `identity`. Core domains abort the entire startup when their bootstrap fails; all other domains, including `agent`, degrade gracefully once the selected app plugin profile has loaded `apps/bootstrap.py` successfully. A missing requested plugin module, import-time crash, or plugin bootstrap exception is not treated as degraded mode; startup fails instead unless the operator explicitly selected a zero-plugin profile such as `platform-only`. Each core app self-declares by including `IS_CORE_DOMAIN: bool = True` in its `bootstrap.py`. The platform reads this at startup via `apps/bootstrap._get_core_domains_from_metadata()`. The constant `CORE_DOMAINS` no longer exists in `AINDY/config.py` — the domain names are not hardcoded anywhere in the platform layer.
@@ -216,7 +216,7 @@ Representative dependency declarations from the app `bootstrap.py` files:
 In addition to `BOOTSTRAP_DEPENDS_ON`, each app may declare
 `APP_DEPENDS_ON` — a broader set of runtime import dependencies that do not
 need to be boot-ordered but must be declared for governance.
-`APP_DEPENDS_ON` is validated by the V1-VAL-015 CI gate and checked at
+`APP_DEPENDS_ON` is validated by `scripts/check_app_imports.py` in CI and checked at
 startup by `_check_app_depends_on_ordering()`. See
 [Plugin Registry Pattern](PLUGIN_REGISTRY_PATTERN.md#dependency-declarations-bootstrap_depends_on-and-app_depends_on)
 for the full semantics.
@@ -254,8 +254,8 @@ Important boundary files:
 Apps import `AINDY.*` runtime and platform services freely. Cross-app
 communication is supposed to happen through syscalls, registered jobs, and
 public facade modules. Some deferred app-to-app imports still exist in the
-monolith, but they are declared in `APP_DEPENDS_ON`, validated by V1-VAL-015,
-and checked at startup for ordering drift by
+monolith, but they are declared in `APP_DEPENDS_ON`, validated by
+`scripts/check_app_imports.py`, and checked at startup for ordering drift by
 `_check_app_depends_on_ordering()`.
 
 Future extraction expectation:

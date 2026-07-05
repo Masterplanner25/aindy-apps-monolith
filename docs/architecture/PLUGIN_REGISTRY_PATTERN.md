@@ -1,6 +1,6 @@
 ---
 title: "Plugin Registry Pattern"
-last_verified: "2026-05-09"
+last_verified: "2026-07-05"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -144,7 +144,7 @@ The registry holds:
 
 The single Python module named in `aindy_plugins.json`. Its `bootstrap()`
 function is called once at startup via `load_plugins()`. It is idempotent
-(guarded by `_BOOTSTRAPPED` flag).
+(guarded by the `_BOOTSTRAPPED` flag).
 
 Ownership note:
 
@@ -152,9 +152,22 @@ Ownership note:
   `aindy-apps-monolith` repo
 - the runtime only treats it as a manifest-selected plugin module name
 
-`bootstrap()` calls 18 internal `_register_*` functions, each responsible for
-one category of registration. All domain imports are deferred inside these
-functions — nothing is imported at module level except the standard library.
+`apps/bootstrap.py` is an aggregator, not a monolithic registrar. It holds the
+`APP_BOOTSTRAP_MODULES` map (app name → bootstrap module) and, in `bootstrap()`:
+
+1. reads each app's `IS_CORE_DOMAIN` / `BOOTSTRAP_DEPENDS_ON` / `APP_DEPENDS_ON`
+   metadata (AST-parsed),
+2. resolves boot order topologically via
+   `AINDY/platform_layer/bootstrap_graph.resolve_boot_order()`,
+3. imports each app's `bootstrap` module in that order and calls its `register()`.
+
+A core domain whose `register()` raises aborts startup; a peripheral domain that
+fails is logged and published as degraded. Each app's own `register()` then calls
+that app's category `_register_*` functions (the `tasks` app runs 19: models,
+router, route prefixes, response/execution adapters, events, jobs, scheduled jobs,
+async jobs, agent tools/capabilities, syscalls, capture rules, flows, flow
+results/plans, required flow nodes/syscalls, health check). All domain imports are
+deferred inside those functions — nothing app-domain is imported at module level.
 
 ---
 
@@ -180,8 +193,8 @@ The runtime import governance graph. When app A declares
 imports from B inside service or flow functions (not inside `register()`).
 These imports fire at call time, not at startup. `APP_DEPENDS_ON` is:
 
-- Read by V1-VAL-015 (CI gate) to verify all deferred cross-domain imports
-  are declared.
+- Read by the cross-app import gate (`scripts/check_app_imports.py`, run in CI)
+  to verify all deferred cross-domain imports are declared.
 - Read by `_check_app_depends_on_ordering()` at startup (Prompt 19) to emit a
   warning when a declared `APP_DEPENDS_ON` dependency boots after the
   declaring app.
@@ -237,9 +250,9 @@ as peripheral (`False` by default). Only set this `True` if startup without
 the app is meaningless, for example an app that all other apps depend on for
 correctness, or that owns a critical shared resource.
 
-The current core apps are `tasks`, `identity`, and `agent`. Their
-`register()` functions must be bullet-proof because any exception they raise
-will abort the entire process.
+The current core apps are `tasks` and `identity` (agent is peripheral —
+`IS_CORE_DOMAIN = False`). Their `register()` functions must be bullet-proof
+because any exception they raise will abort the entire process.
 
 The platform reads `IS_CORE_DOMAIN` at startup via
 `apps/bootstrap._get_core_domains_from_metadata()` using the same AST parsing
@@ -251,7 +264,7 @@ entirely self-declared by app bootstrap modules.
 | Field | Used by | Enforcement | Default |
 |---|---|---|---|
 | `BOOTSTRAP_DEPENDS_ON` | `resolve_boot_order()` | Boot ordering enforced at startup | `[]` |
-| `APP_DEPENDS_ON` | `_check_app_depends_on_ordering()` | Startup warning; V1-VAL-015 CI gate | `[]` |
+| `APP_DEPENDS_ON` | `_check_app_depends_on_ordering()` | Startup warning; `scripts/check_app_imports.py` CI gate | `[]` |
 | `IS_CORE_DOMAIN` | `_get_core_domains_from_metadata()` | Failure aborts startup vs degrades | `False` |
 
 ## 3. Boot Sequence
@@ -260,28 +273,33 @@ entirely self-declared by app bootstrap modules.
 main.py  lifespan()
 │
 ├─ load_plugins()                      # reads selected plugin manifest
-│   └─ importlib.import_module(<plugin module from manifest>)
-│       └─ plugin.bootstrap()
-│           ├─ _register_models()      # domain SQLAlchemy models → Base.metadata
-│           ├─ _register_routers()     # 24+ FastAPI routers → _routers dict
-│           ├─ _register_route_prefixes()
-│           ├─ _register_response_adapters()
-│           ├─ _register_execution_adapters()
-│           ├─ _register_startup_hooks()
-│           ├─ _register_events()      # event types + handlers
-│           ├─ _register_jobs()        # 20+ named callable jobs
-│           ├─ _register_scheduled_jobs()  # 6 APScheduler jobs
-│           ├─ _register_agent_capabilities()
-│           ├─ _register_agent_tools()
-│           ├─ _register_agent_ranking()
-│           ├─ _register_trigger_evaluators()
-│           ├─ _register_flow_strategy()
-│           ├─ _register_agent_runtime_extensions()
-│           ├─ _register_async_jobs()
-│           ├─ _register_capture_rules()
-│           ├─ _register_flows()       # app-owned flow callbacks register app flows only
-│           ├─ _register_flow_results()
-│           └─ _register_flow_plans()
+│   └─ importlib.import_module("apps.bootstrap")
+│       └─ apps.bootstrap.bootstrap()
+│           ├─ resolve boot order (topological, from BOOTSTRAP_DEPENDS_ON)
+│           └─ for each app in order → apps.<app>.bootstrap.register()
+│               │  each register() runs that app's category _register_* functions;
+│               │  the tasks app runs 19, in this order:
+│               ├─ _register_models()          # SQLAlchemy models → Base.metadata
+│               ├─ _register_router()           # app FastAPI router → _routers dict
+│               ├─ _register_route_prefixes()
+│               ├─ _register_response_adapters()
+│               ├─ _register_execution_adapters()
+│               ├─ _register_events()           # event types + handlers
+│               ├─ _register_jobs()             # named callable jobs
+│               ├─ _register_scheduled_jobs()   # APScheduler jobs
+│               ├─ _register_async_jobs()
+│               ├─ _register_agent_tools()
+│               ├─ _register_agent_capabilities()
+│               ├─ _register_syscalls()
+│               ├─ _register_capture_rules()
+│               ├─ _register_flows()
+│               ├─ _register_flow_results()
+│               ├─ _register_flow_plans()
+│               ├─ _register_required_flow_nodes()
+│               ├─ _register_required_syscalls()
+│               └─ _register_health_check()
+│               # other apps register further categories (agent ranking,
+│               # trigger evaluators, flow strategies, startup hooks, …) — see §2.2
 │
 ├─ register_all_domain_handlers()      # syscall handlers registered via registry facade
 ├─ AINDY.runtime.flow_definitions.register_all_flows()  # runtime-owned platform flows only
@@ -357,17 +375,20 @@ def _register_scheduled_jobs() -> None:
 
 ### Registering a flow
 
-Domain flow files (e.g. `apps/automation/flows/tasks_flows.py`) define node
-functions and call `register_nodes()` / `register_single_node_flows()` from
-`apps/automation/flows/_flow_registration.py`. The flow registration helper
-calls `AINDY.runtime.flow_engine.register_node` and `register_flow`.
+Each domain owns its flow file at `apps/<domain>/flows/<domain>_flows.py` (e.g.
+`apps/tasks/flows/tasks_flows.py`). A flow file defines node functions and a
+`register()` function that wires nodes and flow graphs into the runtime flow
+engine (`AINDY.runtime.flow_engine.register_node` / `register_flow`). The domain's
+own bootstrap `_register_flows()` publishes the module symbols and calls that
+`register()`.
 
-Flow files expose a `register()` function. The coordinator
-`flow_definitions_extended.register_extended_flows()` calls `register()` on
-each app domain flow file. This function is itself called from
-`apps/bootstrap.py _register_flows()`. Runtime-owned platform flows register
-separately from `AINDY/runtime/flow_definitions.py`; app flow coordinators do
-not own or import runtime flow modules.
+Within `apps/automation/flows/`, `flow_definitions_extended.register_extended_flows()`
+is the coordinator for the automation domain flow modules only (`memory_flows`,
+`system_flows`, `dashboard_autonomy_flows`). Runtime-owned platform flows register
+separately from `AINDY/runtime/flow_definitions.py`; app flow code does not own or
+import runtime flow modules. See
+[Cross-Domain Coupling](./CROSS_DOMAIN_COUPLING.md#3-the-automation-flow-layer)
+for the full flow-layer map.
 
 ### Registering an event handler
 
@@ -430,10 +451,11 @@ To add a new domain app `apps/newdomain/`:
        # etc.
    ```
 
-3. In `apps/bootstrap.py`, import and call `newdomain.bootstrap.register()`
-   inside the appropriate `_register_*` functions. (After Prompt 2 is
-   implemented, this means creating `apps/newdomain/bootstrap.py` with
-   a `register()` function and adding one line to the aggregator.)
+3. In `apps/bootstrap.py`, add one line to `APP_BOOTSTRAP_MODULES`:
+   `"newdomain": "apps.newdomain.bootstrap"`. The aggregator discovers the app's
+   `register()`, `BOOTSTRAP_DEPENDS_ON`, `APP_DEPENDS_ON`, and `IS_CORE_DOMAIN`
+   from that module and boots it in topological order. Then run
+   `python scripts/check_app_imports.py` to validate cross-app imports.
 
 4. No changes to `AINDY/` are required. The plugin manifest
    (`aindy_plugins.json`) does not need updating unless `newdomain` is a
