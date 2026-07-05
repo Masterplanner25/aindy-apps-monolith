@@ -140,15 +140,15 @@ app profile cleanly.
 
 Canonical app-profile startup patterns after the split:
 
-- `aindy-runtime-api`
+- `aindy-runtime serve`
   with the process started from the apps repo root so `aindy_plugins.json` is
   discoverable
-- `AINDY_APP_PLUGIN_MANIFEST=/abs/path/to/aindy_plugins.json aindy-runtime-api`
+- `AINDY_APP_PLUGIN_MANIFEST=/abs/path/to/aindy_plugins.json aindy-runtime serve`
 - `uvicorn AINDY.main:app`
   with `aindy-runtime` installed and the working directory rooted in the apps
   repo
 
-The apps repo does not own `aindy-runtime` or `aindy-runtime-api`; it owns the
+The apps repo does not own `aindy-runtime` or `aindy-runtime serve`; it owns the
 manifest and plugin modules those runtime entrypoints load.
 
 ## What Moves To The Apps Repo

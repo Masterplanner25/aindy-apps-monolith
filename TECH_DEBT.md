@@ -43,10 +43,10 @@ is still unbuilt/untested here (no Docker in the dev env).
 4. **CI + hardening.** Add a container build-smoke to CI (mirroring the frontend one); consider a
    multi-stage build to drop the toolchain; the listen port is `AINDY_PORT`.
 
-**Related doc bug:** the pinned runtime exposes `aindy-runtime serve`, not `aindy-runtime-api`
-(the latter is referenced in `CLAUDE.md`, `docs/apps/RUNTIME_DEPENDENCY.md`,
-`docs/apps/APPS_MONOLITH_REPO_SHAPE.md`, and `LIVE_VERIFICATION_SCOPE.md`, but ships in no
-package). Fix those to `aindy-runtime serve` (tracked here until done).
+**Related doc fix (2026-07-05, done):** the pinned runtime exposes `aindy-runtime serve`, not
+`aindy-runtime-api` (which ships in no package). Corrected across `CLAUDE.md`, `README.md`,
+`docs/apps/RUNTIME_DEPENDENCY.md`, `docs/apps/APPS_MONOLITH_REPO_SHAPE.md`,
+`LIVE_VERIFICATION_SCOPE.md`, and the `apps/agent/bootstrap.py` comment.
 
 **Reopen trigger:** productionizing the app profile, or a runtime release that changes the boot
 entrypoint / migration contract.
@@ -403,7 +403,7 @@ hard-assert), so `nodus_vm` was promoted to this monolith's default agent-execut
 `os.environ.setdefault("AINDY_AGENT_EXECUTION_BACKEND", "nodus_vm")` on every **non-test** boot
 (`settings.is_testing` gate — the integration harness runs no scheduler heartbeat, so it stays
 on `agent_flow`; the §5 suite opts in via `pytest.nodus.ini`). An explicit env value (ops, or a
-pytest ini) always wins. Production `aindy-runtime-api` boots run the scheduler heartbeat
+pytest ini) always wins. Production `aindy-runtime serve` boots run the scheduler heartbeat
 (`AINDY.startup._start_scheduler_and_jobs`), which drives nodus_vm continuation to completion;
 approval-parking stays off unless `AINDY_AGENT_WAIT_BEFORE_HIGH_RISK=true` (runtime default
 `False`). Documented in `.env.example`; the `settings.is_testing` gate is regression-locked by

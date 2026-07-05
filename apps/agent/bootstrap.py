@@ -34,7 +34,7 @@ def _select_execution_backend() -> None:
     ``not settings.is_testing``: the integration test harness runs no scheduler heartbeat, so a
     parked/deferred nodus_vm continuation would never complete there — the default must stay
     ``agent_flow`` under test unless a suite opts in explicitly. Production boots
-    (``aindy-runtime-api``) DO run the scheduler (``AINDY.startup._start_scheduler_and_jobs``),
+    (``aindy-runtime serve``) DO run the scheduler (``AINDY.startup._start_scheduler_and_jobs``),
     which drives nodus_vm continuation to a terminal state. Approval parking stays off unless
     ``AINDY_AGENT_WAIT_BEFORE_HIGH_RISK`` is set (runtime default ``False``).
     """

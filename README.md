@@ -37,14 +37,14 @@ python -m pip install -e . --no-build-isolation
 From the apps repo root:
 
 ```bash
-aindy-runtime-api
+aindy-runtime serve
 ```
 
 Equivalent forms:
 
 ```bash
 uvicorn AINDY.main:app
-AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime-api
+AINDY_APP_PLUGIN_MANIFEST=./aindy_plugins.json aindy-runtime serve
 ```
 
 The app repo owns `aindy_plugins.json` and `apps.bootstrap`. The runtime owns
@@ -62,7 +62,7 @@ manifest parsing, plugin loading, and process entrypoints.
 
 It consumes `aindy-runtime` as a dependency for:
 
-- `aindy-runtime` / `aindy-runtime-api`
+- `aindy-runtime` / `aindy-runtime serve`
 - runtime-only boot behavior
 - runtime health, readiness, and `/api/version` compatibility metadata
 - runtime public API and startup contracts
