@@ -8,14 +8,15 @@ name: Nodus VM Integration (RTR-1 §5)
 # tools registered via aindy_plugins.json resolve AND execute inside the
 # subprocess spawned by NodusRuntimeAdapter (the PLANNER-SUBPROC-1 risk class).
 #
-# It uses the app-owned `anthropic_chat` planner (a real Claude call) so the LLM
-# selects a genuine app-manifest-only tool (e.g. task.create) that the runtime
-# has no built-in default for — the only way to prove the app manifest loaded in
-# the subprocess. It therefore requires the `ANTHROPIC_API_KEY` repo secret and
-# self-skips (green no-op) when the secret is absent.
+# Deterministic — no LLM, key, or network. Gate 1 uses the app-owned
+# `stub_app_tool` planner to emit a `task.create` step (an app-manifest-only tool
+# the runtime has no default for) and asserts it executes in the subprocess; Gate 2
+# does the same for the WAIT/resume path over `memory.recall`. No `ANTHROPIC_API_KEY`
+# secret is required (an earlier LLM-driven Gate 1 reduced to a skip because the CI
+# runner cannot reach api.anthropic.com — see TECH_DEBT RTR-1-NODUS-APPTOOL-500).
 #
-# Not wired into the PR gate: it costs LLM tokens and needs a secret unavailable
-# on fork PRs. Runs post-merge on main and on demand.
+# Not wired into the PR gate: it needs the full live Postgres/Redis/Mongo stack.
+# Runs post-merge on main and on demand.
 
 on:
   workflow_dispatch:
@@ -70,42 +71,23 @@ jobs:
           --health-timeout 5s
           --health-retries 20
 
-    env:
-      # Secret is unavailable on fork PRs and when unset — the preflight step
-      # below turns this whole job into a green no-op in that case.
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-
     steps:
-      - name: Preflight — require ANTHROPIC_API_KEY
-        id: preflight
-        run: |
-          if [ -z "${ANTHROPIC_API_KEY}" ]; then
-            echo "::notice title=Nodus VM validation skipped::ANTHROPIC_API_KEY not set; the §5 LLM-driven validation needs it. Skipping (no-op)."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout
-        if: steps.preflight.outputs.run == 'true'
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
       - name: Setup Python
-        if: steps.preflight.outputs.run == 'true'
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        if: steps.preflight.outputs.run == 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .[test]
 
       - name: Verify runtime provides the RTR-1 resume surface (>= 1.5.3)
-        if: steps.preflight.outputs.run == 'true'
         # Importing runtime_api pulls in AINDY.db.database, which calls
         # create_engine(DATABASE_URL) at import time — so this standalone step
         # needs a parseable URL even though it never connects. Point it at the
@@ -131,7 +113,6 @@ jobs:
           PY
 
       - name: Run §5 nodus_vm validation
-        if: steps.preflight.outputs.run == 'true'
         run: >-
           python -m pytest
           -c pytest.nodus.ini

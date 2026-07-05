@@ -15,15 +15,19 @@ relative to the subprocess cwd (the PLANNER-SUBPROC-1 risk class).
 
 Crucially, `memory.recall`/`memory.write` are ALSO registered as runtime defaults
 inside the subprocess, so a run over a memory tool can pass even if the app manifest
-failed to load — masking the failure. To actually close the gate we must drive a
-tool that ONLY the app manifest provides (e.g. `task.create`), which the runtime has
-no default for. The `anthropic_chat` planner (real Claude call) is used so the LLM
-selects such a tool from the app catalog — that is why this suite needs a real
-`ANTHROPIC_API_KEY` and is gated to the dedicated CI job.
+failed to load — masking the failure. To actually close the gate we must drive a tool
+that ONLY the app manifest provides (`task.create`), which the runtime has no default
+for. Gate 1 uses the deterministic `stub_app_tool` planner to emit exactly that step —
+no LLM, key, or network. (It was previously LLM-driven via `anthropic_chat` to have
+Claude *select* task.create, but that reduced Gate 1 to a `skip` in CI: the create-500
+was an `anthropic.APIConnectionError` — the runner cannot reach api.anthropic.com — not
+a code bug, and plan generation is in-process regardless of the execution backend, so an
+LLM was never needed to prove subprocess app-tool execution. See TECH_DEBT
+RTR-1-NODUS-APPTOOL-500.) The suite therefore needs no secret.
 
 Run:
     docker compose -f docker-compose.test.yml up -d
-    ANTHROPIC_API_KEY=sk-ant-... pytest -c pytest.nodus.ini tests/integration/test_nodus_vm.py -v
+    pytest -c pytest.nodus.ini tests/integration/test_nodus_vm.py -v
 
 History: execute-to-completion of a resumed nodus_vm segment was blocked by two stacked
 runtime bugs, both PG-only (SQLite masked them) and both surfaced by driving the scheduler
@@ -106,11 +110,6 @@ def _steps(client, token, run_id) -> list[dict]:
     return body.get("data") if isinstance(body, dict) and "data" in body else body
 
 
-def _has_real_anthropic_key() -> bool:
-    key = os.getenv("ANTHROPIC_API_KEY", "")
-    return bool(key) and "placeholder" not in key and "test" not in key.lower()
-
-
 def _poll_run(client, token, run_id, *, until, timeout=90.0, interval=2.0) -> dict:
     """Poll GET /runs/{id} until ``until(status)`` is truthy or timeout. Returns last body."""
     deadline = time.monotonic() + timeout
@@ -123,50 +122,6 @@ def _poll_run(client, token, run_id, *, until, timeout=90.0, interval=2.0) -> di
             return body
         time.sleep(interval)
     return body
-
-
-def _diagnose_anthropic_planner(goal: str) -> str:
-    """Reproduce the anthropic_chat plan-gen failure directly, in the TEST thread.
-
-    The runtime swallows the real reason into a ``threading.local`` (``_plan_failure``
-    set on the FastAPI threadpool worker, unreadable from here) and a ``required``
-    ``agent_plan_generation`` SystemEvent that can itself be lost to the
-    ``system_events_user_id_fkey`` violation. Plan generation runs **in-process**
-    regardless of the execution backend (``create_run`` -> ``generate_plan``; the
-    backend only affects ``apply_wait_policy`` *after* generation), so calling the app
-    backend directly here reproduces the create-500 cause with no ``nodus_worker``
-    subprocess involved. See TECH_DEBT RTR-1-NODUS-APPTOOL-500.
-    """
-    try:
-        from apps.agent.agents.planner_anthropic import claude_planner_backend
-    except Exception as exc:  # pragma: no cover - import guard
-        return f"could not import claude_planner_backend: {type(exc).__name__}: {exc}"
-
-    class _Req:
-        objective = goal
-        run_type = "default"
-        user_id = None
-        system_prompt = (
-            "You are A.I.N.D.Y.'s planner. Available tools: task.create, task.complete, "
-            "memory.recall, memory.write. Produce a plan using only these tools."
-        )
-        tools = ({"name": "task.create"}, {"name": "task.complete"}, {"name": "memory.recall"})
-        runtime_api = None
-        metadata = {}
-
-    try:
-        plan = claude_planner_backend(_Req())
-        steps = plan.get("steps") if isinstance(plan, dict) else None
-        return (
-            f"direct backend call SUCCEEDED (steps={len(steps or [])}) — the create-500 "
-            "is in the runtime dispatch/context, NOT the anthropic_chat backend"
-        )
-    except Exception as exc:
-        # APIConnectionError's own message is just "Connection error."; the actionable
-        # detail (DNS / TLS / connection refused / timeout) is on __cause__.
-        cause = getattr(exc, "__cause__", None)
-        cause_txt = f" | cause: {type(cause).__name__}: {str(cause)[:200]}" if cause else ""
-        return f"direct backend call raised {type(exc).__name__}: {str(exc)[:300]}{cause_txt}"
 
 
 def _assert_no_tool_resolution_failure(steps: list[dict], run_body: dict) -> None:
@@ -197,34 +152,38 @@ def _require_nodus_vm():
 # Gate 1 — a REAL app-manifest tool resolves AND executes inside nodus_vm
 # --------------------------------------------------------------------------- #
 class TestNodusVmAppTool:
+    """Deterministic (no LLM/key/network): the app `stub_app_tool` planner emits a single
+    high-risk `task.create` step — an app-manifest-only tool the runtime has NO default
+    for (unlike `memory.recall`). AINDY_AGENT_WAIT_BEFORE_HIGH_RISK parks the run; the §4
+    resume route + an in-process scheduler tick drive it to completion. A clean completion
+    proves the app plugin manifest resolved AND executed inside the `nodus_worker`
+    subprocess — the §5 gate. See TECH_DEBT RTR-1-NODUS-APPTOOL-500.
+
+    History: this gate was previously LLM-driven (the `anthropic_chat` planner selecting
+    task.create), which reduced it to a `skip` in CI — the create-500 was an
+    `anthropic.APIConnectionError` (the runner cannot reach api.anthropic.com), not a code
+    bug. Plan generation is in-process regardless of the execution backend, so an LLM was
+    never needed to prove subprocess app-tool execution; the deterministic stub removes the
+    egress/key dependency entirely.
+    """
 
     @pytest.fixture
-    def _anthropic_planner(self, monkeypatch):
-        # Select the LLM planner via settings (not just env) — the create path
-        # resolves the backend from settings.AINDY_AGENT_PLANNER_BACKEND, and the
-        # reloaded-app test harness doesn't reliably reflect the ini env into it
-        # (Gate 2 monkeypatches the same way for the stub planner).
+    def _stub_app_tool_planner(self, monkeypatch):
+        # Select the app-manifest-tool stub via settings (the create path resolves the
+        # backend from settings.AINDY_AGENT_PLANNER_BACKEND); Gate 2 monkeypatches the
+        # same way for the runtime-default `stub`.
         from AINDY.config import settings
 
-        monkeypatch.setattr(settings, "AINDY_AGENT_PLANNER_BACKEND", "anthropic_chat", raising=False)
-        return "anthropic_chat"
+        monkeypatch.setattr(settings, "AINDY_AGENT_PLANNER_BACKEND", "stub_app_tool", raising=False)
+        return "stub_app_tool"
 
-    def test_app_tool_resolves_and_executes_in_subprocess(self, client, _anthropic_planner):
-        if not _has_real_anthropic_key():
-            pytest.skip("needs a real ANTHROPIC_API_KEY (anthropic_chat planner) to select an app tool")
-
+    def test_app_tool_resolves_and_executes_in_subprocess(self, client, _stub_app_tool_planner):
         token = _register_and_login(client)
-        # Goal steers the LLM toward task.create — an app-manifest-only tool the
-        # runtime has NO default for, so a successful run proves the subprocess
-        # loaded the app manifest.
-        goal = f"Create a task titled 'nodus-vm smoke {uuid.uuid4().hex[:6]}' to verify the deploy."
+        goal = f"nodus-vm app-tool {uuid.uuid4().hex[:6]}"  # becomes the task name
         r = client.post("/apps/agent/run", json={"goal": goal}, headers=_auth(token))
         if r.status_code in (202, 500):
-            diag = _diagnose_anthropic_planner(goal) if r.status_code == 500 else "n/a (deferred)"
-            pytest.skip(
-                f"run deferred or planner unavailable (status={r.status_code}): "
-                f"{r.text[:200]} || RTR-1-NODUS-APPTOOL-500 diagnosis: {diag}"
-            )
+            pytest.skip(f"stub_app_tool planner unavailable or run deferred "
+                        f"(status={r.status_code}): {r.text[:300]}")
         assert r.status_code in (200, 201), f"create: {r.status_code} {r.text[:200]}"
 
         body = r.json()
@@ -235,52 +194,52 @@ class TestNodusVmAppTool:
             ra = client.post(f"/apps/agent/runs/{run_id}/approve", headers=_auth(token))
             assert ra.status_code in (200, 201, 202), f"approve: {ra.status_code} {ra.text[:200]}"
 
-        # Execution may run inline or park; wait for a terminal or waiting state.
+        # The high-risk task.create step parks behind an approval WAIT.
+        parked = _poll_run(client, token, run_id, until=lambda s: s == "waiting", timeout=60.0)
+        if _status_from(parked) != "waiting":
+            pytest.skip(f"run never parked at 'waiting' (status={_status_from(parked)!r}); "
+                        "wait-before-high-risk policy did not insert a WAIT — investigate")
+
+        # Release via the §4 resume route, then drive the scheduler in-process to RUN the
+        # resumed segment — the app tool executes inside the nodus_worker subprocess here.
+        rr = client.post(f"/apps/agent/runs/{run_id}/resume", headers=_auth(token))
+        assert rr.status_code == 200, f"resume: {rr.status_code} {rr.text[:200]}"
+        assert rr.json().get("resumed_event") == "agent.approval.granted", (
+            f"unexpected resume envelope: {rr.json()}"
+        )
+
+        from AINDY.kernel.scheduler import get_scheduler_engine
+
+        get_scheduler_engine().schedule()  # dispatch + run the resumed segment, inline
+
         run_body = _poll_run(
-            client, token, run_id,
-            until=lambda s: s in TERMINAL_STATUSES or s == "waiting",
+            client, token, run_id, until=lambda s: s in TERMINAL_STATUSES, timeout=30.0
         )
         status = _status_from(run_body)
         steps = _steps(client, token, run_id)
 
-        # THE §5 GATE (always checked, terminal or not): the app tool must never fail
-        # to resolve inside the nodus_worker subprocess. A manifest-load failure would
-        # surface here as a "tool not found" error and fail this test red.
+        # THE §5 GATE: the app tool must never fail to resolve inside the subprocess. A
+        # manifest-load failure would surface here as a "tool not found" error, red.
         _assert_no_tool_resolution_failure(steps, run_body)
 
-        if status not in TERMINAL_STATUSES:
-            # nodus_vm parked/started but the plan does not run to completion under the
-            # TestClient harness (no running scheduler to drive the continuation). The
-            # resolution gate above already passed, so the app manifest loaded — only
-            # execute-to-completion is unobservable here. Documented, not a failure.
-            # See TECH_DEBT RTR-1-NODUS-COMPLETION.
-            pytest.xfail(
-                f"nodus_vm run did not reach a terminal state in the TestClient harness "
-                f"(status={status!r}); no tool-resolution failure observed — full app-tool "
-                f"execute parity needs a live-server harness (TECH_DEBT RTR-1-NODUS-COMPLETION)"
-            )
+        assert status in TERMINAL_STATUSES, (
+            f"nodus_vm app-tool run did not complete (status={status!r}); with "
+            "aindy-runtime>=1.5.3 the resumed segment should reach a terminal state. See "
+            "TECH_DEBT RTR-1-NODUS-COMPLETION / RTR-1-NODUS-APPTOOL-500."
+        )
 
-        # Reached completion — assert the full gate: an app-manifest tool executed.
+        # Full gate: the app-manifest tool (task.create) executed cleanly in the subprocess.
         assert steps, f"nodus_vm run produced no steps (status={status})"
         executed_tools = {
             s.get("tool_name") for s in steps
             if s.get("tool_name") and _status_from(s) not in {"pending", "skipped", ""}
         }
-        assert executed_tools, f"no tools were executed: {steps}"
-
         app_tools_hit = executed_tools & APP_MANIFEST_TOOLS
-        if not app_tools_hit and executed_tools <= RUNTIME_DEFAULT_TOOLS:
-            # Ran, but only over runtime-default tools — the gate is inconclusive
-            # (memory.* can resolve via the runtime fallback). Surface, don't pass silently.
-            pytest.xfail(f"LLM selected only runtime-default tools {executed_tools}; "
-                         "goal did not exercise an app-manifest-only tool — retune the goal")
         assert app_tools_hit, (
             f"expected an app-manifest tool {APP_MANIFEST_TOOLS} to execute in the subprocess; "
-            f"got {executed_tools}"
+            f"got {executed_tools} (RUNTIME_DEFAULT_TOOLS={RUNTIME_DEFAULT_TOOLS} do not close "
+            "the §5 gate — they resolve via the runtime fallback)"
         )
-
-        # The app-manifest step must have actually succeeded (resolved + ran), not
-        # merely appeared in the plan.
         for s in steps:
             if s.get("tool_name") in app_tools_hit:
                 assert _status_from(s) in {"success", "completed", "executed", "ok"}, (

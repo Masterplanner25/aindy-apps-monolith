@@ -89,8 +89,12 @@ hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>
    and the run never completed. Fixed by only looking up bare-UUID ids and SAVEPOINT/rollbacking
    the lookup. Reproduced on CI runs 28734012605 + 28734198382 (1.5.2); closed in 1.5.3.
 
-**Remaining thread (separate):** Gate 1 (app-tool via `anthropic_chat`) is still blocked by a
-planner **create-500** — **RTR-1-NODUS-APPTOOL-500** below; independent of the completion path.
+**Gate 1 (app-manifest tool execution) — RESOLVED (2026-07-05):** reworked from an
+LLM-driven proof to the deterministic `stub_app_tool` planner (emits a high-risk
+`task.create` step — an app-manifest-only tool with no runtime default), mirroring Gate 2's
+park→resume→scheduler-drive path. It hard-asserts `task.create` resolves AND executes in the
+`nodus_worker` subprocess, closing the §5 app-manifest gate with no LLM/key/network. See
+**RTR-1-NODUS-APPTOOL-500** below.
 
 **History (the reopened-then-fixed arc for #152):** on 1.5.1 the symptom looked gone on
 the passive re-run (run 28727775436) only because, with no scheduler heartbeat, the
@@ -156,11 +160,20 @@ and #157 fixed) this passes end-to-end; a regression of either fix would poison 
 PG transaction and fail it red. Tool *resolution* in the subprocess and
 execute-to-completion are both now proven.
 
-**Open thread — RTR-1-NODUS-APPTOOL-500:** Gate 1 would prove an **app-manifest** tool
-(`task.create`, no runtime default) executes in the subprocess, driven by the
-`anthropic_chat` LLM planner — but `POST /apps/agent/run` returns a generic **500**
+**RTR-1-NODUS-APPTOOL-500 — RESOLVED (2026-07-05).** Gate 1 now proves an **app-manifest**
+tool (`task.create`, no runtime default) resolves AND executes in the `nodus_worker`
+subprocess via the deterministic `stub_app_tool` planner
+(`apps/agent/agents/runtime_extensions.py` — emits a single high-risk `task.create` step),
+mirroring Gate 2's park→resume→scheduler-drive path with an app tool swapped in. No LLM,
+key, or network; the `nodus-vm-integration.yml` `ANTHROPIC_API_KEY` preflight gate was
+removed so the job runs unconditionally. The history below records why the *previous*
+LLM-driven Gate 1 could never pass in CI (kept as the record; it debunks the original
+subprocess-boundary hypothesis).
+
+**History — why the old LLM-driven Gate 1 skipped:** it drove `task.create` via the
+`anthropic_chat` planner, but `POST /apps/agent/run` returned a generic **500**
 `{"message":"Failed to generate plan"}` (`AINDY/agents/runtime_api.py:146` — `create_run`
-returned falsy), so it `skip`s.
+returned falsy), so it `skip`ped.
 
 **ROOT CAUSE (confirmed 2026-07-05, runtime 1.5.3, CI run 28743569180):** the create-500
 is `anthropic.APIConnectionError` — **the CI runner cannot open an outbound HTTPS
@@ -192,21 +205,22 @@ reference: current `/v1/messages` model; `planner_anthropic.py` omits the
 `temperature`/`top_p`/`budget_tokens` that 400 on Opus 4.8). Gate 2's `stub` planner works
 because it needs no key/network; `anthropic_chat` needs egress the runner doesn't have.
 
-**Diagnostic in place:** `test_nodus_vm.py::_diagnose_anthropic_planner` calls the app
-backend directly, in the test thread, on a 500 and folds the real exception (with
-`__cause__`) into the skip reason — permanently surfacing the cause even for a skipped
-test. Test-only branch `test/nodus-apptool-500-diagnosis`.
+The model id (`claude-opus-4-8`) and forced-tool request shape were themselves valid
+(claude-api reference: current `/v1/messages` model; `planner_anthropic.py` omits the
+`temperature`/`top_p`/`budget_tokens` that 400 on Opus 4.8) — the failure was purely the
+runner's lack of egress. **How it was diagnosed:** a temporary in-thread diagnostic
+(`_diagnose_anthropic_planner`, since removed with the LLM path) called the backend
+directly and folded the real exception into the skip reason (CI run 28743569180). The fix
+sidesteps it entirely — the `anthropic_chat` backend and `planner_anthropic.py` stay
+registered/available for real use, but the §5 gate no longer depends on them.
 
-**Reopen trigger / next step:** (a) **RTR-1-NODUS-APPTOOL-500** is now a **CI-runner egress
-matter, not a code bug** — Gate 1 can only pass where the runner can reach
-`api.anthropic.com`. Options: allow-list `api.anthropic.com` egress on the runner (if org
-policy blocks it); OR run Gate 1 on a runner with internet egress; OR accept that the
-LLM-driven app-tool proof isn't runnable in this environment and drop Gate 1 to a
-deterministic app-tool goal under the `stub` planner (proves app-manifest execution in the
-subprocess without any network — the original §5 intent). (b) any move to make `nodus_vm`
-the default (`AINDY_AGENT_EXECUTION_BACKEND`) still wants an app-manifest execute proof —
-satisfiable via the stub-based Gate 1 above without egress. (c) any regression of the
-execute-to-completion path — Gate 2 hard-asserts it, so a runtime regression fails CI red.
+**Reopen trigger / next step:** **§5 is now fully green** — both gates hard-assert
+(execute-to-completion over a runtime-default tool + app-manifest-tool execution in the
+subprocess), with no LLM/key/network. The only remaining nodus_vm forward step is making it
+the **default** execution backend (`AINDY_AGENT_EXECUTION_BACKEND=nodus_vm`), which is now
+unblocked from the app side; any regression of either gate fails CI red. The
+`anthropic_chat` LLM planner remains available for real (non-CI) use; if a future need
+requires exercising it in CI, the runner must be able to reach `api.anthropic.com`.
 
 ---
 
