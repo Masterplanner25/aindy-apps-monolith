@@ -3,7 +3,7 @@ title: "Implementation Docs — Utility Parity Audit"
 last_verified: "2026-04-19"
 api_version: "1.0"
 status: current
-owner: "platform-team"
+owner: "apps-team"
 ---
 # Implementation Docs — Utility Parity Audit
 
@@ -29,9 +29,9 @@ This is a **utility audit**, not a system layer.
 | YAML insight encoding | Not implemented | Missing | N/A |
 | Scribalicious refinement pipeline | Not implemented | Missing | N/A |
 | Center-of-gravity tagging | Not implemented | Missing | N/A |
-| Authorship watermarking | Implemented | Implemented | `apps/authorship/services/authorship.py`, `apps/authorship/services/authorship_services.py`, `routes/authorship_router.py` |
+| Authorship watermarking | Implemented | Implemented | `apps/authorship/services/authorship.py`, `apps/authorship/services/authorship_services.py`, `apps/authorship/routes/authorship_router.py` |
 | Dedicated word-limit generator | Not implemented | Missing | N/A |
-| Word count utility (basic) | Implemented only in SEO routes | Partial | `routes/seo_routes.py`, `apps/search/services/seo_services.py` |
+| Word count utility (basic) | Implemented only in SEO routes | Partial | `apps/search/routes/seo_routes.py`, `apps/search/services/seo_services.py` |
 
 ---
 
