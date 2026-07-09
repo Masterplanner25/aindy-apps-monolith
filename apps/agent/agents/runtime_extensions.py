@@ -154,19 +154,79 @@ def get_tools_for_run(_context: dict) -> list[dict]:
     ]
 
 
+# The Infinity loop emits 4 decision verbs. The runtime's Next-Action ledger
+# (AINDY.core.next_action) records one canonical verb coerced from a completion
+# hook's *return*. Map ours -> the runtime's, keyed on the loop's own dispatch
+# intent (build_execution_intent: `review_plan` is manual/human-gated, the other
+# three are loop-dispatched work), so NEXT_ACTION_CHOSEN reflects the app's real
+# decision instead of the runtime default. Record-first: the runtime records the
+# verb but takes no autonomous action.
+_INFINITY_DECISION_TO_NEXT_ACTION = {
+    "continue_highest_priority_task": "trigger_execution",
+    "reprioritize_tasks": "trigger_execution",
+    "create_new_task": "trigger_execution",
+    "review_plan": "ask_user",
+}
+
+_NEXT_ACTION_ARG_KEYS = ("type", "title", "task_id", "task_name", "suggested_goal")
+
+
+def _next_action_for_runtime(orchestration):
+    """Coerce the Infinity orchestrator decision into a runtime NextAction.
+
+    Returned to the runtime's completion-hook caller, which coerces it and records
+    NEXT_ACTION_CHOSEN. This is separate from `run.result["next_action"]` (the rich
+    dict the app's own consumers read) — it only shapes the runtime ledger entry.
+    Returns None for a missing/unmapped decision, so the runtime keeps its default.
+    """
+    next_action = (orchestration or {}).get("next_action")
+    if not isinstance(next_action, dict):
+        return None
+    decision_type = str(next_action.get("type") or "")
+    verb = _INFINITY_DECISION_TO_NEXT_ACTION.get(decision_type)
+    if verb is None:
+        return None
+
+    from AINDY.core.next_action import make_next_action
+
+    return make_next_action(
+        verb,
+        reason=f"infinity:{decision_type}",
+        args={k: next_action[k] for k in _NEXT_ACTION_ARG_KEYS if next_action.get(k) is not None},
+        source="infinity_orchestrator",
+    )
+
+
 def handle_agent_run_completed(context: dict):
-    run = context.get("run")
-    db = context.get("db")
+    """Enforce the Infinity loop after an agent run completes.
+
+    The runtime routes completion hooks through the extension boundary, which
+    strips the db/session and redacts the `run` ORM object — only primitive ids
+    cross (INFINITY-COMPLETION-HOOK-BOUNDARY-1). So we take `run_id` from the
+    context and re-fetch the run with our own session; aindy-runtime >=1.6.1
+    supplies `run_id` and runs this hook in-process (it is not subprocess-isolated).
+
+    Returns a runtime-coercible NextAction so the runtime records the app's real
+    decision as NEXT_ACTION_CHOSEN; `None` means the runtime keeps its default.
+    """
+    run_id = context.get("run_id")
     user_id = context.get("user_id")
-    if run is None or db is None:
+    if not run_id or not user_id:
         return None
 
-    result_payload = run.result if isinstance(run.result, dict) else {}
-    if result_payload.get("loop_enforced"):
-        return None
+    from AINDY.db.database import SessionLocal
+    from AINDY.db.models import AgentRun
+    from AINDY.platform_layer.registry import get_job
 
+    db = SessionLocal()
     try:
-        from AINDY.platform_layer.registry import get_job
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        if run is None:
+            return None
+
+        result_payload = run.result if isinstance(run.result, dict) else {}
+        if result_payload.get("loop_enforced"):
+            return None
 
         execute_infinity_orchestrator = get_job("analytics.infinity_execute")
         if execute_infinity_orchestrator is None:
@@ -182,15 +242,19 @@ def handle_agent_run_completed(context: dict):
             "next_action": orchestration["next_action"],
         }
         db.commit()
-        db.refresh(run)
-        return run.result
+        # Return a runtime-coercible NextAction (not run.result): the runtime records
+        # it as NEXT_ACTION_CHOSEN, so the ledger reflects the app's real decision.
+        return _next_action_for_runtime(orchestration)
     except Exception as exc:
+        db.rollback()
         logger.warning(
             "[AgentRuntimeExtensions] Agent completion orchestrator failed for %s: %s",
-            getattr(run, "id", None),
+            run_id,
             exc,
         )
         return None
+    finally:
+        db.close()
 
 
 def stub_planner_backend(request) -> dict:
