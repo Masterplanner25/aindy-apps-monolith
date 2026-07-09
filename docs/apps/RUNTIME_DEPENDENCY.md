@@ -25,13 +25,13 @@ aindy-runtime>=1.0,<2.0
 The upper bound is required. The apps repo should not accept unbounded runtime
 upgrades.
 
-Validated on `2026-07-05`:
+Validated on `2026-07-08`:
 
-- installed runtime version: `1.5.3`
-- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.5.3,<2.0`
+- installed runtime version: `1.6.0`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.6.0,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
 
-The `>=1.5.3` floor requires **both** nodus_vm execute-to-completion fixes: aindy-runtime
+The floor stays at or above `1.5.3` for **both** nodus_vm execute-to-completion fixes (first shipped in v1.5.2 / v1.5.3): aindy-runtime
 #152 / PR #155 (v1.5.2 — `ExecutionPipeline.run()` marks itself active before emitting its
 own `execution.started`) and aindy-runtime #157 / PR #158 (v1.5.3 — the syscall idempotency
 gate no longer casts a run-scoped `execution_unit_id` to a UUID column and wraps the lookup
@@ -46,7 +46,7 @@ live, published dependency contract — not a pre-publication staging arrangemen
 
 `aindy-runtime` is installed from PyPI as a normal pinned dependency:
 
-- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.5.3,<2.0`
+- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.6.0,<2.0`
 - CI installs it via `pip install -e .[test]` (no runtime-repo checkout, no source
   install)
 - CI verifies the installed runtime version and that `/api/version` reports the
