@@ -53,6 +53,59 @@ entrypoint / migration contract.
 
 ---
 
+## INFINITY-COMPLETION-HOOK-BOUNDARY-1: agent completion hook no-ops on aindy-runtime 1.6.0 (runtime handoff)
+
+**Status:** OPEN — runtime-owned regression (found 2026-07-08). Silently disables
+post-agent-completion Infinity loop enforcement, and blocks the app-side Next-Action
+ledger work (parked on branch `feat/infinity-next-action-ledger`).
+
+**Symptom:** `apps/agent/agents/runtime_extensions.py::handle_agent_run_completed`
+(registered via `register_agent_completion_hook("default", …)`) returns immediately at its
+`if run is None or db is None: return None` guard on 1.6.0, so it never runs the
+`analytics.infinity_execute` orchestrator on agent completion. The runtime records its
+default NextAction instead of the app's decision.
+
+**Root cause (runtime-owned):** the runtime invokes completion hooks through
+`AINDY.platform_layer.registry.run_agent_completion_hooks`, which unconditionally passes the
+context through `sanitize_extension_context` (`AINDY/platform_layer/extension_boundary.py`).
+That sanitizer (a) drops `db` / `_db` / `session` — they are in `_BLOCKED_ROOT_KEYS` — so the
+hook receives `db=None`, and (b) redacts the `run` ORM object to `{"_redacted_type": "AgentRun"}`
+(no id, no `.result`; anything in the `AINDY.*` namespace is redacted). The app cannot recover
+`db`/`run` from the sanitized payload: there is no `run_id` primitive and no session handle.
+`user_id` is the only useful survivor.
+
+**Evidence (installed aindy-runtime 1.6.0):**
+- `sanitize_extension_context({"run": <AgentRun>, "db": <Session>})` → `run` becomes
+  `{"_redacted_type": "AgentRun"}`, the `db` key is dropped (`None`).
+- The exact production call `compat._run_completion_hooks("default", {"run": run, "db": db, …})`
+  returns `[None]`, and a stubbed `analytics.infinity_execute` orchestrator is never reached.
+
+**Contradiction with 1.6.0's own design:** 1.6.0 ships the Gap-4 Next-Action primitive
+(`AINDY/core/next_action.py`) that coerces a completion hook's *return* into `NEXT_ACTION_CHOSEN`
+— i.e. it expects hooks to return a decision — yet the same release strips the `db` any
+non-trivial hook needs to compute one. This reads as a runtime bug, not an intended contract.
+
+**Ask (runtime):** first-party (trusted) completion hooks must receive a usable `db` + `run`
+(or `run_id` + a runtime-provided session/handle), OR the runtime must document the intended
+post-1.6.0 completion-hook pattern (e.g. hooks are pure deciders that use syscalls only).
+
+**To confirm with runtime:** whether `_sanitized_extension_input` was added to
+`run_agent_completion_hooks` in 1.6.0 (a #61-adoption regression) or existed earlier (a latent
+break). Determines urgency/framing. Note: only the *completion-hook* trigger is affected — the
+Infinity loop still runs via other triggers (task completion, manual), so the #63
+`support_metrics` wiring is unaffected.
+
+**App-side follow-on when unblocked:** land the parked Next-Action ledger change
+(`feat/infinity-next-action-ledger`) — maps the loop's 4 decision verbs to the runtime's
+canonical NextAction verbs (continue / reprioritize / create_new_task → `trigger_execution`,
+review_plan → `ask_user`) and returns a coercible NextAction so `NEXT_ACTION_CHOSEN` records the
+app's real decision. Code + unit tests are written and green; only the live path is blocked.
+
+**Reopen/close trigger:** an aindy-runtime release restoring db/run access to first-party
+completion hooks, or a documented replacement contract.
+
+---
+
 ## RIPPLETRACE-CONTENT-LLM-1: rippletrace content generation is template-only (LLM path dropped in the port)
 
 **Status:** Tracked (2026-07-05). App-owned. Found comparing the standalone RippleTrace MVP
