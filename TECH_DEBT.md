@@ -11,7 +11,7 @@ app profile — an image that installs the pinned `aindy-runtime` and provides t
 manifest so `apps.bootstrap` registers the domain apps into the runtime via the plugin ABI.
 
 **Delivered (this change):**
-- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.6.0,<2.0`), copies the
+- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.6.1,<2.0`), copies the
   app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves via
   `aindy-runtime serve` from the repo root (shape follows the runtime's own `aindy-runtime init`
   scaffold: `libpq-dev`, `AINDY_HOST=0.0.0.0`).
@@ -53,56 +53,48 @@ entrypoint / migration contract.
 
 ---
 
-## INFINITY-COMPLETION-HOOK-BOUNDARY-1: agent completion hook no-ops on aindy-runtime 1.6.0 (runtime handoff)
+## INFINITY-COMPLETION-HOOK-BOUNDARY-1: agent completion hook no-op'd across the extension boundary — RESOLVED (aindy-runtime 1.6.1)
 
-**Status:** OPEN — runtime-owned regression (found 2026-07-08). Silently disables
-post-agent-completion Infinity loop enforcement, and blocks the app-side Next-Action
-ledger work (parked on branch `feat/infinity-next-action-ledger`).
+**Status:** **RESOLVED (2026-07-09).** Fixed runtime-side in aindy-runtime 1.6.1 (PR #209);
+the app hook was adapted to the boundary-preserving contract and the Next-Action ledger work
+landed on top. See Resolution below.
 
-**Symptom:** `apps/agent/agents/runtime_extensions.py::handle_agent_run_completed`
-(registered via `register_agent_completion_hook("default", …)`) returns immediately at its
-`if run is None or db is None: return None` guard on 1.6.0, so it never runs the
-`analytics.infinity_execute` orchestrator on agent completion. The runtime records its
-default NextAction instead of the app's decision.
+**Symptom (as found):** `apps/agent/agents/runtime_extensions.py::handle_agent_run_completed`
+(registered via `register_agent_completion_hook("default", …)`) returned immediately at its
+`if run is None or db is None: return None` guard, so it never ran the `analytics.infinity_execute`
+orchestrator on agent completion — post-agent-completion Infinity loop enforcement was silently
+dead, and the runtime recorded its default NextAction instead of the app's decision.
 
-**Root cause (runtime-owned):** the runtime invokes completion hooks through
-`AINDY.platform_layer.registry.run_agent_completion_hooks`, which unconditionally passes the
-context through `sanitize_extension_context` (`AINDY/platform_layer/extension_boundary.py`).
-That sanitizer (a) drops `db` / `_db` / `session` — they are in `_BLOCKED_ROOT_KEYS` — so the
-hook receives `db=None`, and (b) redacts the `run` ORM object to `{"_redacted_type": "AgentRun"}`
-(no id, no `.result`; anything in the `AINDY.*` namespace is redacted). The app cannot recover
-`db`/`run` from the sanitized payload: there is no `run_id` primitive and no session handle.
-`user_id` is the only useful survivor.
+**Root cause (runtime-owned; NOT a 1.6.0 regression):** the runtime invokes completion hooks
+through `run_agent_completion_hooks`, which passes the context through `sanitize_extension_context`
+(`AINDY/platform_layer/extension_boundary.py`) — dropping `db` (a `_BLOCKED_ROOT_KEYS` entry) and
+redacting the `run` ORM object. Per the runtime team this sanitize has been latent **since v1.0.0**
+(commit 93d9c84, 2026-05-20); before 1.6.0 the hook ran with `db=None` too, but its return was
+discarded, so nothing surfaced. 1.6.0's Gap-4 change (`execution.py:220` began *consuming* the
+hook's returned NextAction) is what made the long-standing gap **visible** — the app's "dead since
+we adopted 1.6.0" was right about visibility, wrong about cause. Compounding it, the
+`agent_completion_hook` surface was not in `_STATEFUL_IN_PROCESS_CALLBACK_SURFACES`, so it was also
+subprocess-isolated (PLANNER-SUBPROC-1) — the same gap already closed for `run_tool_provider` /
+`planner_context` (which survive because they read live registry state, not the DB). Completion
+hooks are the one surface that genuinely needs the run + a session.
 
-**Evidence (installed aindy-runtime 1.6.0):**
-- `sanitize_extension_context({"run": <AgentRun>, "db": <Session>})` → `run` becomes
-  `{"_redacted_type": "AgentRun"}`, the `db` key is dropped (`None`).
-- The exact production call `compat._run_completion_hooks("default", {"run": run, "db": db, …})`
-  returns `[None]`, and a stubbed `analytics.infinity_execute` orchestrator is never reached.
+**Resolution — runtime (aindy-runtime 1.6.1 / PR #209, Option A: boundary-preserving):**
+- the completion-hook context now carries `run_id` (a string → survives the sanitizer;
+  `execution.py:231`); the hook re-fetches the run with its own session;
+- `agent_completion_hook` is added to `_STATEFUL_IN_PROCESS_CALLBACK_SURFACES` (runs in-process,
+  no longer subprocess-isolated);
+- the sanitizer is untouched — the runtime still never hands out a `db`/session/ORM handle; only a
+  string id crosses.
 
-**Contradiction with 1.6.0's own design:** 1.6.0 ships the Gap-4 Next-Action primitive
-(`AINDY/core/next_action.py`) that coerces a completion hook's *return* into `NEXT_ACTION_CHOSEN`
-— i.e. it expects hooks to return a decision — yet the same release strips the `db` any
-non-trivial hook needs to compute one. This reads as a runtime bug, not an intended contract.
+**Resolution — app (this change):** floor bumped to `>=1.6.1`; `handle_agent_run_completed` now
+reads `run_id` + `user_id`, opens its own `SessionLocal()`, re-fetches the `AgentRun`, runs the
+orchestrator, stamps `run.result`, and returns a runtime-coercible NextAction — mapping the loop's
+4 decision verbs to canonical verbs (continue / reprioritize / create_new_task →
+`trigger_execution`, review_plan → `ask_user`) so `NEXT_ACTION_CHOSEN` records the app's real
+decision. Verified end-to-end on 1.6.1 through the real `compat._run_completion_hooks` path.
 
-**Ask (runtime):** first-party (trusted) completion hooks must receive a usable `db` + `run`
-(or `run_id` + a runtime-provided session/handle), OR the runtime must document the intended
-post-1.6.0 completion-hook pattern (e.g. hooks are pure deciders that use syscalls only).
-
-**To confirm with runtime:** whether `_sanitized_extension_input` was added to
-`run_agent_completion_hooks` in 1.6.0 (a #61-adoption regression) or existed earlier (a latent
-break). Determines urgency/framing. Note: only the *completion-hook* trigger is affected — the
-Infinity loop still runs via other triggers (task completion, manual), so the #63
-`support_metrics` wiring is unaffected.
-
-**App-side follow-on when unblocked:** land the parked Next-Action ledger change
-(`feat/infinity-next-action-ledger`) — maps the loop's 4 decision verbs to the runtime's
-canonical NextAction verbs (continue / reprioritize / create_new_task → `trigger_execution`,
-review_plan → `ask_user`) and returns a coercible NextAction so `NEXT_ACTION_CHOSEN` records the
-app's real decision. Code + unit tests are written and green; only the live path is blocked.
-
-**Reopen/close trigger:** an aindy-runtime release restoring db/run access to first-party
-completion hooks, or a documented replacement contract.
+**Reopen trigger:** any change to the completion-hook context contract, or the runtime moving from
+record-first Next-Action to autonomous pre-dispatch action.
 
 ---
 
@@ -295,7 +287,7 @@ across `duration` (hours) and `time_spent` (seconds).
 **Status:** **RESOLVED in aindy-runtime 1.5.3 (2026-07-05).** nodus_vm execute-to-completion
 was blocked by two stacked, PG-only, transaction-poisoning runtime bugs (SQLite masked both);
 both are now fixed and published, and Gate 2 of `tests/integration/test_nodus_vm.py`
-hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.6.0,<2.0`):
+hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.6.1,<2.0`):
 
 1. **#152** (PR #155, v1.5.2) — `ExecutionPipeline.run()` emitted its own `execution.started`
    *before* marking itself active, so the nested flow-runner pipeline reached during a

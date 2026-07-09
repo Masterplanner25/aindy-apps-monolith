@@ -140,15 +140,46 @@ class _FakeRun:
         self.id = run_id
 
 
-class _FakeDB:
-    def __init__(self):
+class _FakeQuery:
+    def __init__(self, run):
+        self._run = run
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self._run
+
+
+class _FakeSession:
+    """Stands in for the SessionLocal() the hook opens to re-fetch the run by id."""
+
+    def __init__(self, run):
+        self._run = run
         self.committed = False
+        self.rolled_back = False
+        self.closed = False
+
+    def query(self, model):
+        return _FakeQuery(self._run)
 
     def commit(self):
         self.committed = True
 
-    def refresh(self, obj):
-        pass
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
+
+
+def _patch_session(monkeypatch, run):
+    """Make the hook's `SessionLocal()` return a fake session that yields `run`."""
+    import AINDY.db.database as database
+
+    session = _FakeSession(run)
+    monkeypatch.setattr(database, "SessionLocal", lambda: session)
+    return session
 
 
 def test_completion_hook_enforces_infinity_loop(monkeypatch):
@@ -157,35 +188,120 @@ def test_completion_hook_enforces_infinity_loop(monkeypatch):
     monkeypatch.setattr(
         registry,
         "get_job",
-        lambda name: (lambda **kw: {"next_action": {"type": "continue_highest_priority_task"}})
+        lambda name: (
+            lambda **kw: {
+                "next_action": {
+                    "type": "continue_highest_priority_task",
+                    "title": "Continue task: Ship onboarding",
+                    "task_id": "t1",
+                }
+            }
+        )
         if name == "analytics.infinity_execute"
         else None,
     )
-    run, db = _FakeRun(), _FakeDB()
-    out = handle_agent_run_completed({"run": run, "db": db, "user_id": "u1"})
-    assert out["loop_enforced"] is True
-    assert out["next_action"]["type"] == "continue_highest_priority_task"
+    run = _FakeRun()
+    session = _patch_session(monkeypatch, run)
+    out = handle_agent_run_completed({"run_id": "run-1", "user_id": "u1"})
+
+    # The hook re-fetched the run by id and stamped its rich decision dict (consumer contract).
     assert run.result["loop_enforced"] is True
-    assert db.committed is True
+    assert run.result["next_action"]["type"] == "continue_highest_priority_task"
+    assert session.committed is True
+    assert session.closed is True
+
+    # The hook RETURNS a runtime-coercible NextAction (Gap 4 ledger), not run.result.
+    assert out["action"] == "trigger_execution"
+    assert out["source"] == "infinity_orchestrator"
+    assert out["reason"] == "infinity:continue_highest_priority_task"
+    assert out["args"]["title"] == "Continue task: Ship onboarding"
+
+
+def test_completion_hook_return_is_runtime_coercible(monkeypatch):
+    # The runtime coerces the hook's return via coerce_next_action; a round-trip
+    # must yield the same canonical verb (proves the ledger records the app verb).
+    import AINDY.platform_layer.registry as registry
+    from AINDY.core.next_action import VALID_ACTIONS, coerce_next_action
+
+    _patch_session(monkeypatch, _FakeRun())
+    monkeypatch.setattr(
+        registry,
+        "get_job",
+        lambda name: (lambda **kw: {"next_action": {"type": "review_plan", "title": "Review the plan"}})
+        if name == "analytics.infinity_execute"
+        else None,
+    )
+    out = handle_agent_run_completed({"run_id": "run-1", "user_id": "u1"})
+    assert out["action"] == "ask_user"  # review_plan is manual/human-gated
+    assert out["action"] in VALID_ACTIONS
+    assert coerce_next_action(out)["action"] == "ask_user"
+
+
+@pytest.mark.parametrize(
+    "decision_type, expected_verb",
+    [
+        ("continue_highest_priority_task", "trigger_execution"),
+        ("reprioritize_tasks", "trigger_execution"),
+        ("create_new_task", "trigger_execution"),
+        ("review_plan", "ask_user"),
+    ],
+)
+def test_next_action_mapping_covers_every_loop_verb(decision_type, expected_verb):
+    from AINDY.core.next_action import VALID_ACTIONS
+    from apps.agent.agents.runtime_extensions import (
+        _INFINITY_DECISION_TO_NEXT_ACTION,
+        _next_action_for_runtime,
+    )
+
+    # Every verb the loop can emit is mapped, and every target is a canonical verb.
+    assert set(_INFINITY_DECISION_TO_NEXT_ACTION.values()) <= VALID_ACTIONS
+    out = _next_action_for_runtime({"next_action": {"type": decision_type}})
+    assert out["action"] == expected_verb
+
+
+def test_next_action_unmapped_or_missing_falls_back_to_runtime_default():
+    from apps.agent.agents.runtime_extensions import _next_action_for_runtime
+
+    # Unknown verb, non-dict, and missing decision all -> None (runtime keeps default).
+    assert _next_action_for_runtime({"next_action": {"type": "totally_unknown"}}) is None
+    assert _next_action_for_runtime({"next_action": "not-a-dict"}) is None
+    assert _next_action_for_runtime({}) is None
+    assert _next_action_for_runtime(None) is None
 
 
 def test_completion_hook_noop_when_already_enforced(monkeypatch):
     import AINDY.platform_layer.registry as registry
 
+    session = _patch_session(monkeypatch, _FakeRun(result={"loop_enforced": True}))
     called = []
     monkeypatch.setattr(registry, "get_job", lambda name: called.append(name) or None)
-    out = handle_agent_run_completed({"run": _FakeRun(result={"loop_enforced": True}), "db": _FakeDB(), "user_id": "u1"})
+    out = handle_agent_run_completed({"run_id": "run-1", "user_id": "u1"})
     assert out is None
     assert called == []  # short-circuits before touching the job registry
+    assert session.closed is True  # session still closed on the no-op path
+
+
+def test_completion_hook_noop_when_run_not_found(monkeypatch):
+    # run_id given but the run is gone (re-fetch returns None) -> no-op, session closed.
+    session = _patch_session(monkeypatch, None)
+    out = handle_agent_run_completed({"run_id": "gone", "user_id": "u1"})
+    assert out is None
+    assert session.closed is True
 
 
 def test_completion_hook_graceful_without_orchestrator(monkeypatch):
     import AINDY.platform_layer.registry as registry
 
+    session = _patch_session(monkeypatch, _FakeRun())
     monkeypatch.setattr(registry, "get_job", lambda name: None)
-    out = handle_agent_run_completed({"run": _FakeRun(), "db": _FakeDB(), "user_id": "u1"})
-    assert out is None  # missing job -> swallowed, run untouched
+    out = handle_agent_run_completed({"run_id": "run-1", "user_id": "u1"})
+    assert out is None  # missing job -> swallowed
+    assert session.rolled_back is True
+    assert session.closed is True
 
 
-def test_completion_hook_requires_run_and_db():
-    assert handle_agent_run_completed({"run": None, "db": None}) is None
+def test_completion_hook_requires_run_id_and_user():
+    # Missing run_id or user_id -> no-op before a session is ever opened.
+    assert handle_agent_run_completed({"run_id": None, "user_id": None}) is None
+    assert handle_agent_run_completed({"user_id": "u1"}) is None
+    assert handle_agent_run_completed({"run_id": "r1"}) is None
