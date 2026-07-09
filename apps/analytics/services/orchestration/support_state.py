@@ -8,15 +8,19 @@ of re-deriving it inline.
 
 Gathering fidelity matches the prior orchestrator behavior exactly: memory /
 metrics / memory_signals propagate on failure (no swallow), while system_state /
-goals / task_graph / social_signals fall back to safe defaults. Inputs are pulled
-through the existing `dependency_adapter` syscall seam + the `goals.rank` job — no
-runtime edits.
+goals / task_graph / social_signals / support_metrics fall back to safe defaults.
+Inputs are pulled through the existing `dependency_adapter` syscall seam + the
+`goals.rank` job — no runtime edits.
+
+`support_metrics` is the runtime observability + execution rollup (Support System
+Steps 3 & 4) fetched via `sys.v1.observability.support_metrics` (aindy-runtime
+>=1.6.0); it degrades to `{}` on an older runtime that lacks the syscall.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from AINDY.platform_layer.registry import get_job
@@ -38,10 +42,11 @@ class SupportState:
     goals: list
     task_graph: dict
     social_signals: list
+    support_metrics: dict = field(default_factory=dict)
 
     @property
     def loop_context(self) -> dict[str, Any]:
-        """The loop_context dict the orchestrator/loop consume (unchanged shape)."""
+        """The loop_context dict the orchestrator/loop consume."""
         return {
             "user_id": self.user_id,
             "memory": self.memory,
@@ -51,6 +56,7 @@ class SupportState:
             "goals": self.goals,
             "task_graph": self.task_graph,
             "social_signals": self.social_signals,
+            "support_metrics": self.support_metrics,
         }
 
     def summary(self) -> dict[str, Any]:
@@ -65,6 +71,12 @@ class SupportState:
             "blocked_task_count": len((self.task_graph or {}).get("blocked") or []),
             "social_signal_count": len(self.social_signals or []),
             "has_metrics": self.metrics is not None,
+            "platform_health_status": (
+                (self.support_metrics or {}).get("observability") or {}
+            ).get("platform_health_status"),
+            "infinity_event_total": (
+                (self.support_metrics or {}).get("infinity_events") or {}
+            ).get("total"),
         }
 
 
@@ -103,6 +115,14 @@ def gather_support_state(db, user_id, trigger_event) -> SupportState:
         logger.warning("[SupportState] social signal lookup failed for %s: %s", user_id, exc)
         social_signals = []
 
+    try:
+        support_metrics = dependency_adapter.fetch_observability_support_metrics(
+            user_id=str(user_id), db=db
+        )
+    except Exception as exc:
+        logger.warning("[SupportState] support metrics lookup failed for %s: %s", user_id, exc)
+        support_metrics = {}
+
     return SupportState(
         user_id=str(user_id),
         memory=memory_nodes,
@@ -112,4 +132,5 @@ def gather_support_state(db, user_id, trigger_event) -> SupportState:
         goals=goals,
         task_graph=task_graph,
         social_signals=social_signals,
+        support_metrics=support_metrics,
     )

@@ -93,6 +93,29 @@ def fetch_system_state(db) -> dict[str, Any]:
     return dict(compute_current_state(db) or {})
 
 
+def fetch_observability_support_metrics(*, user_id: str, db, window_hours: int | None = None) -> dict[str, Any]:
+    """Fetch the runtime's tenant-scoped observability + execution support rollup.
+
+    Backs Infinity Support System Steps 3 & 4: request/health data plus
+    agent-run / async-job / Infinity-loop-event distributions, exposed by the
+    runtime as ``sys.v1.observability.support_metrics`` (aindy-runtime >=1.6.0,
+    INFINITY-RUNTIME-1 item 3). Read-only; the tenant is resolved from the syscall
+    context, so ``user_id`` scopes the rollup. Returns ``{}`` on any non-success
+    dispatch, so an older runtime without the syscall degrades this support signal
+    to empty rather than breaking the loop.
+    """
+    payload: dict[str, Any] = {}
+    if window_hours is not None:
+        payload["window_hours"] = window_hours
+    return _dispatch_syscall(
+        "sys.v1.observability.support_metrics",
+        payload,
+        user_id=str(user_id),
+        capability="execution.read",
+        db=db,
+    )
+
+
 def get_latest_loop_adjustment(*, user_id: str, db):
     owner_user_id = parse_user_id(user_id)
     if owner_user_id is None:
