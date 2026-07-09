@@ -421,13 +421,13 @@ behavior change here.
 **Files:** `apps/analytics/services/orchestration/infinity_loop.py`, `apps/analytics/services/scoring/infinity_service.py`  
 **Outcome:** watcher, feedback, and execution support signals influence decisions more directly.
 
-### Step 3 - Connect observability aggregates to support inputs
-**Files:** `AINDY/routes/observability_router.py`, supporting services/models as needed  
-**Outcome:** request metrics and health data become usable support inputs rather than dashboard-only outputs.
+### Step 3 - Connect observability aggregates to support inputs - DONE (2026-07-08)
+**Files:** `apps/analytics/services/integration/dependency_adapter.py`, `apps/analytics/services/orchestration/support_state.py` (app lever); `sys.v1.observability.support_metrics` (runtime, aindy-runtime >=1.6.0)  
+**Outcome:** request metrics and platform health become usable support inputs, not dashboard-only outputs. The runtime exposes them via the `sys.v1.observability.support_metrics` syscall (Step 3 + Step 4 in one tenant-scoped, read-only rollup); the app fetches it through `fetch_observability_support_metrics` and threads it into `SupportState.support_metrics` → `loop_context` → the reasoning engine.
 
-### Step 4 - Aggregate agent and async execution behavior into support metrics
-**Files:** `AINDY/agents/agent_event_service.py`, `AINDY/platform_layer/async_job_service.py`, `apps/analytics/services/scoring/infinity_service.py`  
-**Outcome:** agent and async execution behavior contributes to Infinity more systematically.
+### Step 4 - Aggregate agent and async execution behavior into support metrics - DONE (2026-07-08)
+**Files:** same aggregate as Step 3 (`sys.v1.observability.support_metrics`), consumed via `support_state.gather_support_state`  
+**Outcome:** agent-run and async-job status distributions (plus `recall_used`/`score_computed`/`next_action_chosen` loop-event counts) are delivered by the same runtime rollup and reach the Infinity loop through the support state. Degrades to `{}` on a runtime older than 1.6.0.
 
 ### Step 5 - Weight explicit feedback into KPI calculations where appropriate - DONE
 **Files:** `apps/analytics/services/scoring/kpi_weight_service.py`  
@@ -469,13 +469,13 @@ syscalls/jobs; they do not edit runtime. Step ownership:
   Step 6 (done — app seam validated; full DB E2E is integration-tier), Step 2
   (deeper loop weighting — the loop already threads feedback/memory/system/goals/
   social into the decision engine).
-- **Runtime-gated:** Step 3 (observability aggregates) and Step 4 (agent/async
-  execution metrics) — their producers live in `AINDY/`
-  (`observability_router`, `agent_event_service`, `async_job_service`) with no
-  app-facing aggregate syscall/job yet. The app lever would be a new
-  `dependency_adapter` fetch once the runtime exposes the aggregate; until then
-  these are runtime feature requests, not app edits. Tracked: `TECH_DEBT.md` →
-  **INFINITY-RUNTIME-HANDOFF-1**.
+- **Runtime-gated → delivered (2026-07-08):** Step 3 (observability aggregates)
+  and Step 4 (agent/async execution metrics). aindy-runtime 1.6.0 exposes their
+  producers as one app-facing syscall, `sys.v1.observability.support_metrics`
+  (capability `execution.read`); the app lever is now wired —
+  `dependency_adapter.fetch_observability_support_metrics` +
+  `support_state.gather_support_state`. Closed: `TECH_DEBT.md` →
+  **INFINITY-RUNTIME-HANDOFF-1** (item 3).
 
 ---
 

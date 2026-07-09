@@ -111,10 +111,12 @@ signals in analytics / the Infinity loop.
 
 ## INFINITY-RUNTIME-HANDOFF-1: runtime-side Infinity loop closure + cross-doc linkage (handoff to aindy-runtime)
 
-**Status:** Tracked handoff (2026-07-05). The app-side Infinity docs
-(`docs/apps/INFINITY_ALGORITHM{,_CANONICAL,_FORMALIZATION,_SUPPORT_SYSTEM}.md`) were reviewed
-to complete-or-tracked; the items below are **runtime-owned** and belong in `aindy-runtime`,
-not this repo.
+**Status:** **RESOLVED (2026-07-08).** Items 1 & 2 were runtime-side done (PR #160);
+item 3's runtime half shipped in **aindy-runtime 1.6.0** (`sys.v1.observability.support_metrics`,
+INFINITY-RUNTIME-1 item 3) and the app lever is now wired — `dependency_adapter`
+fetches the aggregate into the Infinity support state. See Verification below. The app-side
+Infinity docs (`docs/apps/INFINITY_ALGORITHM{,_CANONICAL,_FORMALIZATION,_SUPPORT_SYSTEM}.md`)
+were reviewed to complete-or-tracked.
 
 **Context:** The Infinity scoring/orchestrator/loop is app-owned
 (`apps/analytics/services/{scoring,orchestration}/`). The runtime owns a complementary audit at
@@ -151,13 +153,20 @@ now **runtime side done**; item 3 remains open.
 - #2: **Runtime side done.** The 5 structural gaps are now tracked runtime-side as
   **INFINITY-RUNTIME-1** in `aindy-runtime/TECH_DEBT.md` (PR #160 merged). Gap 4 (Next-Action
   engine primitive) — which gates app-side Infinity Phase 2 — is on that board.
-- #3: **Open.** The Step 3/4 producers (`observability_router.py`, `agent_event_service.py`,
-  `async_job_service.py`) still expose no app-facing aggregate syscall/job; the app lever
-  remains a `dependency_adapter` fetch once the runtime exposes the aggregate.
+- #3: **Resolved (2026-07-08).** aindy-runtime 1.6.0 exposes the aggregate as the
+  `sys.v1.observability.support_metrics` syscall (capability `execution.read`; Step 3 request/
+  health + Step 4 agent-run/async-job/Infinity-loop-event distributions over an optional
+  `window_hours`). The app lever is wired: `dependency_adapter.fetch_observability_support_metrics`
+  dispatches it and `orchestration/support_state.gather_support_state` threads the rollup into
+  `SupportState.support_metrics` → `loop_context` → `run_loop` → the reasoning engine. It degrades
+  to `{}` on an older runtime lacking the syscall, so the floor bump to `>=1.6.0` (not the code)
+  is what guarantees the signal.
 
-**Reopen trigger:** an `aindy-runtime` release advancing loop closure (any of the 5 gaps) or
-exposing observability/execution aggregate syscalls; or a re-triage of the app-side Infinity
-phases as runtime capabilities land.
+**Reopen trigger:** a re-triage of the app-side Infinity phases as further runtime loop-closure
+capabilities land (e.g. the runtime moving from record-first Next-Action to autonomous
+pre-dispatch action — see `AINDY/core/next_action.py`), which would let the app consume the
+`NEXT_ACTION_CHOSEN` ledger and align its completion-hook return to the runtime NextAction
+contract (app-side Infinity Phase 2 follow-on, not yet scoped).
 
 ---
 
