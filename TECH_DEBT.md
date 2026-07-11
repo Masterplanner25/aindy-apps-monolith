@@ -2,8 +2,31 @@
 
 ## APP-DEPLOY-1: server deploy artifact (app-consuming-the-framework image)
 
-**Status:** In progress (2026-07-05). App-owned. First-cut scaffold added; runtime-contract
-specifics need confirmation + a real build/boot test.
+**Status:** In progress (2026-07-11). App-owned. Scaffold + a real Linux build/boot test done;
+the fresh-DB schema-guard bug is found and fixed in the entrypoint. One clean-ownership follow-up
+(runtime `bootstrap-schema` command) is requested from the runtime team.
+
+**Schema-guard bug — FOUND + FIXED (2026-07-11).** A real Linux build/boot test (deploy image on
+the test network, driving one agent run over HTTP) showed the entrypoint's `alembic upgrade head`
+**fails on a fresh DB**: the 100+ pre-split app revisions rebuild the *runtime-owned* tables
+(`agent_runs`, `execution_units`, `users` …) at a drifted schema, and `aindy-runtime serve`'s
+startup guard then refuses to boot (`RuntimeError: Runtime-owned schema is incompatible with
+packaged metadata`). `alembic/alembic/env.py`'s `include_object` only excludes those tables from
+*autogenerate* — replaying the historical revisions still builds them drifted. The runtime is
+behaving correctly (the guard is doing its job). **Fix:** the entrypoint now calls
+`scripts/deploy_bootstrap.py` — fresh DB → `Base.metadata.create_all` from packaged metadata (so
+runtime tables match the guard) + `alembic stamp head`; existing DB → `alembic upgrade head`.
+Verified: with `create_all` (skipping the drifted alembic build), serve boots app-profile
+(default-apps, 17 apps) and drives a run through plan→approve→execute on Linux.
+
+**Runtime-team request (clean-ownership follow-up):** `create_all` builds the runtime tables at
+the *current* packaged schema (guard passes for the pinned version) but cannot stamp the runtime's
+own `alembic_version_runtime` line — that bookkeeping belongs to the runtime. Ask aindy-runtime to
+expose a blessed `bootstrap-schema` (or `serve --bootstrap`) command that builds AND stamps its own
+tables, so the entrypoint can call it before app migrations and future runtime schema upgrades onto
+a create_all-built DB have a baseline. Until then the app-side `deploy_bootstrap.py` is the
+unblocker. (Previously-failed old-entrypoint deploys never booted past the guard, so there are no
+successfully-deployed old DBs to migrate; a fresh redeploy picks up the fix.)
 
 **Context:** The apps repo shipped only `client/Dockerfile` (frontend) and
 `docker-compose.test.yml` (datastores for the test runner). It had no server deployable for the
@@ -15,10 +38,10 @@ manifest so `apps.bootstrap` registers the domain apps into the runtime via the 
   app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves via
   `aindy-runtime serve` from the repo root (shape follows the runtime's own `aindy-runtime init`
   scaffold: `libpq-dev`, `AINDY_HOST=0.0.0.0`).
-- `docker/entrypoint.sh` — applies the app schema (`alembic upgrade head`, `alembic_version`),
-  then execs `aindy-runtime serve` (which binds `AINDY_HOST:AINDY_PORT` and self-migrates the
-  runtime schema, `alembic_version_runtime`, at boot). A `PRE_SERVE_CMD` hook is available for a
-  runtime pre-serve migrate step if the deploy contract adds one.
+- `docker/entrypoint.sh` — runs `scripts/deploy_bootstrap.py` (fresh DB: `create_all` from
+  packaged metadata + `alembic stamp head`; existing DB: `alembic upgrade head`), then execs
+  `aindy-runtime serve`. A `PRE_SERVE_CMD` hook is available for a runtime pre-serve step if the
+  deploy contract adds one. (Originally a bare `alembic upgrade head`; see the schema-guard fix above.)
 - `docker-compose.prod.yml` — `api` (built app image) + Postgres/pgvector (persistent) with a
   `/health` healthcheck; Redis under a `full` profile and Mongo optional, mirroring
   `aindy-runtime init`.
@@ -29,14 +52,14 @@ app_plugin_count=17) and `scripts/check_api_reference.py` reports 0 drift. The D
 is still unbuilt/untested here (no Docker in the dev env).
 
 **Open items:**
-1. **App-tree migration ordering.** The runtime self-migrates its own schema at `serve` (its
-   `aindy-runtime init` compose runs only `aindy-runtime serve`, no migrate step), and there is
-   **no** `aindy-runtime migrate` subcommand (only `init` / `serve` / `sandbox` / `auth`). The
-   entrypoint runs the app `alembic upgrade head` before serve; if an app revision FKs a
-   runtime-owned table this must be ordered after the runtime schema exists — confirm and wire
-   `PRE_SERVE_CMD` accordingly.
-2. **Build/boot test.** Build the image against `aindy-runtime>=1.5.3` and verify boot end-to-end
-   (`/health`, `/api/version` → 17 app plugins) and that `alembic upgrade head` applies cleanly.
+1. **App-tree migration ordering — RESOLVED (2026-07-11).** On a fresh DB the app schema is now
+   built by `create_all` from the combined packaged metadata (runtime + app tables together at the
+   current schema), so there is no ordering hazard vs the runtime guard. The clean long-term path
+   is the requested runtime `bootstrap-schema` command (see above).
+2. **Build/boot test — DONE (2026-07-11).** Built the image and ran it against a live
+   Postgres/Redis/Mongo stack on Linux: serve boots app-profile (`/api/version` → default-apps,
+   17 plugins) and drives a real agent run register→plan(Claude)→approve→execute over HTTP. This
+   surfaced (and fixed) the fresh-DB schema-guard bug above.
 3. **Env-name/driver confirmation.** `DATABASE_URL` uses the psycopg2 scheme; `REDIS_URL` /
    `EXECUTION_MODE=distributed` are assumed from the runtime scaffold — confirm against the
    runtime config surface.

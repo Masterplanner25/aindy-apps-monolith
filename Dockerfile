@@ -36,6 +36,7 @@ RUN python -m pip install --upgrade pip \
 # (script_location = alembic/alembic).
 COPY aindy_plugins.json alembic.ini ./
 COPY alembic ./alembic
+COPY scripts/deploy_bootstrap.py ./scripts/deploy_bootstrap.py
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
