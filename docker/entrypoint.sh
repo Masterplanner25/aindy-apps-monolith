@@ -10,18 +10,20 @@
 #   - alembic_version         : app-owned tables (this repo's alembic/alembic, 139 revisions).
 set -e
 
-# App-owned schema. Runs from the repo root; alembic.ini -> script_location alembic/alembic.
-# NOTE (APP-DEPLOY-1): ordering vs the runtime's boot-time self-migration is unconfirmed —
-# if an app revision FKs a runtime-owned table, the runtime schema must exist first. Set
-# PRE_SERVE_CMD to a runtime pre-serve migrate/prepare step if the runtime deploy contract
-# provides one.
+# Optional runtime pre-serve hook (runs before schema bootstrap).
 if [ -n "${PRE_SERVE_CMD}" ]; then
   echo "[entrypoint] pre-serve: ${PRE_SERVE_CMD}"
   sh -c "${PRE_SERVE_CMD}"
 fi
 
-echo "[entrypoint] app migrations: alembic upgrade head"
-alembic upgrade head
+# Schema bootstrap (APP-DEPLOY-1). A plain `alembic upgrade head` on a FRESH DB replays the
+# 100+ pre-split revisions that build the runtime-owned tables at a drifted schema, which
+# `aindy-runtime serve`'s startup guard then rejects. deploy_bootstrap.py does the right thing:
+#   fresh DB    -> create_all from packaged metadata (runtime tables match the guard) + stamp head
+#   existing DB -> alembic upgrade head (incremental app migrations)
+# See scripts/deploy_bootstrap.py and TECH_DEBT APP-DEPLOY-1.
+echo "[entrypoint] schema bootstrap: python scripts/deploy_bootstrap.py"
+python scripts/deploy_bootstrap.py
 
 # Serve. `aindy-runtime serve` binds AINDY_HOST:AINDY_PORT and self-migrates the runtime schema;
 # from this repo root it discovers ./aindy_plugins.json -> apps.bootstrap (app profile).
