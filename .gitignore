@@ -28,3 +28,8 @@ server.err
 
 # Local diagnostic scripts (not tracked)
 scripts/diag_*.py
+
+# Local secrets — never commit (real API keys live here)
+.env
+.env.local
+.env.*.local
