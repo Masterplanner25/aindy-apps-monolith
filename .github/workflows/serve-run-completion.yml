@@ -1,0 +1,219 @@
+name: Serve Run Completion (Claude planner, live HTTP)
+
+# Boots `aindy-runtime serve` in the app profile against a live Postgres/Redis/Mongo
+# stack and drives ONE real agent run end-to-end over HTTP with the Claude planner
+# (AINDY_AGENT_PLANNER_BACKEND=anthropic_chat): register -> create (Claude plans) ->
+# approve -> execute -> assert the run reaches `completed` with steps.
+#
+# This is the Linux-authoritative version of the planner spike (Tier 2). It cannot be
+# done reliably on a Windows/Docker-Desktop dev box: the runtime's /api/version handler
+# deadlocks shelling out to `docker info` (its 3s timeout can't fire on Windows because
+# Docker Desktop keeps the pipe open), and the Docker Desktop port-forward makes each pg
+# connection ~4s so the pool exhausts. On Linux the sandbox probe skips the subprocess
+# entirely and pg is sub-ms, so both problems vanish.
+#
+# Requires repo secrets: ANTHROPIC_API_KEY (planner), OPENAI_API_KEY (embeddings),
+# DEEPSEEK_API_KEY (arm). Manual only — costs one Anthropic call per run.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  serve-run-completion:
+    name: serve + Claude planner -> run completes (live stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: aindy_test
+          POSTGRES_PASSWORD: aindy_test
+          POSTGRES_DB: aindy_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U aindy_test -d aindy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://aindy_test:aindy_test@localhost:5433/aindy_test
+      REDIS_URL: redis://localhost:6380
+      AINDY_REDIS_URL: redis://localhost:6380
+      MONGO_URL: mongodb://localhost:27017/aindy_serve_smoke
+      # Load the 17 app plugins (serve otherwise setdefaults AINDY_BOOT_MODE=runtime-only).
+      AINDY_BOOT_MODE: app-profile
+      AINDY_APP_PLUGIN_MANIFEST: ./aindy_plugins.json
+      # Wake the qualitative planner.
+      AINDY_AGENT_PLANNER_BACKEND: anthropic_chat
+      AINDY_CLAUDE_PLANNER_MODEL: claude-sonnet-5
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      SECRET_KEY: ci-serve-smoke-secret-key-at-least-32-chars
+      AINDY_API_KEY: ci-serve-smoke-api-key
+      PERMISSION_SECRET: ci-serve-smoke-permission-secret-32-chars
+      AINDY_HOST: 127.0.0.1
+      AINDY_PORT: "8000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Install app (pulls pinned aindy-runtime from PyPI)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
+
+      - name: Preflight — required secrets present
+        run: |
+          missing=""
+          for v in ANTHROPIC_API_KEY OPENAI_API_KEY DEEPSEEK_API_KEY; do
+            eval "val=\${$v:-}"
+            if [ -z "$val" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repo secrets:$missing — add them in Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "all three key secrets are present"
+
+      - name: Preflight — runner can reach api.anthropic.com
+        # Per TECH_DEBT RTR-1-NODUS-APPTOOL-500 an earlier run could not reach Anthropic
+        # from the runner. Fail loudly and early with a clear message if egress is blocked,
+        # rather than surfacing as an opaque planner error later.
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://api.anthropic.com/v1/models \
+                 -H "x-api-key: ${ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" || echo 000)
+          echo "api.anthropic.com/v1/models -> HTTP $code"
+          if [ "$code" = "000" ]; then
+            echo "::error::runner cannot reach api.anthropic.com (egress blocked). The anthropic_chat planner cannot run here."
+            exit 1
+          fi
+          echo "Anthropic API reachable (auth/quota handled by the planner itself)"
+
+      - name: Build schema (create_all from live metadata)
+        # The runtime schema guard refuses to boot on drift; a fresh DB needs the full
+        # runtime+app schema built from live metadata (dodges app-alembic/runtime-guard
+        # ordering — the APP-DEPLOY-1 concern is out of scope for this smoke).
+        run: |
+          python - <<'PY'
+          import AINDY.main  # registers runtime + 17 app models onto Base.metadata
+          from AINDY.db.database import Base, engine
+          from sqlalchemy import text, inspect
+          with engine.begin() as c:
+              c.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+          Base.metadata.create_all(bind=engine)
+          t = set(inspect(engine).get_table_names())
+          print(f"[schema] {len(t)} tables")
+          for p in ("agent_runs", "users", "tasks", "agent_run_steps"):
+              assert p in t, f"missing table {p}"
+          print("[schema] core tables present")
+          PY
+
+      - name: Boot serve + drive one run to completion
+        run: |
+          set -e
+          aindy-runtime serve > /tmp/serve.log 2>&1 &
+          echo "serve pid $!"
+
+          echo "waiting for serve readiness..."
+          up=""
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 http://127.0.0.1:8000/api/version || echo 000)
+            if [ "$code" = "200" ]; then up=yes; echo "serve up after ~$((i*2))s"; break; fi
+            sleep 2
+          done
+          if [ "$up" != yes ]; then echo "::error::serve did not become ready"; tail -50 /tmp/serve.log; exit 1; fi
+
+          python - <<'PY'
+          import urllib.request, json
+          r = json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/version", timeout=10)).get("runtime", {})
+          print("boot_profile", r.get("boot_profile"), "apps", r.get("app_plugin_count"))
+          assert r.get("app_plugins_loaded") and r.get("app_plugin_count") == 17, "app profile not loaded"
+          PY
+
+          python - <<'PY'
+          import json, sys, time, uuid, urllib.error, urllib.request
+          BASE = "http://127.0.0.1:8000"
+          def req(method, path, token=None, body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              r = urllib.request.Request(BASE + path, data=data, method=method)
+              r.add_header("Content-Type", "application/json")
+              if token: r.add_header("Authorization", "Bearer " + token)
+              try:
+                  with urllib.request.urlopen(r, timeout=60) as resp:
+                      return resp.status, json.loads(resp.read().decode() or "{}")
+              except urllib.error.HTTPError as e:
+                  try: return e.code, json.loads(e.read().decode() or "{}")
+                  except Exception: return e.code, {}
+          def inner(d): return d.get("data") if isinstance(d, dict) and isinstance(d.get("data"), dict) else d
+          def rid_of(d):
+              i = inner(d) or {}
+              return i.get("run_id") or i.get("id") or (i.get("execution_record") or {}).get("run_id")
+          def status_of(d): return (inner(d) or {}).get("status")
+
+          email = f"ci-{uuid.uuid4().hex[:8]}@example.com"
+          st, tok = req("POST", "/auth/register", body={"email": email, "password": "Ci-pass-123!", "username": "ci"})
+          token = tok.get("access_token"); print("register", st, "token", bool(token)); assert token, tok
+
+          goal = "Create three tasks for my launch: draft the announcement, schedule the social posts, and set up the landing page"
+          st, run = req("POST", "/apps/agent/run", token, {"goal": goal})
+          rid = rid_of(run); print("create", st, "status", status_of(run), "run_id", rid); assert rid, run
+
+          TERMINAL = {"completed", "failed", "verify_failed", "dead_letter", "cancelled"}
+          approved = False; final = None
+          for i in range(90):
+              st, r = req("GET", f"/apps/agent/runs/{rid}", token)
+              s = status_of(r); print(f"[{i:02d}] {s}")
+              if s in ("pending_approval", "awaiting_approval") and not approved:
+                  ast, _ = req("POST", f"/apps/agent/runs/{rid}/approve", token); print("   approve ->", ast); approved = True
+              elif s in TERMINAL:
+                  final = s; break
+              time.sleep(3)
+
+          st, r = req("GET", f"/apps/agent/runs/{rid}", token)
+          st2, steps = req("GET", f"/apps/agent/runs/{rid}/steps", token)
+          i = inner(r)
+          slist = steps.get("data", steps) if isinstance(steps, dict) else steps
+          print("FINAL status", i.get("status"), "steps", i.get("steps_completed"), "/", i.get("steps_total"))
+          for s in (slist if isinstance(slist, list) else []):
+              print("  -", s.get("tool") or s.get("name"), ":", s.get("status"))
+          assert i.get("status") == "completed", f"run did not complete: status={i.get('status')}"
+          print("VERDICT: ACTED — completed")
+          PY
+
+      - name: Serve log (on failure)
+        if: failure()
+        run: tail -120 /tmp/serve.log || true
