@@ -1,0 +1,194 @@
+name: Deploy Bootstrap Guard (APP-DEPLOY-1)
+
+# Regression guard for the deploy schema-bootstrap path on a FRESH DB (APP-DEPLOY-1).
+# Mirrors docker/entrypoint.sh exactly, then boots serve and asserts app-profile:
+#   1. `aindy-runtime bootstrap-schema` builds the runtime-owned tables + stamps
+#      alembic_version_runtime (and NOT app-owned tables).
+#   2. `scripts/deploy_bootstrap.py` builds the app-owned tables + stamps alembic_version.
+#   3. `aindy-runtime serve` boots — i.e. the runtime's startup schema guard ACCEPTS the
+#      bootstrapped schema (the exact failure APP-DEPLOY-1 fixed: a bare `alembic upgrade
+#      head` builds runtime tables drifted and the guard refuses to boot).
+#
+# Deterministic — no LLM, no secrets (placeholder keys; boot-time embedding jobs fail-fast
+# and are non-fatal). Runs on PRs that touch the deploy path so a regression is caught
+# before merge. Requires aindy-runtime>=1.7.0 (the `bootstrap-schema` command).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docker/entrypoint.sh"
+      - "scripts/deploy_bootstrap.py"
+      - "scripts/ensure_pgvector.py"
+      - "Dockerfile"
+      - "alembic/**"
+      - "aindy_plugins.json"
+      - "pyproject.toml"
+      - ".github/workflows/deploy-bootstrap-guard.yml"
+  pull_request:
+    paths:
+      - "docker/entrypoint.sh"
+      - "scripts/deploy_bootstrap.py"
+      - "scripts/ensure_pgvector.py"
+      - "Dockerfile"
+      - "alembic/**"
+      - "aindy_plugins.json"
+      - "pyproject.toml"
+      - ".github/workflows/deploy-bootstrap-guard.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-bootstrap-guard:
+    name: bootstrap-schema -> deploy_bootstrap -> serve boots (fresh DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: aindy_test
+          POSTGRES_PASSWORD: aindy_test
+          POSTGRES_DB: aindy_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U aindy_test -d aindy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://aindy_test:aindy_test@localhost:5433/aindy_test
+      REDIS_URL: redis://localhost:6380
+      AINDY_REDIS_URL: redis://localhost:6380
+      MONGO_URL: ""
+      AINDY_SKIP_MONGO_PING: "1"
+      SKIP_MONGO_PING: "1"
+      AINDY_BOOT_MODE: app-profile
+      AINDY_APP_PLUGIN_MANIFEST: ./aindy_plugins.json
+      # Placeholder keys — no live LLM calls at boot; embedding jobs fail-fast (non-fatal).
+      OPENAI_API_KEY: sk-test-placeholder
+      DEEPSEEK_API_KEY: ds-test-placeholder
+      SECRET_KEY: ci-deploy-guard-secret-key-at-least-32-chars
+      AINDY_API_KEY: ci-deploy-guard-api-key
+      PERMISSION_SECRET: ci-deploy-guard-permission-secret-32-chars
+      AINDY_HOST: 127.0.0.1
+      AINDY_PORT: "8000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Install app (pulls pinned aindy-runtime >=1.7.0 from PyPI)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
+
+      - name: Confirm runtime provides bootstrap-schema (>= 1.7.0)
+        run: |
+          python - <<'PY'
+          import importlib.metadata as md
+          from packaging.version import Version
+          v = md.version("aindy-runtime")
+          assert Version(v) >= Version("1.7.0"), f"need aindy-runtime>=1.7.0 for bootstrap-schema, got {v}"
+          print(f"aindy-runtime {v}")
+          PY
+          aindy-runtime bootstrap-schema --help >/dev/null
+
+      - name: Enable pgvector (mirrors docker/init-pgvector.sql; GH service can't mount it)
+        run: python scripts/ensure_pgvector.py
+
+      - name: Step 1 — aindy-runtime bootstrap-schema (runtime tables + baseline only)
+        run: |
+          aindy-runtime bootstrap-schema
+          python - <<'PY'
+          from sqlalchemy import create_engine, inspect, text
+          import os
+          e = create_engine(os.environ["DATABASE_URL"])
+          insp = inspect(e); tables = set(insp.get_table_names())
+          # runtime-owned tables present; app-owned NOT yet; runtime baseline stamped
+          for t in ("agent_runs", "users"):
+              assert t in tables, f"runtime table {t} missing after bootstrap-schema"
+          for t in ("tasks", "master_plans"):
+              assert t not in tables, f"app table {t} should NOT exist yet (bootstrap-schema builds runtime only)"
+          assert "alembic_version_runtime" in tables, "alembic_version_runtime not created"
+          with e.connect() as c:
+              n = c.execute(text("select count(*) from alembic_version_runtime")).scalar()
+          assert n and n >= 1, f"alembic_version_runtime not stamped (rows={n})"
+          assert "alembic_version" not in tables, "app alembic_version should not exist yet"
+          print(f"OK: runtime tables built, alembic_version_runtime stamped ({n} row), no app tables yet")
+          PY
+
+      - name: Step 2 — scripts/deploy_bootstrap.py (app tables + app baseline)
+        run: |
+          python scripts/deploy_bootstrap.py
+          python - <<'PY'
+          from sqlalchemy import create_engine, inspect, text
+          import os
+          e = create_engine(os.environ["DATABASE_URL"])
+          insp = inspect(e); tables = set(insp.get_table_names())
+          for t in ("tasks", "master_plans"):
+              assert t in tables, f"app table {t} missing after deploy_bootstrap"
+          assert "alembic_version" in tables, "app alembic_version not created"
+          with e.connect() as c:
+              n = c.execute(text("select count(*) from alembic_version")).scalar()
+          assert n and n >= 1, f"app alembic_version not stamped (rows={n})"
+          print(f"OK: app tables built, alembic_version stamped ({n} row)")
+          PY
+
+      - name: Step 3 — bootstrap-schema idempotency (re-run must not error)
+        run: aindy-runtime bootstrap-schema
+
+      - name: Step 4 — serve boots app-profile on the bootstrapped schema (guard accepts)
+        run: |
+          set -e
+          aindy-runtime serve > /tmp/serve.log 2>&1 &
+          echo "serve pid $!"
+          up=""
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 http://127.0.0.1:8000/api/version || echo 000)
+            if [ "$code" = "200" ]; then up=yes; echo "serve up after ~$((i*2))s"; break; fi
+            sleep 2
+          done
+          if [ "$up" != yes ]; then echo "::error::serve did not become ready (schema guard may have rejected)"; tail -60 /tmp/serve.log; exit 1; fi
+          python - <<'PY'
+          import urllib.request, json
+          r = json.load(urllib.request.urlopen("http://127.0.0.1:8000/api/version", timeout=10)).get("runtime", {})
+          print("boot_profile", r.get("boot_profile"), "apps", r.get("app_plugin_count"))
+          assert r.get("boot_profile") == "default-apps", f"expected default-apps, got {r.get('boot_profile')}"
+          assert r.get("app_plugins_loaded") and r.get("app_plugin_count") == 17, "app profile not loaded"
+          print("OK: serve booted app-profile on the bootstrapped schema — guard accepted it")
+          PY
+
+      - name: Serve log (on failure)
+        if: failure()
+        run: tail -120 /tmp/serve.log || true

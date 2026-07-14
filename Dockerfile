@@ -2,7 +2,7 @@
 # aindy-runtime framework.
 #
 # This is deliberately NOT a combined runtime+apps image. It installs the runtime as a
-# pinned PyPI dependency (see pyproject.toml: aindy-runtime>=1.6.1,<2.0) and adds the
+# pinned PyPI dependency (see pyproject.toml: aindy-runtime>=1.7.0,<2.0) and adds the
 # app-profile deployment inputs this repo owns: the plugin manifest (aindy_plugins.json),
 # the app bootstrap package (apps/), and the app-owned Alembic tree. At startup the runtime
 # discovers ./aindy_plugins.json -> apps.bootstrap, which registers the 17 domain apps into
@@ -36,7 +36,7 @@ RUN python -m pip install --upgrade pip \
 # (script_location = alembic/alembic).
 COPY aindy_plugins.json alembic.ini ./
 COPY alembic ./alembic
-COPY scripts/deploy_bootstrap.py ./scripts/deploy_bootstrap.py
+COPY scripts/ensure_pgvector.py scripts/deploy_bootstrap.py ./scripts/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

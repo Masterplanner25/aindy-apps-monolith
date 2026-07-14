@@ -2,9 +2,14 @@
 
 ## APP-DEPLOY-1: server deploy artifact (app-consuming-the-framework image)
 
-**Status:** In progress (2026-07-11). App-owned. Scaffold + a real Linux build/boot test done;
-the fresh-DB schema-guard bug is found and fixed in the entrypoint. One clean-ownership follow-up
-(runtime `bootstrap-schema` command) is requested from the runtime team.
+**Status:** Resolved (2026-07-13). App-owned. Scaffold + a real Linux build/boot test done; the
+fresh-DB schema-guard bug found and fixed; the clean-ownership split is now wired to the runtime's
+`bootstrap-schema` command (shipped in aindy-runtime 1.7.0); and a CI regression guard
+(`.github/workflows/deploy-bootstrap-guard.yml`) exercises the fresh-DB path end-to-end on Linux —
+`bootstrap-schema` (runtime tables + baseline) → `deploy_bootstrap.py` (app tables + baseline) →
+`serve` boots app-profile (guard accepts) → idempotency re-run — on every deploy-path PR. It runs
+the entrypoint's exact steps, so a dedicated Docker image rebuild is no longer needed to catch a
+regression here.
 
 **Schema-guard bug — FOUND + FIXED (2026-07-11).** A real Linux build/boot test (deploy image on
 the test network, driving one agent run over HTTP) showed the entrypoint's `alembic upgrade head`
@@ -19,14 +24,16 @@ runtime tables match the guard) + `alembic stamp head`; existing DB → `alembic
 Verified: with `create_all` (skipping the drifted alembic build), serve boots app-profile
 (default-apps, 17 apps) and drives a run through plan→approve→execute on Linux.
 
-**Runtime-team request (clean-ownership follow-up):** `create_all` builds the runtime tables at
-the *current* packaged schema (guard passes for the pinned version) but cannot stamp the runtime's
-own `alembic_version_runtime` line — that bookkeeping belongs to the runtime. Ask aindy-runtime to
-expose a blessed `bootstrap-schema` (or `serve --bootstrap`) command that builds AND stamps its own
-tables, so the entrypoint can call it before app migrations and future runtime schema upgrades onto
-a create_all-built DB have a baseline. Until then the app-side `deploy_bootstrap.py` is the
-unblocker. (Previously-failed old-entrypoint deploys never booted past the guard, so there are no
-successfully-deployed old DBs to migrate; a fresh redeploy picks up the fix.)
+**Clean-ownership split — WIRED (2026-07-13, aindy-runtime 1.7.0).** The requested runtime command
+shipped: `aindy-runtime bootstrap-schema` builds the runtime-owned tables from packaged metadata AND
+stamps `alembic_version_runtime` (idempotent; `--reconcile` for additive drift). The entrypoint now
+runs it FIRST, then `scripts/deploy_bootstrap.py` handles only the app side (fresh: create_all — the
+runtime tables already exist and are skipped — + `alembic stamp head`; existing: `alembic upgrade head`).
+This gives both version lines a proper baseline, so a future runtime schema upgrade has a stamped
+`alembic_version_runtime` to migrate from (the gap the interim app-side create_all couldn't close).
+Running `bootstrap-schema` on an existing DB also back-fills that baseline on DBs first built by the
+interim create_all-only path. (Previously-failed old-entrypoint deploys never booted past the guard,
+so there are no successfully-deployed pre-fix DBs to migrate; a fresh redeploy picks up the split.)
 
 **Context:** The apps repo shipped only `client/Dockerfile` (frontend) and
 `docker-compose.test.yml` (datastores for the test runner). It had no server deployable for the
@@ -34,7 +41,7 @@ app profile — an image that installs the pinned `aindy-runtime` and provides t
 manifest so `apps.bootstrap` registers the domain apps into the runtime via the plugin ABI.
 
 **Delivered (this change):**
-- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.6.1,<2.0`), copies the
+- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.7.0,<2.0`), copies the
   app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves via
   `aindy-runtime serve` from the repo root (shape follows the runtime's own `aindy-runtime init`
   scaffold: `libpq-dev`, `AINDY_HOST=0.0.0.0`).
@@ -52,10 +59,9 @@ app_plugin_count=17) and `scripts/check_api_reference.py` reports 0 drift. The D
 is still unbuilt/untested here (no Docker in the dev env).
 
 **Open items:**
-1. **App-tree migration ordering — RESOLVED (2026-07-11).** On a fresh DB the app schema is now
-   built by `create_all` from the combined packaged metadata (runtime + app tables together at the
-   current schema), so there is no ordering hazard vs the runtime guard. The clean long-term path
-   is the requested runtime `bootstrap-schema` command (see above).
+1. **App-tree migration ordering — RESOLVED (2026-07-13).** The entrypoint splits ownership:
+   `aindy-runtime bootstrap-schema` (1.7.0) builds + stamps the runtime tables first, then the app
+   builds its own — no ordering hazard vs the runtime guard, and both Alembic baselines are stamped.
 2. **Build/boot test — DONE (2026-07-11).** Built the image and ran it against a live
    Postgres/Redis/Mongo stack on Linux: serve boots app-profile (`/api/version` → default-apps,
    17 plugins) and drives a real agent run register→plan(Claude)→approve→execute over HTTP. This
@@ -310,7 +316,7 @@ across `duration` (hours) and `time_spent` (seconds).
 **Status:** **RESOLVED in aindy-runtime 1.5.3 (2026-07-05).** nodus_vm execute-to-completion
 was blocked by two stacked, PG-only, transaction-poisoning runtime bugs (SQLite masked both);
 both are now fixed and published, and Gate 2 of `tests/integration/test_nodus_vm.py`
-hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.6.1,<2.0`):
+hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.7.0,<2.0`):
 
 1. **#152** (PR #155, v1.5.2) — `ExecutionPipeline.run()` emitted its own `execution.started`
    *before* marking itself active, so the nested flow-runner pipeline reached during a
