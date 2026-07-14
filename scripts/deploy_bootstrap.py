@@ -10,20 +10,24 @@ marker) — replaying the historical revisions on a fresh DB still creates them 
 schema, which ``aindy-runtime serve``'s startup schema guard correctly rejects
 ("Runtime-owned schema is incompatible with packaged metadata").
 
-Correct bootstrap
------------------
-* Fresh DB  -> build the whole schema from the *packaged* metadata with
-  ``Base.metadata.create_all`` (so the runtime-owned tables match aindy-runtime's current
-  packaged schema and the guard passes), then ``alembic stamp head`` so future app-owned
-  migrations apply incrementally instead of replaying the 139 historical revisions.
+Ownership split (entrypoint)
+----------------------------
+The deploy entrypoint runs ``aindy-runtime bootstrap-schema`` FIRST (aindy-runtime>=1.7.0):
+the runtime builds ITS own tables from packaged metadata and stamps ``alembic_version_runtime``.
+This script then handles ONLY the app side:
+
+* Fresh DB  -> ``Base.metadata.create_all`` (idempotent: the runtime-owned tables already exist
+  from ``bootstrap-schema`` and are skipped, so this fills in the app-owned tables), then
+  ``alembic stamp head`` so future app migrations apply incrementally instead of replaying the
+  pre-split revisions.
 * Existing DB -> ``alembic upgrade head`` (normal incremental app migrations; post-split
   revisions are app-owned only).
 
-Ownership note (see the runtime bootstrap-command request in TECH_DEBT APP-DEPLOY-1):
-create_all does not stamp the runtime's own ``alembic_version_runtime`` line — the runtime
-owns that. For the pinned runtime version the tables match packaged metadata so ``serve``
-boots; a runtime-blessed ``bootstrap-schema`` command is the clean long-term path so future
-runtime schema upgrades onto a create_all-built DB have a baseline.
+Fresh-vs-existing is keyed on the *app* ``alembic_version`` table (``bootstrap-schema`` stamps
+the separate ``alembic_version_runtime`` line, so it does not affect this check). Running this
+without ``bootstrap-schema`` first still works for the current pinned runtime (create_all builds
+the runtime tables at the packaged schema so the guard passes) but leaves ``alembic_version_runtime``
+unstamped — the entrypoint runs both so the runtime baseline is always present.
 
 Model loading mirrors ``alembic/alembic/env.py`` exactly (no full server boot).
 """

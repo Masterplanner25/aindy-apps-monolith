@@ -71,6 +71,11 @@ jobs:
       # Wake the qualitative planner.
       AINDY_AGENT_PLANNER_BACKEND: anthropic_chat
       AINDY_CLAUDE_PLANNER_MODEL: claude-sonnet-5
+      # The nodus worker cold-starts the 17-app stack (~12s) per execution, so the default
+      # 30s wall-clock budget is too tight for a multi-step plan (run reached `executing`
+      # then failed "Nodus script exceeded 30000ms"). 1.7.0 made the budget configurable;
+      # give it headroom. Durable fix is a warm worker (runtime NODUS-WARMPOOL-1).
+      AINDY_NODUS_MAX_EXECUTION_MS: "180000"
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
