@@ -4,8 +4,12 @@
 
 **Status:** Resolved (2026-07-13). App-owned. Scaffold + a real Linux build/boot test done; the
 fresh-DB schema-guard bug found and fixed; the clean-ownership split is now wired to the runtime's
-`bootstrap-schema` command (shipped in aindy-runtime 1.7.0). Remaining: a CI regression guard for
-the deploy bootstrap path (parked) and a full image rebuild/boot on 1.7.0's `bootstrap-schema`.
+`bootstrap-schema` command (shipped in aindy-runtime 1.7.0); and a CI regression guard
+(`.github/workflows/deploy-bootstrap-guard.yml`) exercises the fresh-DB path end-to-end on Linux —
+`bootstrap-schema` (runtime tables + baseline) → `deploy_bootstrap.py` (app tables + baseline) →
+`serve` boots app-profile (guard accepts) → idempotency re-run — on every deploy-path PR. It runs
+the entrypoint's exact steps, so a dedicated Docker image rebuild is no longer needed to catch a
+regression here.
 
 **Schema-guard bug — FOUND + FIXED (2026-07-11).** A real Linux build/boot test (deploy image on
 the test network, driving one agent run over HTTP) showed the entrypoint's `alembic upgrade head`
