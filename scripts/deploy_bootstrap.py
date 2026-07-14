@@ -49,8 +49,11 @@ from AINDY.db.database import engine  # noqa: E402
 
 def main() -> int:
     # pgvector columns (e.g. memory_nodes.embedding) need the extension before create_all.
+    # The entrypoint runs scripts/ensure_pgvector.py first, so this is normally already present;
+    # check-first keeps this self-contained and safe on managed PG (no CREATE unless absent).
     with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        if not conn.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")).scalar():
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
     fresh = "alembic_version" not in inspect(engine).get_table_names()
 

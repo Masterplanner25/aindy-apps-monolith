@@ -20,6 +20,7 @@ on:
     paths:
       - "docker/entrypoint.sh"
       - "scripts/deploy_bootstrap.py"
+      - "scripts/ensure_pgvector.py"
       - "Dockerfile"
       - "alembic/**"
       - "aindy_plugins.json"
@@ -29,6 +30,7 @@ on:
     paths:
       - "docker/entrypoint.sh"
       - "scripts/deploy_bootstrap.py"
+      - "scripts/ensure_pgvector.py"
       - "Dockerfile"
       - "alembic/**"
       - "aindy_plugins.json"
@@ -121,6 +123,9 @@ jobs:
           print(f"aindy-runtime {v}")
           PY
           aindy-runtime bootstrap-schema --help >/dev/null
+
+      - name: Enable pgvector (mirrors docker/init-pgvector.sql; GH service can't mount it)
+        run: python scripts/ensure_pgvector.py
 
       - name: Step 1 — aindy-runtime bootstrap-schema (runtime tables + baseline only)
         run: |

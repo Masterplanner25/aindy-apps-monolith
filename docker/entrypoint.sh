@@ -23,6 +23,11 @@ fi
 #      `alembic stamp head`; existing DB -> `alembic upgrade head`. See scripts/deploy_bootstrap.py.
 # A bare `alembic upgrade head` on a FRESH DB would replay the 100+ pre-split revisions that build
 # the runtime-owned tables at a drifted schema, which the guard rejects — hence this split.
+# pgvector must exist before bootstrap-schema (it builds a Vector embedding column and assumes
+# the extension is present). compose.prod provisions it via docker/init-pgvector.sql; this makes
+# the image self-sufficient where that init hook can't run. Checks-first (safe on managed PG).
+echo "[entrypoint] ensure pgvector: python scripts/ensure_pgvector.py"
+python scripts/ensure_pgvector.py
 echo "[entrypoint] runtime schema: aindy-runtime bootstrap-schema"
 aindy-runtime bootstrap-schema
 echo "[entrypoint] app schema: python scripts/deploy_bootstrap.py"
