@@ -142,7 +142,7 @@ jobs:
           Base.metadata.create_all(bind=engine)
           t = set(inspect(engine).get_table_names())
           print(f"[schema] {len(t)} tables")
-          for p in ("agent_runs", "users", "tasks", "agent_run_steps"):
+          for p in ("agent_runs", "users", "tasks", "agent_steps"):
               assert p in t, f"missing table {p}"
           print("[schema] core tables present")
           PY
