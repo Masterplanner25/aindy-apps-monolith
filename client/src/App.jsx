@@ -25,6 +25,7 @@ const APP_PROFILE_HOME = "/dashboard";
 const Dashboard = lazy(() => import("./components/app/Dashboard"));
 const TaskDashboard = lazy(() => import("./components/app/TaskDashboard"));
 const Genesis = lazy(() => import("./components/app/Genesis"));
+const Assistant = lazy(() => import("./components/app/Assistant"));
 const MasterPlanDashboard = lazy(() => import("./components/app/MasterPlanDashboard"));
 const AnalyticsPanel = lazy(() => import("./components/app/AnalyticsPanel"));
 const ResearchEngine = lazy(() => import("./components/app/ResearchEngine"));
@@ -233,6 +234,7 @@ export default function App() {
                     <Route path="/dashboard" element={<AppProfileRoute element={routeElement("Dashboard", <Dashboard />)} />} />
                     <Route path="/tasks" element={<AppProfileRoute element={routeElement("Tasks", <TaskDashboard />)} />} />
                     <Route path="/genesis" element={<AppProfileRoute element={routeElement("Genesis", <Genesis />)} />} />
+                    <Route path="/assistant" element={<AppProfileRoute element={routeElement("Assistant", <Assistant />)} />} />
                     <Route path="/masterplan" element={<AppProfileRoute element={routeElement("MasterPlan", <MasterPlanDashboard />)} />} />
                     <Route path="/analytics" element={<AppProfileRoute element={routeElement("Analytics", <AnalyticsPanel />)} />} />
                     <Route path="/kpi" element={<AppProfileRoute element={routeElement("KPI Snapshot", <KPIDashboard />)} />} />
