@@ -17,6 +17,18 @@ name: Serve Run Completion (Claude planner, live HTTP)
 
 on:
   workflow_dispatch:
+    inputs:
+      planner_backend:
+        description: "Planner backend. anthropic_chat needs Anthropic egress (blocked on GitHub-hosted runners, RTR-1-NODUS-APPTOOL-500). runtime_local needs no egress."
+        type: choice
+        default: anthropic_chat
+        options:
+          - anthropic_chat
+          - runtime_local
+      objective:
+        description: "Run objective. For runtime_local use a note/record phrasing (e.g. 'Record a note: prep my launch') -> memory.write, which completes with no egress."
+        type: string
+        default: "Create three tasks for my launch: draft the announcement, schedule the social posts, and set up the landing page"
 
 permissions:
   contents: read
@@ -68,9 +80,10 @@ jobs:
       # Load the 17 app plugins (serve otherwise setdefaults AINDY_BOOT_MODE=runtime-only).
       AINDY_BOOT_MODE: app-profile
       AINDY_APP_PLUGIN_MANIFEST: ./aindy_plugins.json
-      # Wake the qualitative planner.
-      AINDY_AGENT_PLANNER_BACKEND: anthropic_chat
+      # Planner backend + objective (dispatch inputs; anthropic_chat is the default).
+      AINDY_AGENT_PLANNER_BACKEND: ${{ github.event.inputs.planner_backend || 'anthropic_chat' }}
       AINDY_CLAUDE_PLANNER_MODEL: claude-sonnet-5
+      RUN_OBJECTIVE: "${{ github.event.inputs.objective || 'Create three tasks for my launch: draft the announcement, schedule the social posts, and set up the landing page' }}"
       # The nodus worker cold-starts the 17-app stack (~12s) per execution, so the default
       # 30s wall-clock budget is too tight for a multi-step plan (run reached `executing`
       # then failed "Nodus script exceeded 30000ms"). 1.7.0 made the budget configurable;
@@ -101,32 +114,34 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .[test]
 
-      - name: Preflight — required secrets present
+      - name: Preflight — required secret present (anthropic_chat only)
+        if: ${{ (github.event.inputs.planner_backend || 'anthropic_chat') == 'anthropic_chat' }}
         run: |
-          missing=""
-          for v in ANTHROPIC_API_KEY OPENAI_API_KEY DEEPSEEK_API_KEY; do
-            eval "val=\${$v:-}"
-            if [ -z "$val" ]; then missing="$missing $v"; fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::missing repo secrets:$missing — add them in Settings > Secrets and variables > Actions"
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::missing repo secret ANTHROPIC_API_KEY — add it in Settings > Secrets and variables > Actions"
             exit 1
           fi
-          echo "all three key secrets are present"
+          echo "ANTHROPIC_API_KEY present"
 
-      - name: Preflight — runner can reach api.anthropic.com
-        # Per TECH_DEBT RTR-1-NODUS-APPTOOL-500 an earlier run could not reach Anthropic
-        # from the runner. Fail loudly and early with a clear message if egress is blocked,
-        # rather than surfacing as an opaque planner error later.
+      - name: Preflight — Anthropic reachable via SDK (anthropic_chat only)
+        if: ${{ (github.event.inputs.planner_backend || 'anthropic_chat') == 'anthropic_chat' }}
+        # A curl GET can connect while the SDK's POST /v1/messages is blocked (RTR-1-NODUS-APPTOOL-500:
+        # the earlier run passed a curl preflight but the planner still got "Connection error"). Exercise
+        # the SDK egress path the planner actually uses, so an egress block fails HERE, clearly.
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://api.anthropic.com/v1/models \
-                 -H "x-api-key: ${ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" || echo 000)
-          echo "api.anthropic.com/v1/models -> HTTP $code"
-          if [ "$code" = "000" ]; then
-            echo "::error::runner cannot reach api.anthropic.com (egress blocked). The anthropic_chat planner cannot run here."
-            exit 1
-          fi
-          echo "Anthropic API reachable (auth/quota handled by the planner itself)"
+          python - <<'PY'
+          import os, sys, anthropic
+          client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+          try:
+              client.models.list(limit=1)
+          except anthropic.APIConnectionError as e:
+              print(f"::error::runner cannot reach api.anthropic.com via the SDK (egress blocked — RTR-1-NODUS-APPTOOL-500). anthropic_chat cannot run on GitHub-hosted runners: {e}")
+              sys.exit(1)
+          except anthropic.AuthenticationError as e:
+              print(f"::error::ANTHROPIC_API_KEY rejected (401): {e}")
+              sys.exit(1)
+          print("Anthropic SDK reachable and key accepted")
+          PY
 
       - name: Build schema (create_all from live metadata)
         # The runtime schema guard refuses to boot on drift; a fresh DB needs the full
@@ -170,7 +185,7 @@ jobs:
           PY
 
           python - <<'PY'
-          import json, sys, time, uuid, urllib.error, urllib.request
+          import json, os, sys, time, uuid, urllib.error, urllib.request
           BASE = "http://127.0.0.1:8000"
           def req(method, path, token=None, body=None):
               data = json.dumps(body).encode() if body is not None else None
@@ -193,7 +208,7 @@ jobs:
           st, tok = req("POST", "/auth/register", body={"email": email, "password": "Ci-pass-123!", "username": "ci"})
           token = tok.get("access_token"); print("register", st, "token", bool(token)); assert token, tok
 
-          goal = "Create three tasks for my launch: draft the announcement, schedule the social posts, and set up the landing page"
+          goal = os.environ.get("RUN_OBJECTIVE") or "Create three tasks for my launch"
           st, run = req("POST", "/apps/agent/run", token, {"goal": goal})
           rid = rid_of(run); print("create", st, "status", status_of(run), "run_id", rid); assert rid, run
 
