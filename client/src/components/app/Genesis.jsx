@@ -8,6 +8,7 @@ import {
 import { Toast } from "../shared/Toast";
 import { safeMap } from "../../utils/safe";
 import { useToast } from "../../utils/useToast";
+import GenesisDraftPreview from "./GenesisDraftPreview";
 
 export default function Genesis() {
   const [started, setStarted] = useState(false);
@@ -196,27 +197,15 @@ export default function Genesis() {
               </div>
           }
 
-            {/* DRAFT PREVIEW */}
+            {/* DRAFT PREVIEW — rich editable preview + Strategic Integrity Audit */}
             {draft && !lockedPlan &&
-          <div className="mb-4 p-4 rounded-xl border border-zinc-700 bg-zinc-900 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-white font-bold text-sm">DRAFT MASTERPLAN</p>
-                  <button
-                onClick={handleLock}
-                disabled={locking}
-                className="px-4 py-2 bg-white text-black font-bold rounded-lg text-sm disabled:opacity-50 hover:bg-[#00ffaa] transition-all">
-                
-                    {locking ? "LOCKING..." : "LOCK PLAN"}
-                  </button>
-                </div>
-                <div className="text-xs text-zinc-400 space-y-1">
-                  <p><span className="text-zinc-300">Vision:</span> {draft.vision_statement}</p>
-                  <p><span className="text-zinc-300">Horizon:</span> {draft.time_horizon_years} years</p>
-                  <p><span className="text-zinc-300">Mechanism:</span> {draft.primary_mechanism}</p>
-                  {draft.posture &&
-              <p><span className="text-zinc-300">Posture:</span> {draft.posture}</p>
-              }
-                </div>
+          <div className="mb-4">
+                <GenesisDraftPreview
+              draft={draft}
+              sessionId={sessionId}
+              onLock={handleLock}
+              locking={locking} />
+
               </div>
           }
 

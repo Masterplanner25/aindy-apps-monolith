@@ -49,6 +49,7 @@ const NAV_GROUPS = [
       { to: "/search/seo", label: "AI SEO" },
       { to: "/search/leadgen", label: "Lead Gen" },
       { to: "/social", label: "Social Feed" },
+      { to: "/network", label: "Network" },
       { to: "/freelance", label: "Freelance" },
     ],
   },
