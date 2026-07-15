@@ -6,6 +6,7 @@ import { LoadingPanel } from "../shared/LoadingPanel";
 import { EmptyState } from "../shared/EmptyState";
 import { Toast } from "../shared/Toast";
 import { useToast } from "../../utils/useToast";
+import { Link } from "react-router-dom";
 
 export default function Feed() {
   const [posts, setPosts] = useState([]);
@@ -165,7 +166,9 @@ function PostCard({ item, onInteraction, showToast }) {
           <div style={{ ...styles.avatar, backgroundColor: tier.color }}>
             {post.author_username[0].toUpperCase()}
           </div>
-          <span style={styles.author}>@{post.author_username}</span>
+          <Link to={`/profile/${post.author_username}`} style={{ textDecoration: "none" }}>
+            <span style={styles.author}>@{post.author_username}</span>
+          </Link>
         </div>
         <span style={{ ...styles.badge, borderColor: tier.color, color: tier.color }}>{tier.label}</span>
       </div>
