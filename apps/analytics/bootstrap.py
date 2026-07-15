@@ -13,6 +13,11 @@ logger = logging.getLogger(__name__)
 # required during analytics.register(), so startup order does not need cross-app
 # edges here.
 BOOTSTRAP_DEPENDS_ON: list[str] = []
+# Infinity — the recursive scoring loop the whole system exists to run — lives in this
+# domain. It is the core, not a degradable peripheral, so a boot without it should fail
+# loudly rather than silently come up unable to score. (Re-tether pass, BUILD_PLAN Track 3.
+# analytics.register() has no boot-order deps, so core status is dependency-safe.)
+IS_CORE_DOMAIN: bool = True
 APP_DEPENDS_ON: list[str] = ["arm", "identity"]
 
 
