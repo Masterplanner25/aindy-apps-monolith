@@ -72,6 +72,26 @@ def fetch_social_performance_signals(*, user_id: str) -> list[dict[str, Any]]:
     return list(result.get("signals") or [])
 
 
+def fetch_search_performance_signals(*, user_id: str) -> list[dict[str, Any]]:
+    result = _dispatch_syscall(
+        "sys.v1.search.get_performance_signals",
+        {"user_id": str(user_id), "limit": 3},
+        user_id=str(user_id),
+        capability="search.read",
+    )
+    return list(result.get("signals") or [])
+
+
+def fetch_freelance_performance_signals(*, user_id: str) -> list[dict[str, Any]]:
+    result = _dispatch_syscall(
+        "sys.v1.freelance.get_performance_signals",
+        {"user_id": str(user_id), "limit": 3},
+        user_id=str(user_id),
+        capability="freelance.read",
+    )
+    return list(result.get("signals") or [])
+
+
 def fetch_memory_signals(*, user_id: str, trigger_event: str, db) -> list[dict[str, Any]]:
     normalized_user_id = require_user_id(user_id)
     return list(

@@ -187,6 +187,25 @@ def _handle_search_query(payload: dict, ctx: SyscallContext) -> dict:
             db.close()
 
 
+def _handle_search_performance_signals(payload: dict, ctx: SyscallContext) -> dict:
+    from apps.search.services.search_performance_service import get_search_performance_signals
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        signals = list(
+            get_search_performance_signals(
+                db,
+                user_id=payload.get("user_id") or ctx.user_id or None,
+                limit=int(payload.get("limit", 3) or 3),
+            )
+            or []
+        )
+        return {"signals": signals, "count": len(signals)}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_search_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.leadgen.search",
@@ -221,5 +240,12 @@ def register_search_syscall_handlers() -> None:
         handler=_handle_search_query,
         capability="search.query",
         description="Unified search across leadgen, research, SEO, and memory surfaces.",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.search.get_performance_signals",
+        handler=_handle_search_performance_signals,
+        capability="search.read",
+        description="Recent leadgen-yield signals for the Infinity support state (re-tether).",
         stable=False,
     )

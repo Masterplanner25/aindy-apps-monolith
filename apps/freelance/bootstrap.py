@@ -17,7 +17,14 @@ def register() -> None:
     _register_async_jobs()
     _register_flows()
     _register_flow_results()
+    _register_syscalls()
     _register_health_check()
+
+
+def _register_syscalls() -> None:
+    from apps.freelance.syscalls import register_freelance_syscall_handlers
+
+    register_freelance_syscall_handlers()
 
 
 def _register_models() -> None:

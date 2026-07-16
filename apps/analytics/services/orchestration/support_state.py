@@ -43,6 +43,8 @@ class SupportState:
     task_graph: dict
     social_signals: list
     support_metrics: dict = field(default_factory=dict)
+    search_signals: list = field(default_factory=list)
+    freelance_signals: list = field(default_factory=list)
 
     @property
     def loop_context(self) -> dict[str, Any]:
@@ -56,6 +58,8 @@ class SupportState:
             "goals": self.goals,
             "task_graph": self.task_graph,
             "social_signals": self.social_signals,
+            "search_signals": self.search_signals,
+            "freelance_signals": self.freelance_signals,
             "support_metrics": self.support_metrics,
         }
 
@@ -70,6 +74,8 @@ class SupportState:
             "ready_task_count": len((self.task_graph or {}).get("ready") or []),
             "blocked_task_count": len((self.task_graph or {}).get("blocked") or []),
             "social_signal_count": len(self.social_signals or []),
+            "search_signal_count": len(self.search_signals or []),
+            "freelance_signal_count": len(self.freelance_signals or []),
             "has_metrics": self.metrics is not None,
             "platform_health_status": (
                 (self.support_metrics or {}).get("observability") or {}
@@ -116,6 +122,18 @@ def gather_support_state(db, user_id, trigger_event) -> SupportState:
         social_signals = []
 
     try:
+        search_signals = dependency_adapter.fetch_search_performance_signals(user_id=str(user_id))
+    except Exception as exc:
+        logger.warning("[SupportState] search signal lookup failed for %s: %s", user_id, exc)
+        search_signals = []
+
+    try:
+        freelance_signals = dependency_adapter.fetch_freelance_performance_signals(user_id=str(user_id))
+    except Exception as exc:
+        logger.warning("[SupportState] freelance signal lookup failed for %s: %s", user_id, exc)
+        freelance_signals = []
+
+    try:
         support_metrics = dependency_adapter.fetch_observability_support_metrics(
             user_id=str(user_id), db=db
         )
@@ -133,4 +151,6 @@ def gather_support_state(db, user_id, trigger_event) -> SupportState:
         task_graph=task_graph,
         social_signals=social_signals,
         support_metrics=support_metrics,
+        search_signals=search_signals,
+        freelance_signals=freelance_signals,
     )
