@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   createAgentRun,
   getAgentRun,
@@ -9,6 +10,7 @@ import {
 import { Toast } from "../shared/Toast";
 import { useToast } from "../../utils/useToast";
 import { safeMap } from "../../utils/safe";
+import Genesis from "./Genesis";
 
 // The user-facing face for the agent: goal -> plan -> approve -> execute -> result.
 // Sits on the same agent HTTP surface the admin console uses (client/src/api/agent.js),
@@ -147,10 +149,47 @@ export default function Assistant() {
     setGoal("");
   };
 
+  // Mode: one face, two engines — "agent" (do X) or "genesis" (author/revise the plan).
+  // Driven by ?mode=genesis so it's linkable (e.g. the MasterPlan "Initialize via Genesis" entry).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mode = searchParams.get("mode") === "genesis" ? "genesis" : "agent";
+  const setMode = (m) =>
+    setSearchParams(m === "genesis" ? { mode: "genesis" } : {}, { replace: true });
+
+  const modeBar = (
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-30 flex gap-1 rounded-full border border-zinc-800 bg-zinc-950/90 p-1 shadow-lg shadow-black/40 backdrop-blur">
+      {safeMap([
+        ["agent", "Agent"],
+        ["genesis", "Plan"],
+      ], ([m, label]) => (
+        <button
+          key={m}
+          onClick={() => setMode(m)}
+          className={`rounded-full px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+            mode === m ? "bg-[#00ffaa] text-black" : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  // ── Plan mode: the Genesis plan-authoring engine, folded into the one face ──
+  if (mode === "genesis") {
+    return (
+      <>
+        {modeBar}
+        <Genesis />
+      </>
+    );
+  }
+
   // ── Empty state: the prompt ──
   if (!run) {
     return (
       <div className="min-h-screen bg-[#09090b] text-zinc-100 flex justify-center">
+        {modeBar}
         <div className="w-full max-w-2xl px-6 py-16 flex flex-col">
           <div className="my-auto">
             <h1 className="text-3xl font-bold tracking-tighter text-white">
@@ -200,6 +239,7 @@ export default function Assistant() {
   // ── Active run ──
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 flex justify-center">
+      {modeBar}
       <div className="w-full max-w-2xl px-6 py-12 flex flex-col">
         <div className="flex items-start justify-between gap-3 mb-2">
           <h1 className="text-lg font-bold text-white leading-snug flex-1">{run.goal}</h1>
