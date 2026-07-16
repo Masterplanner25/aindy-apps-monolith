@@ -36,8 +36,8 @@ behind it, rather than a chat that itself acts (cognition ≠ execution, per Age
 - later: social / freelance / search as callable capabilities
 
 The face is the agent's mouth; Genesis / agent / Infinity are its faculties. Genesis
-eventually folds in as a *mode* within the one conversation (it stays a structured
-sub-flow — its state machine was a deliberate fix for the "infinite refinement loop").
+**now folds in as a *mode*** within the one conversation (Track 5 — it stays a structured
+sub-flow; its state machine was a deliberate fix for the "infinite refinement loop").
 
 ## Validated foundation (2026-07-15) — what is already proven
 
@@ -57,9 +57,25 @@ The hard part is done and demonstrated, so the tracks below carry little backend
   reach the LLM (RTR-1-NODUS-APPTOOL-500). The **mechanism** is proven; that last mile is
   infrastructure, not design.
 
+## Status at a glance (2026-07-15)
+
+| Track | What | Status |
+|---|---|---|
+| **1** | The face — user-facing Assistant (`/assistant`) | ✅ **done** — merged |
+| **3** | Re-tether Search/Freelance yield → Infinity + `analytics` core | ✅ **done** (3b-lite: observability tether; 3b-full weighting deferred — a values decision) |
+| **4** | Wire orphaned UI (`InfiniteNetwork`, `ProfileView`, `GenesisDraftPreview`) | ✅ **done** — merged |
+| **5** | Fold Genesis behind the face (`?mode=genesis`) | ✅ **done** — merged |
+| **2** | Reasoner first-class (Claude planner default) | ⏸ **deferred** — gated on an LLM-egress env (infrastructure, not code) |
+
+The "one face, delegated engines" end-state is structurally in place: one Assistant face
+(`/assistant`) with an **Agent | Plan** toggle routing to the agent engine and the Genesis
+plan-authoring engine. The two remaining items are **deferred, not blocked-open**: Track 2 needs
+an egress environment; **3b-full** (which signal moves the canonical Infinity score, and at what
+weight) is a deliberate values decision left for when the weighting is chosen.
+
 ## Tracks
 
-### Track 1 — The face (MVP) ⭐ start here
+### Track 1 — The face (MVP) ✅
 
 A user-facing conversational/command surface in `client/` that dispatches to the agent
 engine. Today the reasoner is **admin-only** (agent runs live in the `/platform` console);
@@ -74,7 +90,9 @@ a normal user has no way to talk to the mind we just woke. This closes that gap.
 - **MVP interaction:** goal → `create` → show plan (`pending_approval`) → Approve → poll/stream
   `steps`/`events` to a terminal state → render result.
 - **Dependency:** none. Works with either planner (heuristic or Claude); Track 2 makes it *reason*.
-- **Status:** scoped + building (MVP). See the [Track 1 MVP build scope](#track-1--mvp-build-scope) appendix.
+- **Status:** ✅ **done — merged.** `Assistant.jsx` shipped: goal → plan → inline approval gate →
+  `useEffect`-polled steps → terminal result, routed via `AppShell` (not `/platform`). See the
+  [Track 1 MVP build scope](#track-1--mvp-build-scope) appendix.
 
 ### Track 2 — Reasoner first-class (default)
 
@@ -84,7 +102,8 @@ Make the Claude planner the default instead of opt-in, with a cost/latency postu
   env; set `AINDY_CLAUDE_PLANNER_MODEL`; confirm the deploy image installs `anthropic`.
 - **Dependency:** an environment with LLM egress (self-hosted runner / cloud). The face
   (Track 1) works regardless; this is what makes it actually reason for real users.
-- **Status:** blocked on the egress env, not on code.
+- **Status:** ⏸ **deferred — gated on the egress env, not on code.** The face already dispatches to
+  whichever planner the deployed env selects; this track is the one-line default flip once egress exists.
 
 ### Track 3 — Re-tether the pillars to Infinity
 
@@ -95,12 +114,19 @@ Restore the explicit "this feeds the loop" wiring the review found eroded/lost:
 - Make `pillar → Infinity` and `app → runtime` lines explicit; do **not** un-generalize the
   platform — restore purpose, don't undo the split.
 - **Dependency:** independent; can proceed in parallel.
-- **Status:** not started; scoped per-pillar later.
+- **Status:** ✅ **done (3b-lite) — merged.** Search (leadgen yield) and Freelance (realized revenue)
+  now expose `sys.v1.<domain>.get_performance_signals` syscalls that the analytics `dependency_adapter`
+  fetches and threads into the Infinity `SupportState` (mirrors social — observability, not KPI math);
+  `analytics` flipped to `IS_CORE_DOMAIN=True`. **3b-full deferred:** promoting a signal to actually
+  move the canonical Infinity score (and its weight) is a values decision, taken when the weighting is chosen.
 
 ### Track 4 — Quick wins (orphaned UI)
 
 Wire the already-built-but-unrouted frontend the review surfaced: `InfiniteNetwork`,
 `ProfileView`, `GenesisDraftPreview` (built, no route/importer). Cheap; independent.
+
+- **Status:** ✅ **done — merged.** `InfiniteNetwork` (`/network`) and `ProfileView` (`/profile/:username`)
+  routed + nav-linked; `GenesisDraftPreview` imported into `Genesis`; Feed author handles link to profiles.
 
 ### Track 5 — Fold Genesis behind the face
 
@@ -108,25 +134,34 @@ Move Genesis from standalone `/genesis` to a *mode* within the one conversation,
 structured state machine (explore → confirm → draft → LOCK). Do this **last**, after Track 1
 is proven — its logic survives; only its packaging dissolves.
 
-## Sequencing
+- **Status:** ✅ **done — merged.** Assistant carries an **Agent | Plan** toggle; `?mode=genesis`
+  early-returns the Genesis engine under a shared, linkable mode bar. MasterPlan's "Initialize via
+  Genesis" repointed to `/assistant?mode=genesis`. Genesis's state machine is unchanged — only its
+  packaging dissolved into the one face.
+
+## Sequencing (as executed)
 
 ```
-Track 1 (face MVP) ──► Track 5 (fold Genesis in)
+Track 1 (face MVP) ✅ ──► Track 5 (fold Genesis in) ✅
       │
-      └─ Track 2 (reasoner default)  — gated on an egress env
-Track 3 (re-tether) ── parallel, independent
-Track 4 (quick wins) ── parallel, cheap, anytime
+      └─ Track 2 (reasoner default) ⏸  — deferred, gated on an egress env
+Track 3 (re-tether) ✅ ── ran in parallel (3b-lite; 3b-full deferred)
+Track 4 (quick wins) ✅ ── ran in parallel
 ```
 
-**Recommended order:** Track 1 → (Track 4 alongside) → Track 2 when an egress env exists →
-Track 3 in parallel → Track 5 last.
+**As executed:** Track 1 → Track 4 alongside → Track 3 (3b-lite) in parallel → Track 5 last.
+Track 2 remains the single open build, deferred until an LLM-egress environment exists.
 
 ## Open decisions
 
-- **Egress env for Track 2** — self-hosted GitHub runner vs. a cloud Linux box (both give the
-  stable Docker + Anthropic egress the literal Claude loop needs).
-- **Face surface shape** — dedicated console page vs. a persistent global command bar.
-- **Streaming** — poll the run/steps endpoints for the MVP, or add SSE/websocket later.
+- **Egress env for Track 2** *(open)* — self-hosted GitHub runner vs. a cloud Linux box (both give
+  the stable Docker + Anthropic egress the literal Claude loop needs).
+- **3b-full weighting** *(open)* — which pillar signal is promoted to move the canonical Infinity
+  score, and at what weight. A values decision, deferred with Track 3.
+- **Face surface shape** *(resolved)* — shipped as a dedicated `/assistant` page in the user nav,
+  not a global command bar.
+- **Streaming** *(resolved for now)* — MVP polls the run/steps endpoints (`useEffect` interval);
+  SSE/websocket remains a later upgrade.
 
 ## Track 1 — MVP build scope
 
