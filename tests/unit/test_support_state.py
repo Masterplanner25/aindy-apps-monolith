@@ -38,6 +38,8 @@ def _set_happy_fetchers(monkeypatch):
     monkeypatch.setattr(adapter, "fetch_system_state", lambda db: {"health_status": "healthy"})
     monkeypatch.setattr(adapter, "fetch_task_graph_context", lambda db, uid: {"ready": [1], "blocked": []})
     monkeypatch.setattr(adapter, "fetch_social_performance_signals", lambda **k: [{"type": "success"}])
+    monkeypatch.setattr(adapter, "fetch_search_performance_signals", lambda **k: [{"type": "success"}])
+    monkeypatch.setattr(adapter, "fetch_freelance_performance_signals", lambda **k: [{"type": "success"}])
     monkeypatch.setattr(adapter, "fetch_observability_support_metrics", lambda **k: dict(_SUPPORT_METRICS))
     monkeypatch.setattr(ss, "get_job", lambda name: (lambda db, uid, system_state=None: [{"id": "g1"}]))
 
@@ -54,6 +56,8 @@ def test_gather_support_state_assembles_snapshot(monkeypatch):
     assert state.goals == [{"id": "g1"}]
     assert state.task_graph == {"ready": [1], "blocked": []}
     assert state.social_signals == [{"type": "success"}]
+    assert state.search_signals == [{"type": "success"}]
+    assert state.freelance_signals == [{"type": "success"}]
     assert state.support_metrics == _SUPPORT_METRICS
 
 
@@ -63,6 +67,7 @@ def test_loop_context_shape_matches_orchestrator_contract(monkeypatch):
     assert set(lc) == {
         "user_id", "memory", "metrics", "memory_signals",
         "system_state", "goals", "task_graph", "social_signals", "support_metrics",
+        "search_signals", "freelance_signals",
     }
     assert lc["user_id"] == "u1"
     assert lc["goals"] == [{"id": "g1"}]
@@ -78,6 +83,8 @@ def test_summary_counts(monkeypatch):
     assert summary["ready_task_count"] == 1
     assert summary["blocked_task_count"] == 0
     assert summary["social_signal_count"] == 1
+    assert summary["search_signal_count"] == 1
+    assert summary["freelance_signal_count"] == 1
     assert summary["health_status"] == "healthy"
     assert summary["has_metrics"] is True
     assert summary["platform_health_status"] == "degraded"
