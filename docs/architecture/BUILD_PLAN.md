@@ -104,6 +104,7 @@ Make the Claude planner the default instead of opt-in, with a cost/latency postu
   (Track 1) works regardless; this is what makes it actually reason for real users.
 - **Status:** ⏸ **deferred — gated on the egress env, not on code.** The face already dispatches to
   whichever planner the deployed env selects; this track is the one-line default flip once egress exists.
+  Turnkey steps documented in [../deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md) ("Enabling the Claude planner").
 
 ### Track 3 — Re-tether the pillars to Infinity
 

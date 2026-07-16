@@ -55,7 +55,7 @@ App code and docs must conform to these and must not contradict or redefine them
 
 ### Level 4 — Engineering & collaboration
 - `docs/platform/engineering/TESTING_STRATEGY.md`
-- `docs/deployment/MIGRATION_POLICY.md`
+- `docs/deployment/MIGRATION_POLICY.md`, `docs/deployment/DEPLOYMENT.md` — schema/migration discipline + server deploy walkthrough.
 - `docs/apps/CI_OWNERSHIP.md`, `docs/apps/GITHUB_SETTINGS_CHECKLIST.md`
 - `docs/apps/IMPLEMENTATION_DOCS_AUDIT.md`
 
@@ -89,6 +89,7 @@ A structural change must update the docs it affects, in the same change:
 - Route behavior change → `docs/platform/interfaces/API_CONTRACTS.md`,
   `docs/api/API_REFERENCE.md`, and `CHANGELOG.md` (breaking/additive).
 - Schema/migration discipline change → `docs/deployment/MIGRATION_POLICY.md`.
+- Deploy artifact / serve-time env change → `docs/deployment/DEPLOYMENT.md`.
 - Test/validation discipline change → `docs/platform/engineering/TESTING_STRATEGY.md`.
 - New deferred risk → `TECH_DEBT.md`.
 
