@@ -235,6 +235,8 @@ Use `disabled` (set in `pytest.integration.ini`), **not** `stub`. The `stub` bac
 | API reference drift guard | `scripts/check_api_reference.py` |
 | App-owned Alembic migrations | `alembic/alembic/versions/` |
 | Migration policy | `docs/deployment/MIGRATION_POLICY.md` |
+| Server deployment guide (+ enabling the Claude planner) | `docs/deployment/DEPLOYMENT.md` |
+| Forward roadmap / track status | `docs/architecture/BUILD_PLAN.md` |
 | Plugin registry pattern doc | `docs/architecture/PLUGIN_REGISTRY_PATTERN.md` |
 | Boot profiles doc | `docs/architecture/BOOT_PROFILES.md` |
 | Cross-domain coupling doc | `docs/architecture/CROSS_DOMAIN_COUPLING.md` |
