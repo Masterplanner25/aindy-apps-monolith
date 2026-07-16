@@ -52,6 +52,9 @@ manifest parsing, plugin loading, and process entrypoints.
 
 ## Deployment Ownership
 
+Server deploy walkthrough (compose artifact, schema bootstrap, enabling the Claude
+planner): [docs/deployment/DEPLOYMENT.md](docs/deployment/DEPLOYMENT.md).
+
 `aindy-apps-monolith` owns the app deployment layer:
 
 - repo-root `aindy_plugins.json`
