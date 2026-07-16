@@ -75,7 +75,8 @@ is still unbuilt/untested here (no Docker in the dev env).
 **Related doc fix (2026-07-05, done):** the pinned runtime exposes `aindy-runtime serve`, not
 `aindy-runtime-api` (which ships in no package). Corrected across `CLAUDE.md`, `README.md`,
 `docs/apps/RUNTIME_DEPENDENCY.md`, `docs/apps/APPS_MONOLITH_REPO_SHAPE.md`,
-`LIVE_VERIFICATION_SCOPE.md`, and the `apps/agent/bootstrap.py` comment.
+`LIVE_VERIFICATION_SCOPE.md`, the `apps/agent/bootstrap.py` comment, and `.env.example`
+(the last three `.env.example` occurrences swept 2026-07-15).
 
 **Reopen trigger:** productionizing the app profile, or a runtime release that changes the boot
 entrypoint / migration contract.
