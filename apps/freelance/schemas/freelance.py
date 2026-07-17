@@ -37,6 +37,20 @@ class LeadIntakeRequest(BaseModel):
     auto_generate_delivery: bool = False
 
 
+class ActionIntakeRequest(BaseModel):
+    """Convert a Search-actioned lead (LeadAction) into a client + freelance order."""
+
+    action_id: int
+    client_email: str
+    service_type: str
+    client_name: Optional[str] = None
+    price: Optional[float] = 0.0
+    project_details: Optional[str] = None
+    delivery_type: Optional[str] = "manual"
+    delivery_config: Optional[dict] = None
+    auto_generate_delivery: bool = False
+
+
 class ClientAccountResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

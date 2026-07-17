@@ -86,12 +86,17 @@ def create_order(
             source="order",
         )
         client_id = client.id
+        # Default the price from the service-price catalog when none was supplied
+        # (Revenue Intelligence Loop -> ServicePrice -> future orders).
+        effective_price = _resolve_effective_price(db, user_id, order_data)
         if idempotency_key:
             order, was_created = check_or_create(
                 db,
                 FreelanceOrder,
                 idempotency_key,
-                lambda: _build_order_from_create(order_data, user_uuid, delivery_type, client_id),
+                lambda: _build_order_from_create(
+                    order_data, user_uuid, delivery_type, client_id, price=effective_price
+                ),
             )
             if was_created:
                 _finalize_created_order(
@@ -115,7 +120,7 @@ def create_order(
             client_email=order_data.client_email,
             service_type=order_data.service_type,
             project_details=order_data.project_details,
-            price=order_data.price,
+            price=effective_price,
             status="pending",
             masterplan_id=order_data.masterplan_id,
             task_id=order_data.task_id,
@@ -165,11 +170,35 @@ def create_order(
         raise
 
 
+def _resolve_effective_price(db: Session, user_id, order_data: FreelanceOrderCreate) -> float | None:
+    """Default a new order's price from the studio's service-price catalog.
+
+    When the caller supplies no meaningful price (None or <= 0), fall back to the
+    ``ServicePrice`` default set by the Revenue Intelligence Loop for this service
+    type. An explicit positive price always wins, and if no default exists the
+    caller's value is returned unchanged.
+    """
+    price = order_data.price
+    if price and price > 0:
+        return price
+    if not user_id or not order_data.service_type:
+        return price
+    try:
+        from apps.freelance.services.revenue_intelligence_service import get_service_price
+
+        default_price = get_service_price(db, user_id, order_data.service_type)
+    except Exception as exc:  # never let pricing lookup block order creation
+        logger.warning("[freelance] service-price default lookup failed (non-fatal): %s", exc)
+        return price
+    return default_price if (default_price and default_price > 0) else price
+
+
 def _build_order_from_create(
     order_data: FreelanceOrderCreate,
     user_uuid,
     delivery_type: str,
     client_id: int | None = None,
+    price: float | None = None,
 ) -> FreelanceOrder:
     return FreelanceOrder(
         client_id=client_id,
@@ -177,7 +206,7 @@ def _build_order_from_create(
         client_email=order_data.client_email,
         service_type=order_data.service_type,
         project_details=order_data.project_details,
-        price=order_data.price,
+        price=price if price is not None else order_data.price,
         status="pending",
         masterplan_id=order_data.masterplan_id,
         task_id=order_data.task_id,

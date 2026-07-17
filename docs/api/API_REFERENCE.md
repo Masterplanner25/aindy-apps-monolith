@@ -596,6 +596,24 @@ Generate Delivery
 
 **Response 200:** unspecified
 
+#### GET /apps/freelance/intake/actioned-leads
+List Actioned Leads — leads the Search Execution Layer has drafted outreach for,
+ready to convert into a client + order.
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/intake/from-action
+Intake From Action — convert a Search-actioned lead (LeadAction) into a client +
+order. Requires an `Idempotency-Key` header. Completes the lead -> outreach -> client
+-> priced-order chain; the order price defaults from the service-price catalog when
+none is supplied.
+
+**Body:** action_id: integer (required), client_email: string (required), service_type: string (required), client_name: string | null, price: number | null, project_details: string | null, delivery_type: string | null, delivery_config: map[unspecified] | null, auto_generate_delivery: boolean
+
+**Response 201:** unspecified
+
 #### POST /apps/freelance/intake/from-lead
 Intake From Lead
 
