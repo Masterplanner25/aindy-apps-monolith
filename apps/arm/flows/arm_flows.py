@@ -145,6 +145,25 @@ def arm_config_suggest_node(state, context):
         return {"status": "FAILURE", "error": str(e)}
 
 
+def arm_config_autotune_node(state, context):
+    try:
+        from apps.arm.services.arm_autotune_service import ARMAutoTuneService
+
+        db = context.get("db")
+        user_id = context.get("user_id")
+        window = state.get("window", 30)
+        apply = bool(state.get("apply", False))
+        trigger = state.get("trigger", "manual")
+        svc = ARMAutoTuneService(db=db, user_id=user_id)
+        if apply:
+            result = svc.apply(window=window, trigger=trigger)
+        else:
+            result = {"dry_run": True, **svc.plan(window=window)}
+        return {"status": "SUCCESS", "output_patch": {"arm_config_autotune_result": result}}
+    except Exception as e:
+        return {"status": "FAILURE", "error": str(e)}
+
+
 def register() -> None:
     register_nodes(
         {
@@ -153,6 +172,7 @@ def register() -> None:
             "arm_config_update_node": arm_config_update_node,
             "arm_metrics_node": arm_metrics_node,
             "arm_config_suggest_node": arm_config_suggest_node,
+            "arm_config_autotune_node": arm_config_autotune_node,
         }
     )
     register_single_node_flows(
@@ -162,5 +182,6 @@ def register() -> None:
             "arm_config_update": "arm_config_update_node",
             "arm_metrics": "arm_metrics_node",
             "arm_config_suggest": "arm_config_suggest_node",
+            "arm_config_autotune": "arm_config_autotune_node",
         }
     )

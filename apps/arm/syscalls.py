@@ -106,6 +106,21 @@ def _handle_arm_store(payload: dict, ctx: SyscallContext) -> dict:
             db.close()
 
 
+def _handle_arm_autotune(payload: dict, ctx: SyscallContext) -> dict:
+    from apps.arm.services.arm_autotune_service import ARMAutoTuneService
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        svc = ARMAutoTuneService(db=db, user_id=ctx.user_id)
+        window = int(payload.get("window", 30))
+        if bool(payload.get("apply", False)):
+            return svc.apply(window=window, trigger=payload.get("trigger", "agent"))
+        return {"dry_run": True, **svc.plan(window=window)}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_arm_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.arm.analyze",
@@ -126,5 +141,12 @@ def register_arm_syscall_handlers() -> None:
         handler=_handle_arm_store,
         capability="arm.store",
         description="Persist ARM result to memory bridge.",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.arm.autotune",
+        handler=_handle_arm_autotune,
+        capability="arm.self_tune",
+        description="Apply gated, reversible self-tuning config changes from ARM metrics (act-on-insight).",
         stable=False,
     )

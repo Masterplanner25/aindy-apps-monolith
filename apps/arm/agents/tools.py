@@ -34,6 +34,15 @@ def register() -> None:
         category="analysis",
         egress_scope="external_llm",
     )(arm_generate)
+    register_tool(
+        "arm.autotune",
+        risk="low",
+        description="Apply gated, reversible self-tuning config changes from ARM's own metrics",
+        capability="tool:arm.autotune",
+        required_capability="self_tune",
+        category="optimization",
+        egress_scope="none",
+    )(arm_autotune)
 
 
 def arm_analyze(args: dict, user_id: str, db) -> dict:
@@ -52,4 +61,15 @@ def arm_generate(args: dict, user_id: str, db) -> dict:
         "generated_code": data.get("generated_code", ""),
         "explanation": data.get("explanation", ""),
         "generation_id": data.get("generation_id"),
+    }
+
+
+def arm_autotune(args: dict, user_id: str, db) -> dict:
+    data = _dispatch_tool_syscall("sys.v1.arm.autotune", args, user_id, capability="arm.self_tune")
+    return {
+        "status": data.get("status"),
+        "applied": data.get("applied", []),
+        "skipped": data.get("skipped", []),
+        "log_id": data.get("log_id"),
+        "dry_run": data.get("dry_run", False),
     }

@@ -336,3 +336,71 @@ class TestArmGenerateValidation:
     def test_unauthenticated_returns_401(self, client):
         r = client.post("/apps/arm/generate", json={"prompt": "refactor this"})
         assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /apps/arm/config/auto-tune  (+ /revert, /history)
+# ---------------------------------------------------------------------------
+
+class TestArmAutoTune:
+    """The closed Reflect -> Adjust loop: gated, auditable, revertible."""
+
+    def test_dry_run_is_default(self, client):
+        token = _register_and_login(client)
+        r = client.post("/apps/arm/config/auto-tune", headers=_auth(token))
+        assert r.status_code == 200, r.text[:300]
+        d = _data(r)
+        assert d.get("dry_run") is True
+        assert isinstance(d.get("applied"), list)
+        assert "would_change" in d
+
+    def test_fresh_user_has_nothing_to_tune(self, client):
+        """No ARM sessions -> min-sessions gate -> no change proposed."""
+        token = _register_and_login(client)
+        r = client.post("/apps/arm/config/auto-tune", headers=_auth(token))
+        d = _data(r)
+        assert d.get("would_change") is False
+        assert d.get("applied") == []
+
+    def test_apply_on_fresh_user_is_no_change(self, client):
+        token = _register_and_login(client)
+        r = client.post("/apps/arm/config/auto-tune?apply=true", headers=_auth(token))
+        assert r.status_code == 200, r.text[:300]
+        d = _data(r)
+        assert d.get("status") == "no_change"
+        assert d.get("applied") == []
+
+    def test_history_starts_empty(self, client):
+        token = _register_and_login(client)
+        r = client.get("/apps/arm/config/auto-tune/history", headers=_auth(token))
+        assert r.status_code == 200, r.text[:300]
+        d = _data(r)
+        assert d.get("runs") == []
+        assert d.get("total") == 0
+
+    def test_revert_unknown_id_returns_not_found(self, client):
+        token = _register_and_login(client)
+        r = client.post(
+            "/apps/arm/config/auto-tune/revert",
+            json={"log_id": str(uuid.uuid4())},
+            headers=_auth(token),
+        )
+        assert r.status_code == 200, r.text[:300]
+        assert _data(r).get("status") == "not_found"
+
+    def test_revert_malformed_id_returns_not_found(self, client):
+        token = _register_and_login(client)
+        r = client.post(
+            "/apps/arm/config/auto-tune/revert",
+            json={"log_id": "not-a-uuid"},
+            headers=_auth(token),
+        )
+        assert r.status_code == 200
+        assert _data(r).get("status") == "not_found"
+
+    def test_unauthenticated_returns_401(self, client):
+        assert client.post("/apps/arm/config/auto-tune").status_code == 401
+        assert client.get("/apps/arm/config/auto-tune/history").status_code == 401
+        assert client.post(
+            "/apps/arm/config/auto-tune/revert", json={"log_id": "x"}
+        ).status_code == 401
