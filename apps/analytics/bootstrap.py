@@ -117,6 +117,7 @@ def _register_jobs() -> None:
     register_job("analytics.latest_adjustment_payload", _get_latest_adjustment_payload)
     register_job("analytics.reasoning_recommendation", _reasoning_recommendation)
     register_job("scheduler.infinity_scores", _scheduler_recalculate_all_scores)
+    register_job("analytics.expectation_model_train", _train_expectation_model)
 
 
 def _register_scheduled_jobs() -> None:
@@ -213,6 +214,18 @@ def _execute_infinity_orchestrator(*args, **kwargs):
     return execute(*args, **kwargs)
 
 
+def _train_expectation_model(*args, **kwargs):
+    """Fit the shadow expectation model from the matured prediction ledger."""
+    from AINDY.db.database import SessionLocal
+    from apps.analytics.services.scoring.expectation_model_service import train
+
+    db = SessionLocal()
+    try:
+        return train(db)
+    finally:
+        db.close()
+
+
 def _get_latest_adjustment(*args, **kwargs):
     from apps.analytics.services.orchestration.infinity_loop import get_latest_adjustment
     return get_latest_adjustment(*args, **kwargs)
@@ -255,6 +268,26 @@ def _scheduler_recalculate_all_scores() -> None:
             if result:
                 updated += 1
         logger.info("[Infinity Scheduler] Recalculated scores for %d/%d users", updated, len(users))
+
+        # Shadow expectation model (Phase 0): retrain + log the soak comparison.
+        # Guarded by AINDY_INFINITY_LEARNED_SHADOW; drives nothing.
+        try:
+            from apps.analytics.services.scoring.expectation_model_service import (
+                evaluate,
+                shadow_enabled,
+                train,
+            )
+
+            if shadow_enabled():
+                summary = train(db)
+                overall = evaluate(db).get("overall")
+                logger.info(
+                    "[Infinity Scheduler] Expectation shadow: trained=%s overall=%s",
+                    summary.get("trained"),
+                    overall,
+                )
+        except Exception as exc:
+            logger.warning("[Infinity Scheduler] expectation model train/eval skipped: %s", exc)
     finally:
         db.close()
 

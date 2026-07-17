@@ -1,6 +1,10 @@
 """Analytics app ORM models."""
 
 from apps.analytics.calculation import CalculationResult
+from apps.analytics.expectation_model import (
+    InfinityExpectationModel,
+    InfinityExpectationPrediction,
+)
 from apps.analytics.metrics_models import (
     AIEfficiency,
     AIProductivityBoost,
@@ -43,6 +47,8 @@ __all__ = [
     "EngagementRate",
     "ExecutionSpeed",
     "Impact",
+    "InfinityExpectationModel",
+    "InfinityExpectationPrediction",
     "KPI_WEIGHTS",
     "KPI_WEIGHT_LEARNING_RATE",
     "KPI_WEIGHT_MAX",
