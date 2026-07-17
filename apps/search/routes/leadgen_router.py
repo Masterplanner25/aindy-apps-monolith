@@ -10,6 +10,7 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from AINDY.core.execution_gate import to_envelope
@@ -202,6 +203,75 @@ def list_all_leads(
         return list_leads(db, user_id=user_id)
 
     return _execute_leadgen(request, "leadgen.list", handler, db=db, user_id=user_id)
+
+
+class RevertActionRequest(BaseModel):
+    action_id: int
+
+
+@router.post("/execute")
+@limiter.limit("10/minute")
+def execute_lead_actions(
+    request: Request,
+    apply: bool = Query(False, description="Persist actions. Default false = dry-run preview."),
+    channel: str = Query("draft", description="draft | email | handoff. Only 'draft' produces a ready artifact; no channel sends."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Act on scored leads: draft (never send) outreach for qualified leads, gated and revertible."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.search.services.lead_execution_service import LeadExecutionService
+        svc = LeadExecutionService(db=db, user_id=user_id)
+        if apply:
+            return svc.execute(channel=channel, trigger="manual")
+        return {"dry_run": True, **svc.plan()}
+
+    return _execute_leadgen(
+        request, "leadgen.execute", handler, db=db, user_id=user_id,
+        input_payload={"apply": apply, "channel": channel},
+    )
+
+
+@router.post("/execute/revert")
+@limiter.limit("15/minute")
+def revert_lead_action(
+    request: Request,
+    body: RevertActionRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Revert a lead action so its lead becomes eligible for action again."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.search.services.lead_execution_service import LeadExecutionService
+        return LeadExecutionService(db=db, user_id=user_id).revert(body.action_id)
+
+    return _execute_leadgen(
+        request, "leadgen.execute.revert", handler, db=db, user_id=user_id,
+        input_payload=body.model_dump(),
+    )
+
+
+@router.get("/actions")
+@limiter.limit("60/minute")
+def list_lead_actions(
+    request: Request,
+    limit: int = Query(20, description="Max actions to return."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """List this user's lead actions (drafts, decisions, status, revert state)."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.search.services.lead_execution_service import LeadExecutionService
+        actions = LeadExecutionService(db=db, user_id=user_id).history(limit=limit)
+        return {"actions": actions, "count": len(actions)}
+
+    return _execute_leadgen(request, "leadgen.actions", handler, db=db, user_id=user_id)
 
 
 for _route in list(router.routes):

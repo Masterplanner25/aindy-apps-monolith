@@ -47,6 +47,19 @@ def register() -> None:
         category="research",
         egress_scope="external_web",
     )(research_query)
+    register_tool(
+        "leadgen.act",
+        risk="medium",
+        description=(
+            "Act on scored leads — draft (never send) outreach for qualified leads, "
+            "behind a safety gate. Args: {apply?: bool, channel?: 'draft'|'email'|'handoff'}. "
+            "Dry run unless apply=true; every action is tracked and revertible."
+        ),
+        capability="tool:leadgen.act",
+        required_capability="external_api_call",
+        category="leadgen",
+        egress_scope="external_llm",
+    )(leadgen_act)
 
 
 def search_query(args: dict, user_id: str, db) -> dict:
@@ -62,3 +75,15 @@ def leadgen_search(args: dict, user_id: str, db) -> dict:
 
 def research_query(args: dict, user_id: str, db) -> dict:
     return _dispatch_tool_syscall("sys.v1.research.query", args, user_id, capability="research.query")
+
+
+def leadgen_act(args: dict, user_id: str, db) -> dict:
+    data = _dispatch_tool_syscall("sys.v1.leadgen.act", args, user_id, capability="leadgen.act")
+    return {
+        "status": data.get("status"),
+        "actions": data.get("actions", []),
+        "skipped": data.get("skipped", []),
+        "count": data.get("count", 0),
+        "dry_run": data.get("dry_run", False),
+        "would_act": data.get("would_act"),
+    }
