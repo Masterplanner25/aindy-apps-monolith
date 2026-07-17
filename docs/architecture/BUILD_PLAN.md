@@ -159,6 +159,11 @@ Track 2 remains the single open build, deferred until an LLM-egress environment 
   the stable Docker + Anthropic egress the literal Claude loop needs).
 - **3b-full weighting** *(open)* — which pillar signal is promoted to move the canonical Infinity
   score, and at what weight. A values decision, deferred with Track 3.
+- **Learned recursion (REFLECT calibration)** *(scoped)* — waking the REFLECT→EVOLVE loop from
+  heuristic nudges to a learned model, starting with a shadow-mode expected-score calibrator that
+  does not touch canonical weights. Scoped in
+  [INFINITY_LEARNED_RECURSION_SCOPE.md](./INFINITY_LEARNED_RECURSION_SCOPE.md); Phase 2 (driving the
+  score) re-opens 3b-full.
 - **Face surface shape** *(resolved)* — shipped as a dedicated `/assistant` page in the user nav,
   not a global command bar.
 - **Streaming** *(resolved for now)* — MVP polls the run/steps endpoints (`useEffect` interval);
