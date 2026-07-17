@@ -16,3 +16,4 @@ def register() -> None:
     register_tool_capabilities("search.query", ["external_api_call"])
     register_tool_capabilities("leadgen.search", ["external_api_call"])
     register_tool_capabilities("research.query", ["external_api_call"])
+    register_tool_capabilities("leadgen.act", ["external_api_call"])

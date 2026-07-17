@@ -105,6 +105,23 @@ def _handle_leadgen_store(payload: dict, ctx: SyscallContext) -> dict:
             db.close()
 
 
+def _handle_leadgen_act(payload: dict, ctx: SyscallContext) -> dict:
+    from apps.search.services.lead_execution_service import LeadExecutionService
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        svc = LeadExecutionService(db=db, user_id=ctx.user_id)
+        if bool(payload.get("apply", False)):
+            return svc.execute(
+                channel=payload.get("channel", "draft"),
+                trigger=payload.get("trigger", "agent"),
+            )
+        return {"dry_run": True, **svc.plan()}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def _handle_research_query(payload: dict, ctx: SyscallContext) -> dict:
     from apps.search.services.research_engine import web_search
 
@@ -226,6 +243,13 @@ def register_search_syscall_handlers() -> None:
         handler=_handle_leadgen_store,
         capability="leadgen.store",
         description="Persist leadgen results to memory bridge and search cache.",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.leadgen.act",
+        handler=_handle_leadgen_act,
+        capability="leadgen.act",
+        description="Act on scored leads: gated, revertible outreach drafts (Execution Layer).",
         stable=False,
     )
     register_syscall(

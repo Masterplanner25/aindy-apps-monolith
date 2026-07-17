@@ -842,6 +842,30 @@ Preview Lead Search
 
 **Response 200:** unspecified
 
+#### POST /apps/leadgen/execute
+Execute Lead Actions — the Search Execution Layer. Act on scored leads by drafting
+(never sending) outreach for those that clear a safety gate (score threshold, data
+quality, dedup vs already-actioned, max-per-run). Dry run unless `apply=true`; every
+action is tracked and revertible. No channel contacts a lead in this cut.
+
+**Parameters:** apply (query): boolean (default false), channel (query): string (draft | email | handoff; default draft)
+
+**Response 200:** unspecified
+
+#### POST /apps/leadgen/execute/revert
+Revert Lead Action — mark an action reverted so its lead is eligible for action again.
+
+**Body:** action_id: integer (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/leadgen/actions
+List Lead Actions — this user's lead actions (drafts, decisions, status, revert state).
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
 ### Legacy Compatibility
 
 #### GET /apps/analyze_ripple/{drop_point_id}
