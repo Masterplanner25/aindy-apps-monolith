@@ -1,6 +1,6 @@
 ---
 title: "App HTTP REST API Reference"
-last_verified: "2026-07-05"
+last_verified: "2026-07-16"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -40,6 +40,30 @@ Update Config
 Get Config Suggestions
 
 **Parameters:** window (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/arm/config/auto-tune
+Auto Tune Config — apply (or, by default, preview) the low-risk config changes ARM's
+suggestion engine already computed, behind a safety gate (whitelist, bounds,
+min-sessions, cooldown, max-per-run). Dry run unless `apply=true`; every applied run
+is auditable and revertible.
+
+**Parameters:** apply (query): boolean (default false), window (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/arm/config/auto-tune/revert
+Revert Auto Tune — restore the config snapshot captured before a specific auto-tune run.
+
+**Body:** log_id: string (required)
+
+**Response 200:** unspecified
+
+#### GET /apps/arm/config/auto-tune/history
+Auto Tune History — list this user's auto-tune runs (applied changes, snapshots, revert state).
+
+**Parameters:** limit (query): integer
 
 **Response 200:** unspecified
 
