@@ -9,14 +9,17 @@ from apps.freelance.models.freelance import (
     RevenueMetrics,
     WebhookEvent,
 )
+from apps.freelance.models.pricing import PricingRecommendation, ServicePrice
 
 __all__ = [
     "ClientAccount",
     "ClientFeedback",
     "FreelanceOrder",
     "PaymentRecord",
+    "PricingRecommendation",
     "RefundRecord",
     "RevenueMetrics",
+    "ServicePrice",
     "WebhookEvent",
 ]
 

@@ -2,9 +2,10 @@ import json as _json
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from AINDY.core.execution_gate import to_envelope
@@ -351,6 +352,94 @@ def collect_feedback(
         user_id=user_id,
         input_payload=feedback.model_dump(),
     )
+
+
+class PricingRevertRequest(BaseModel):
+    recommendation_id: int
+
+
+@router.post("/pricing/optimize")
+@limiter.limit("15/minute")
+def optimize_pricing(
+    request: Request,
+    apply: bool = Query(False, description="Persist price changes. Default false = dry-run preview."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Revenue Intelligence Loop: recommend (and optionally apply) gated, revertible
+    service-price adjustments from realized outcomes. Apply writes an internal default
+    price for future quotes — it never changes an existing order or charges a customer."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.freelance.services.revenue_intelligence_service import RevenueIntelligenceService
+        svc = RevenueIntelligenceService(db=db, user_id=user_id)
+        if apply:
+            return svc.apply(trigger="manual")
+        return {"dry_run": True, **svc.plan()}
+
+    return _execute_freelance(
+        request, "freelance.pricing.optimize", handler, db=db, user_id=user_id,
+        input_payload={"apply": apply},
+    )
+
+
+@router.post("/pricing/revert")
+@limiter.limit("15/minute")
+def revert_pricing(
+    request: Request,
+    body: PricingRevertRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Restore the default price that was in effect before an applied recommendation."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.freelance.services.revenue_intelligence_service import RevenueIntelligenceService
+        return RevenueIntelligenceService(db=db, user_id=user_id).revert(body.recommendation_id)
+
+    return _execute_freelance(
+        request, "freelance.pricing.revert", handler, db=db, user_id=user_id,
+        input_payload=body.model_dump(),
+    )
+
+
+@router.get("/pricing/recommendations")
+@limiter.limit("60/minute")
+def list_pricing_recommendations(
+    request: Request,
+    limit: int = Query(20, description="Max recommendations to return."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """List this user's pricing recommendation runs (decisions, status, revert state)."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.freelance.services.revenue_intelligence_service import RevenueIntelligenceService
+        rows = RevenueIntelligenceService(db=db, user_id=user_id).history(limit=limit)
+        return {"recommendations": rows, "count": len(rows)}
+
+    return _execute_freelance(request, "freelance.pricing.recommendations", handler, db=db, user_id=user_id)
+
+
+@router.get("/pricing")
+@limiter.limit("60/minute")
+def get_pricing_catalog(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """The studio's current default price per service type (the apply target)."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.freelance.services.revenue_intelligence_service import RevenueIntelligenceService
+        prices = RevenueIntelligenceService(db=db, user_id=user_id).catalog()
+        return {"prices": prices, "count": len(prices)}
+
+    return _execute_freelance(request, "freelance.pricing.catalog", handler, db=db, user_id=user_id)
 
 
 @router.get("/orders")

@@ -39,11 +39,32 @@ def _handle_freelance_performance_signals(payload: dict, ctx: SyscallContext) ->
             db.close()
 
 
+def _handle_freelance_optimize_pricing(payload: dict, ctx: SyscallContext) -> dict:
+    from apps.freelance.services.revenue_intelligence_service import RevenueIntelligenceService
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        svc = RevenueIntelligenceService(db=db, user_id=ctx.user_id)
+        if bool(payload.get("apply", False)):
+            return svc.apply(trigger=payload.get("trigger", "agent"))
+        return {"dry_run": True, **svc.plan()}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_freelance_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.freelance.get_performance_signals",
         handler=_handle_freelance_performance_signals,
         capability="freelance.read",
         description="Recent realized-revenue signals for the Infinity support state (re-tether).",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.freelance.optimize_pricing",
+        handler=_handle_freelance_optimize_pricing,
+        capability="freelance.optimize",
+        description="Recommend/apply gated, revertible service-price adjustments from realized outcomes.",
         stable=False,
     )
