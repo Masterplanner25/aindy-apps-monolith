@@ -61,6 +61,10 @@ class ConfigUpdateRequest(BaseModel):
     updates: dict
 
 
+class AutoTuneRevertRequest(BaseModel):
+    log_id: str
+
+
 def _arm_config_to_dict(config) -> dict:
     if config is None:
         return DEFAULT_CONFIG.copy()
@@ -349,6 +353,104 @@ async def get_config_suggestions(
 
     return await execute_with_pipeline(
         request=request, route_name="arm.config.suggest", handler=handler,
+        user_id=str(current_user["sub"]), metadata={"db": db},
+    )
+
+
+@router.post("/config/auto-tune")
+@limiter.limit("15/minute")
+async def auto_tune_config(
+    request: Request,
+    apply: bool = False,
+    window: int = 30,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Close ARM's Reflect -> Adjust loop: apply the low-risk config changes the
+    suggestion engine already computed, behind a safety gate (whitelist, bounds,
+    min-sessions, cooldown, max-per-run).
+
+    Defaults to a dry run (``apply=false``) that returns exactly what *would* be
+    applied and what is gated and why. Pass ``apply=true`` to persist; every
+    applied run is auditable and revertible via /config/auto-tune history + revert.
+    """
+    def handler(ctx):
+        from AINDY.runtime.flow_engine import run_flow
+        result = run_flow(
+            "arm_config_autotune",
+            {"window": window, "apply": apply, "trigger": "manual"},
+            db=db,
+            user_id=str(current_user["sub"]),
+        )
+        if result.get("status") == "error":
+            raise RuntimeError("ARM auto-tune flow failed")
+        data = result.get("data") or {}
+        if not isinstance(data, dict):
+            data = {"result": data}
+        data.setdefault("execution_envelope", to_envelope(
+            eu_id=result.get("run_id"), trace_id=result.get("trace_id"),
+            status=str(result.get("status") or "UNKNOWN").upper(),
+            output=None, error=result.get("error"), duration_ms=None, attempt_count=None,
+        ))
+        return data
+
+    return await execute_with_pipeline(
+        request=request, route_name="arm.config.autotune", handler=handler,
+        user_id=str(current_user["sub"]), metadata={"db": db},
+    )
+
+
+@router.post("/config/auto-tune/revert")
+@limiter.limit("15/minute")
+async def revert_auto_tune(
+    request: Request,
+    body: AutoTuneRevertRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Restore the config snapshot captured before a specific auto-tune run."""
+    def handler(ctx):
+        from apps.arm.services.arm_autotune_service import ARMAutoTuneService
+        user_id = str(current_user["sub"])
+        try:
+            result = ARMAutoTuneService(db=db, user_id=user_id).revert(body.log_id)
+        except (ValueError, TypeError):
+            result = {"status": "not_found", "log_id": body.log_id}
+        result.setdefault("execution_envelope", to_envelope(
+            eu_id=None, trace_id=None, status="SUCCESS",
+            output=None, error=None, duration_ms=None, attempt_count=None,
+        ))
+        return result
+
+    return await execute_with_pipeline(
+        request=request, route_name="arm.config.autotune.revert", handler=handler,
+        user_id=str(current_user["sub"]), metadata={"db": db}, input_payload=body.model_dump(),
+    )
+
+
+@router.get("/config/auto-tune/history")
+@limiter.limit("60/minute")
+async def auto_tune_history(
+    request: Request,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """List this user's auto-tune runs (applied changes, snapshots, revert state)."""
+    def handler(ctx):
+        from apps.arm.services.arm_autotune_service import ARMAutoTuneService
+        user_id = str(current_user["sub"])
+        runs = ARMAutoTuneService(db=db, user_id=user_id).history(limit=limit)
+        data = {"runs": runs, "total": len(runs)}
+        data.setdefault("execution_envelope", to_envelope(
+            eu_id=None, trace_id=None, status="SUCCESS",
+            output=None, error=None, duration_ms=None, attempt_count=None,
+        ))
+        return data
+
+    return await execute_with_pipeline(
+        request=request, route_name="arm.config.autotune.history", handler=handler,
         user_id=str(current_user["sub"]), metadata={"db": db},
     )
 

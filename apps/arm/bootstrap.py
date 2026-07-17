@@ -126,6 +126,7 @@ def _register_flow_results() -> None:
         "arm_config_update": "arm_config_update_result",
         "arm_metrics": "arm_metrics_result",
         "arm_config_suggest": "arm_config_suggest_result",
+        "arm_config_autotune": "arm_config_autotune_result",
     }
     for flow_name, result_key in result_keys.items():
         register_flow_result(flow_name, result_key=result_key)

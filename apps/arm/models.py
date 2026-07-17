@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Boolean, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -163,6 +163,36 @@ class ArmConfig(Base):
     )
 
 
+# -------------------------------------------------------
+#  ArmAutoTuneLog — audit trail for self-tuning config changes
+# -------------------------------------------------------
+class ArmAutoTuneLog(Base):
+    """
+    One row per auto-tune run: what the guarded consumer applied from the
+    suggestion engine's ``auto_apply_safe`` set, what it skipped and why, plus a
+    full snapshot of the config *before* the change so a run can be reverted
+    exactly. This is the closed half of ARM's Reflect -> Adjust loop — the layer
+    that actually consumes ``auto_apply_safe`` instead of only recommending it.
+
+    ``user_id`` mirrors the ``arm_config`` row key (a user UUID string, or the
+    ``"default"`` singleton), not a ``users.id`` FK — config is keyed the same way.
+    """
+
+    __tablename__ = "arm_autotune_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(36), nullable=False, index=True)     # arm_config key ('default' | user uuid)
+    trigger = Column(String(16), nullable=False, default="manual")  # manual | agent | scheduler
+    applied = Column(JSON, nullable=False, default=list)         # [{param, old, new, metric, reason, risk}]
+    skipped = Column(JSON, nullable=False, default=list)         # [{param, suggested, reason}]
+    prior_config = Column(JSON, nullable=False, default=dict)    # snapshot before apply — revert target
+    resulting_config = Column(JSON, nullable=False, default=dict)  # snapshot after apply
+    metrics_snapshot = Column(JSON, nullable=False, default=dict)
+    reverted = Column(Boolean, nullable=False, default=False)
+    reverted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 def register_models() -> None:
-    _ = (AnalysisResult, CodeGeneration, ARMRun, ARMLog, ARMConfig, ArmConfig)
+    _ = (AnalysisResult, CodeGeneration, ARMRun, ARMLog, ARMConfig, ArmConfig, ArmAutoTuneLog)
     return None
