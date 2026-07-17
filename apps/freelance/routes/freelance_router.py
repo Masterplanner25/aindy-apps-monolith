@@ -13,6 +13,7 @@ from AINDY.core.execution_helper import execute_with_pipeline, execute_with_pipe
 from AINDY.db.database import get_db
 from AINDY.platform_layer.rate_limiter import limiter
 from apps.freelance.schemas.freelance import (
+    ActionIntakeRequest,
     FeedbackCreate,
     FreelanceDeliveryConfigUpdate,
     FreelanceOrderCreate,
@@ -514,6 +515,85 @@ def intake_from_lead(
     return _execute_freelance(
         request,
         "freelance.intake.from_lead",
+        handler,
+        db=db,
+        user_id=user_id,
+        input_payload={**intake.model_dump(), "idempotency_key": idempotency_key},
+        success_status_code=201,
+    )
+
+
+@router.get("/intake/actioned-leads")
+@limiter.limit("60/minute")
+def list_actioned_leads(
+    request: Request,
+    limit: int = Query(50, description="Max actioned leads to return."),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Leads the Search Execution Layer has drafted outreach for — ready to convert."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        from apps.freelance.services import intake_service
+        leads = intake_service.list_actioned_leads(db, user_id, limit=limit)
+        return {"actioned_leads": leads, "count": len(leads)}
+
+    return _execute_freelance(request, "freelance.intake.actioned_leads", handler, db=db, user_id=user_id)
+
+
+@router.post("/intake/from-action", status_code=201)
+@limiter.limit("30/minute")
+def intake_from_action(
+    request: Request,
+    intake: ActionIntakeRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Convert a Search-actioned lead into a client + order (completes lead -> order)."""
+    user_id = str(current_user["sub"])
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
+
+    def handler(_ctx):
+        from apps.freelance.services import intake_service
+        try:
+            result = intake_service.convert_actioned_lead(
+                db,
+                user_id,
+                action_id=intake.action_id,
+                client_email=intake.client_email,
+                service_type=intake.service_type,
+                client_name=intake.client_name,
+                price=intake.price or 0.0,
+                project_details=intake.project_details,
+                delivery_type=intake.delivery_type or "manual",
+                delivery_config=intake.delivery_config,
+                auto_generate_delivery=intake.auto_generate_delivery,
+                idempotency_key=idempotency_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        order = result["order"]
+        client = result["client"]
+        return {
+            "status": "created",
+            "action_id": result["action_id"],
+            "lead_id": result["lead_id"],
+            "order": {
+                "id": order.id,
+                "service_type": order.service_type,
+                "price": order.price,
+                "status": order.status,
+                "client_email": order.client_email,
+            },
+            "client": {"id": client.id, "email": client.email},
+        }
+
+    return _execute_freelance(
+        request,
+        "freelance.intake.from_action",
         handler,
         db=db,
         user_id=user_id,

@@ -265,3 +265,76 @@ def convert_lead_to_order(
         db.flush()
 
     return {"client": client, "order": created, "lead_id": int(getattr(lead, "id", lead_id))}
+
+
+def list_actioned_leads(db: Session, user_id: Any, limit: int = 50) -> list[dict[str, Any]]:
+    """Leads the Search Execution Layer has drafted outreach for, ready to convert.
+
+    Search owns the actioned leads; freelance consumes them through the search public
+    surface (``apps.search.public.list_actioned_leads``) rather than reaching into
+    search internals. Returns a compact, conversion-ready view.
+    """
+    from apps.search.public import list_actioned_leads as _search_list_actioned_leads
+
+    actions = _search_list_actioned_leads(db, user_id, limit=limit)
+    return [
+        {
+            "action_id": action.id,
+            "lead_id": action.lead_id,
+            "company": action.company,
+            "url": action.url,
+            "status": action.status,
+            "channel": action.channel,
+            "draft_subject": action.draft_subject,
+            "created_at": action.created_at.isoformat() if action.created_at else None,
+        }
+        for action in actions
+    ]
+
+
+def convert_actioned_lead(
+    db: Session,
+    user_id: Any,
+    *,
+    action_id: int,
+    client_email: str,
+    service_type: str,
+    client_name: str | None = None,
+    price: float = 0.0,
+    project_details: str | None = None,
+    delivery_type: str = "manual",
+    delivery_config: dict | None = None,
+    auto_generate_delivery: bool = False,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Convert a Search-actioned lead into a client + order.
+
+    Resolves the ``LeadAction`` (search public surface) to its originating lead, then
+    reuses ``convert_lead_to_order`` so the full lead -> client -> order lineage — and
+    the ServicePrice default when no price is supplied — applies unchanged. This is
+    the seam that completes the lead -> outreach -> client -> priced-order chain.
+    """
+    from apps.search.public import get_lead_action
+
+    action = get_lead_action(db, action_id, user_id)
+    if action is None:
+        raise ValueError(f"lead action {action_id} not found")
+    if action.lead_id is None:
+        raise ValueError(f"lead action {action_id} has no linked lead to convert")
+
+    result = convert_lead_to_order(
+        db,
+        user_id,
+        lead_id=action.lead_id,
+        client_email=client_email,
+        service_type=service_type,
+        client_name=client_name or action.company,
+        price=price,
+        project_details=project_details,
+        delivery_type=delivery_type,
+        delivery_config=delivery_config,
+        auto_generate_delivery=auto_generate_delivery,
+        idempotency_key=idempotency_key,
+    )
+    result["action_id"] = action_id
+    return result
