@@ -625,6 +625,37 @@ Get All Orders
 
 **Response 200:** unspecified
 
+#### GET /apps/freelance/pricing
+Get Pricing Catalog — the studio's current default price per service type (the apply
+target of the Revenue Intelligence Loop).
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/pricing/optimize
+Optimize Pricing — recommend (and optionally apply) gated, revertible service-price
+adjustments from realized outcomes (paid revenue, acceptance, refund rate, ratings).
+Dry run unless `apply=true`. Applying writes an internal default price for future
+quotes; it never changes an existing order or charges a customer.
+
+**Parameters:** apply (query): boolean (default false)
+
+**Response 200:** unspecified
+
+#### GET /apps/freelance/pricing/recommendations
+List Pricing Recommendations — this user's recommendation runs (decisions, status,
+revert state).
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/pricing/revert
+Revert Pricing — restore the default price in effect before an applied recommendation.
+
+**Body:** recommendation_id: integer (required)
+
+**Response 200:** unspecified
+
 #### POST /apps/freelance/refund/{order_id}
 Refund Order
 
