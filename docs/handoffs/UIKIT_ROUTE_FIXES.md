@@ -10,86 +10,92 @@ owner: "app-team"
 
 ## What this is
 
-A live-frontend verification of `client/` (2026-07-18) cross-checked all client route
-definitions against the live backend surface. The client reaches the backend through
-`@aindy/ui-kit`'s `ROUTES` object (this repo's `client/src/api/_routes.js` just
-re-exports it), so any wrong path in `ROUTES` is a bug this app inherits and cannot fix
-without an override.
+A live-frontend verification of `client/` (2026-07-18) cross-checked all 135 client route
+definitions (from `@aindy/ui-kit`'s `ROUTES`, resolved through `buildApiUrl`) against the
+566 live backend routes. **18 resolved to paths the backend doesn't serve** — each omitting
+its backend router-prefix segment.
 
-**Result:** 117 of 135 client routes resolve to real backend endpoints; **18 do not** —
-all in three `ROUTES` groups whose path values **omit the backend router's prefix
-segment** (`compute` / `seo` / `platform`). One is a confirmed live break (the AI SEO
-tool 404s).
+A runtime-side ownership review then split those 18 by layer — and only **one** is actually
+a `@aindy/ui-kit` fix:
 
-## Root cause
-
-`buildApiUrl` prepends `API_BASE` to a `ROUTES` value verbatim — there is no
-domain-based routing. Routes with no intermediate prefix (`/tasks/list`, `/agent/run`,
-`/memory/recall/v3`) resolve fine because the backend serves them directly. The three
-families below sit behind a FastAPI router mount (`/compute`, `/seo`, `/platform/flows`)
-that the `ROUTES` values dropped, so `buildApiUrl` produces a path the backend never
-registers.
-
-## The fix (18 `ROUTES` values)
-
-Every corrected path below is verified present on the live backend
-(`GET /openapi.json`, app-profile boot).
-
-### `ROUTES.ANALYTICS.*` — add the `/compute` prefix (14)
-
-| Key | Current (wrong) | Correct |
+| Layer | Routes | Owner / home |
 |---|---|---|
-| `CALCULATE_TWR` | `/calculate_twr` | `/compute/calculate_twr` |
-| `CALCULATE_ENGAGEMENT` | `/calculate_engagement` | `/compute/calculate_engagement` |
-| `CALCULATE_AI_EFFICIENCY` | `/calculate_ai_efficiency` | `/compute/calculate_ai_efficiency` |
-| `CALCULATE_IMPACT_SCORE` | `/calculate_impact_score` | `/compute/calculate_impact_score` |
-| `CALCULATE_AI_PRODUCTIVITY_BOOST` | `/ai_productivity_boost` | `/compute/ai_productivity_boost` |
-| `CALCULATE_ATTENTION_VALUE` | `/attention_value` | `/compute/attention_value` |
-| `CALCULATE_BUSINESS_GROWTH` | `/business_growth` | `/compute/business_growth` |
-| `CALCULATE_DECISION_EFFICIENCY` | `/decision_efficiency` | `/compute/decision_efficiency` |
-| `CALCULATE_ENGAGEMENT_RATE` | `/engagement_rate` | `/compute/engagement_rate` |
-| `CALCULATE_EXECUTION_SPEED` | `/execution_speed` | `/compute/execution_speed` |
-| `CALCULATE_INCOME_EFFICIENCY` | `/income_efficiency` | `/compute/income_efficiency` |
-| `CALCULATE_LOST_POTENTIAL` | `/lost_potential` | `/compute/lost_potential` |
-| `CALCULATE_MONETIZATION_EFFICIENCY` | `/monetization_efficiency` | `/compute/monetization_efficiency` |
-| `CALCULATE_REVENUE_SCALING` | `/revenue_scaling` | `/compute/revenue_scaling` |
+| **Runtime / platform** | `/platform/flows/strategies` (1) | **Fix in `@aindy/ui-kit`** — every consumer of the platform surface benefits (`AINDY/routes/platform/flows_router.py`). |
+| **App-domain** | `/compute/*` (14 analytics KPI) + `/seo/*` (3) | **App-owned** — these are this monolith's endpoints, not runtime routes; corrected in the app's own route map. |
 
-### `ROUTES.SEARCH.*` (SEO) — add the `/seo` prefix (3)
+## The one item for `@aindy/ui-kit`
 
-| Key | Current (wrong) | Correct |
-|---|---|---|
-| `ANALYZE_SEO` | `/analyze_seo/` | `/seo/analyze_seo/` |
-| `GENERATE_META` | `/generate_meta/` | `/seo/generate_meta/` |
-| `SUGGEST_IMPROVEMENTS` | `/suggest_improvements/` | `/seo/suggest_improvements/` |
+`ROUTES.OPERATOR.FLOW_STRATEGIES`:
 
-These target the backend's compat aliases (which exist). The backend also exposes
-canonical shorter routes — `/seo/analyze`, `/seo/meta`, `/seo/suggest` — so if ui-kit
-prefers those, point there instead; either resolves.
+```
+/flows/strategies   →   /platform/flows/strategies
+```
 
-### `ROUTES.OPERATOR.FLOW_STRATEGIES` — add the `/platform` prefix (1)
+This is a genuine runtime/platform route (the strategies are app-registered via
+`register_flow_strategy`, but the *route that lists them* is runtime-owned). Every ui-kit
+consumer of the platform surface inherits the bug and benefits from the fix. If
+`docs/runtime/UI_CONTRACT.md` (the runtime→UI contract) doesn't already pin the canonical
+platform paths, adding `/platform/flows/strategies` there gives ui-kit an authoritative
+source so this can't drift again.
 
-| Key | Current (wrong) | Correct |
-|---|---|---|
-| `FLOW_STRATEGIES` | `/flows/strategies` | `/platform/flows/strategies` |
+## The 17 app-domain routes — resolved app-side (not a ui-kit ask)
 
-## Severity / blast radius (in this app)
+The 14 `ANALYTICS.CALCULATE_*` (`/compute/*`) and 3 SEO (`/seo/*`) routes are this monolith's
+own endpoints. Per the runtime/app split applied at the frontend layer — the shared kit owns
+runtime/platform routes, each app owns its own app routes — these do **not** belong in
+`@aindy/ui-kit`. A different app built on the runtime would define its own, not inherit these.
 
-- **`ANALYZE_SEO` / `GENERATE_META` / `SUGGEST_IMPROVEMENTS`** — **confirmed live break.**
-  `AiSeoTool` (routed at `/search/seo`, mounted) calls all three; each request 404s.
-- **`ANALYTICS.CALCULATE_*`** — consumed by the KPI panels (`AIEfficiencyPanel`,
-  `EngagementPanel`, `DecisionEfficiencyPanel`, …), app components.
-- **`OPERATOR.FLOW_STRATEGIES`** — the platform flows-strategies view.
+They are corrected in this repo's app-owned route map, `client/src/api/_routes.js`, which
+re-exports ui-kit's `ROUTES` and overrides the app-domain paths (self-healing: it only prepends
+the missing prefix when ui-kit's value is present and unprefixed, so a future ui-kit that
+removes these — the correct upstream end-state — makes the override a no-op). Guarded by
+`client/src/api/__tests__/routes-app-owned.test.js`. See TECH_DEBT **UIKIT-ROUTE-DRIFT-1**.
 
-## Verification the ui-kit maintainer can run
+**Suggested upstream end-state (optional, ui-kit hygiene):** remove the app-domain
+`ANALYTICS.CALCULATE_*` and SEO path entries from the shared `ROUTES` so the kit stops baking
+in monolith-specific app routes — the coupling this finding made visible. Not required for
+correctness here (the app override owns them either way).
 
-Resolve every `ROUTES.*` value through `buildApiUrl` and assert it matches a live
-backend route. The app-side cross-check that found this (135 client routes vs the live
-`/openapi.json` app-profile surface, structural match with `{param}` as wildcards and an
-optional leading `/apps` stripped) drops from 18 mismatches to 0 once these land.
+## For reference — the full 18 with verified targets
 
-## App-side follow-on
+`/compute` group (app-owned, fixed in `_routes.js`):
 
-None required beyond a `@aindy/ui-kit` version bump once the fix ships — this repo does
-not vendor `ROUTES`. Tracked here as **UIKIT-ROUTE-DRIFT-1** in `TECH_DEBT.md`. If the
-SEO break needs unblocking before ui-kit ships, the stopgap is an app-side `_routes.js`
-that spreads `ROUTES` and overrides the 18 corrected values.
+```
+CALCULATE_TWR                     /calculate_twr             → /compute/calculate_twr
+CALCULATE_ENGAGEMENT             /calculate_engagement       → /compute/calculate_engagement
+CALCULATE_AI_EFFICIENCY          /calculate_ai_efficiency    → /compute/calculate_ai_efficiency
+CALCULATE_IMPACT_SCORE           /calculate_impact_score     → /compute/calculate_impact_score
+CALCULATE_AI_PRODUCTIVITY_BOOST  /ai_productivity_boost      → /compute/ai_productivity_boost
+CALCULATE_ATTENTION_VALUE        /attention_value            → /compute/attention_value
+CALCULATE_BUSINESS_GROWTH        /business_growth            → /compute/business_growth
+CALCULATE_DECISION_EFFICIENCY    /decision_efficiency        → /compute/decision_efficiency
+CALCULATE_ENGAGEMENT_RATE        /engagement_rate            → /compute/engagement_rate
+CALCULATE_EXECUTION_SPEED        /execution_speed            → /compute/execution_speed
+CALCULATE_INCOME_EFFICIENCY      /income_efficiency          → /compute/income_efficiency
+CALCULATE_LOST_POTENTIAL         /lost_potential             → /compute/lost_potential
+CALCULATE_MONETIZATION_EFFICIENCY/monetization_efficiency    → /compute/monetization_efficiency
+CALCULATE_REVENUE_SCALING        /revenue_scaling            → /compute/revenue_scaling
+```
+
+`/seo` group (app-owned, fixed in `_routes.js` — targets the backend compat aliases; canonical
+`/seo/analyze`, `/seo/meta`, `/seo/suggest` also exist):
+
+```
+ANALYZE_SEO          /analyze_seo/          → /seo/analyze_seo/
+GENERATE_META        /generate_meta/        → /seo/generate_meta/
+SUGGEST_IMPROVEMENTS /suggest_improvements/ → /seo/suggest_improvements/
+```
+
+`/platform` group (runtime-owned, **fix in ui-kit**):
+
+```
+FLOW_STRATEGIES      /flows/strategies      → /platform/flows/strategies
+```
+
+## Verification
+
+Resolving every `ROUTES.*` value through `buildApiUrl` should hit a live backend route. The
+app-side cross-check that found this (135 client routes vs the live `/openapi.json`, structural
+match with `{param}` as wildcards and an optional leading `/apps` stripped) drops from 18
+mismatches to **1** once the app override lands, and to **0** once the ui-kit `/platform/flows`
+fix ships and this repo bumps the dependency.
