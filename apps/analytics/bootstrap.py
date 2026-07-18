@@ -33,6 +33,7 @@ def register() -> None:
     _register_flows()
     _register_flow_results()
     _register_flow_strategies()
+    _register_nodus_workflows()
     _register_agent_capabilities()
     _register_agent_tools()
     _register_health_check()
@@ -197,6 +198,48 @@ def _register_flow_strategies() -> None:
     from apps.analytics.services.reasoning import select_reasoning_flow
 
     register_flow_strategy("reasoning", select_reasoning_flow)
+
+
+def _register_nodus_workflows() -> None:
+    """Adopt the runtime ``register_nodus_workflow`` hook (runtime FR-2): contribute
+    the app's native Nodus ``.nd`` reasoning workflow(s) so reasoning can execute on
+    the Nodus VM rather than only the Python flow engine.
+
+    Packaged ``.nd`` artifacts under ``apps/analytics/nodus/`` are registered
+    in-memory each boot (``db=None`` — re-registered from the source artifact, like the
+    manifest declarative path), validated/compiled at registration. Non-fatal: a
+    registration failure warns rather than failing this core domain's boot (e.g. a
+    runtime older than the one that shipped the hook).
+    """
+    from pathlib import Path
+
+    nd_dir = Path(__file__).resolve().parent / "nodus"
+    if not nd_dir.is_dir():
+        return
+    try:
+        from AINDY.runtime.nodus_workflow_registry import register_nodus_workflow
+    except Exception as exc:  # runtime without the hook
+        logger.warning("[analytics] register_nodus_workflow unavailable (non-fatal): %s", exc)
+        return
+
+    for nd_file in sorted(nd_dir.glob("*.nd")):
+        try:
+            register_nodus_workflow(
+                nd_file.stem,
+                nd_file.read_text(encoding="utf-8"),
+                kind="flow-graph",
+                owner_class="first-party-app",
+                allow_legacy_missing_provenance=True,
+                overwrite=True,
+                db=None,
+            )
+            logger.info("[analytics] registered nodus workflow %s", nd_file.stem)
+        except Exception as exc:
+            logger.warning(
+                "[analytics] nodus workflow %s registration skipped (non-fatal): %s",
+                nd_file.stem,
+                exc,
+            )
 
 
 def _get_user_kpi_snapshot(*args, **kwargs):
