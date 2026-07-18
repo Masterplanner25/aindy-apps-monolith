@@ -127,3 +127,99 @@ class TestOutcomeWeights:
             record_feedback(db_session, user_id=uid, query="q", result_ref=f"r{i}", signal=signal)
         weights = get_result_outcome_weights(db_session, uid, "q")
         assert len(weights) == len(SIGNAL_WEIGHTS)
+
+
+class TestRankingConsumption:
+    """The §8 payoff: captured feedback re-weights the unified search ranking,
+    but only behind the flag (default off = ranking byte-for-byte unchanged)."""
+
+    def test_outcome_weights_for_is_none_when_flag_off(self, db_session, monkeypatch):
+        from apps.search.syscalls import _outcome_weights_for
+
+        monkeypatch.delenv("AINDY_SEARCH_OUTCOME_WEIGHTING", raising=False)
+        uid = _uid()
+        record_feedback(db_session, user_id=uid, query="q", result_ref="r1", signal="thumbs_up")
+        assert _outcome_weights_for(db_session, uid, "q") is None
+
+    def test_outcome_weights_for_returns_weights_when_flag_on(self, db_session, monkeypatch):
+        from apps.search.syscalls import _outcome_weights_for
+
+        monkeypatch.setenv("AINDY_SEARCH_OUTCOME_WEIGHTING", "1")
+        uid = _uid()
+        record_feedback(db_session, user_id=uid, query="q", result_ref="r1", signal="convert")
+        assert _outcome_weights_for(db_session, uid, "q") == {"r1": 1.0}
+
+    def test_outcome_weights_for_none_without_user(self, db_session, monkeypatch):
+        from apps.search.syscalls import _outcome_weights_for
+
+        monkeypatch.setenv("AINDY_SEARCH_OUTCOME_WEIGHTING", "1")
+        assert _outcome_weights_for(db_session, None, "q") is None
+
+    def test_search_syscall_reorders_by_feedback_when_enabled(self, db_session, monkeypatch):
+        from AINDY.kernel.syscall_registry import SyscallContext
+        from apps.search import syscalls
+        from apps.search.services import search_service
+
+        uid = _uid()
+        query = "cloud security"
+
+        # Two equally-scored, equally-relevant leads — order decided by feedback.
+        def _fake_search_leads(q, db=None, user_id=None, max_results=3):
+            return {
+                "query": q,
+                "results": [
+                    {"company": "Alpha", "url": "https://alpha.io",
+                     "context": "cloud security", "overall_score": 50},
+                    {"company": "Beta", "url": "https://beta.io",
+                     "context": "cloud security", "overall_score": 50},
+                ],
+            }
+
+        monkeypatch.setattr(search_service, "search_leads", _fake_search_leads)
+        monkeypatch.setenv("AINDY_SEARCH_OUTCOME_WEIGHTING", "1")
+
+        # The user converted on Beta and dismissed Alpha.
+        record_feedback(db_session, user_id=uid, query=query, result_ref="https://beta.io", signal="convert")
+        record_feedback(db_session, user_id=uid, query=query, result_ref="https://alpha.io", signal="dismiss")
+
+        ctx = SyscallContext(
+            execution_unit_id="eu-test", user_id=uid, capabilities=[],
+            trace_id="tr-test", metadata={"_db": db_session},
+        )
+        out = syscalls._handle_search_query(
+            {"query": query, "search_type": "leadgen"}, ctx
+        )
+        assert out["results"][0]["url"] == "https://beta.io"
+        assert out["results"][0]["metadata"]["outcome_weight"] == 1.0
+
+    def test_search_syscall_default_order_when_flag_off(self, db_session, monkeypatch):
+        from AINDY.kernel.syscall_registry import SyscallContext
+        from apps.search import syscalls
+        from apps.search.services import search_service
+
+        uid = _uid()
+        query = "cloud security"
+
+        def _fake_search_leads(q, db=None, user_id=None, max_results=3):
+            return {
+                "query": q,
+                "results": [
+                    {"company": "Alpha", "url": "https://alpha.io",
+                     "context": "cloud security", "overall_score": 50},
+                    {"company": "Beta", "url": "https://beta.io",
+                     "context": "cloud security", "overall_score": 50},
+                ],
+            }
+
+        monkeypatch.setattr(search_service, "search_leads", _fake_search_leads)
+        monkeypatch.delenv("AINDY_SEARCH_OUTCOME_WEIGHTING", raising=False)
+        record_feedback(db_session, user_id=uid, query=query, result_ref="https://beta.io", signal="convert")
+
+        ctx = SyscallContext(
+            execution_unit_id="eu-test", user_id=uid, capabilities=[],
+            trace_id="tr-test", metadata={"_db": db_session},
+        )
+        out = syscalls._handle_search_query({"query": query, "search_type": "leadgen"}, ctx)
+        # Flag off -> feedback ignored -> stable original order, no annotation.
+        assert out["results"][0]["url"] == "https://alpha.io"
+        assert "outcome_weight" not in out["results"][0]["metadata"]

@@ -133,6 +133,26 @@ def _handle_research_query(payload: dict, ctx: SyscallContext) -> dict:
     return {"raw_result": raw[:2000] if raw else ""}
 
 
+def _outcome_weights_for(db, user_id, query: str) -> dict[str, float] | None:
+    """Per-result outcome weights for ranking, or ``None`` when the feature is off.
+
+    Flag-gated (``AINDY_SEARCH_OUTCOME_WEIGHTING``): returns ``None`` unless the
+    weighting is enabled and there is a user to attribute feedback to, so the
+    default ranking path is byte-for-byte unchanged (Search v4 §8).
+    """
+    from apps.search.services.search_scoring import outcome_weighting_enabled
+
+    if not outcome_weighting_enabled() or not user_id:
+        return None
+    try:
+        from apps.search.services.feedback_service import get_result_outcome_weights
+
+        return get_result_outcome_weights(db, user_id, query) or None
+    except Exception as exc:  # pragma: no cover - ranking must never fail on feedback
+        logger.warning("[sys.v1.search.query] outcome-weight lookup failed (non-fatal): %s", exc)
+        return None
+
+
 def _memory_to_item(item):
     """Map a recalled memory item onto the shared SearchResultItem shape."""
     from apps.search.schemas.search_schema import SearchResultItem
@@ -174,11 +194,14 @@ def _handle_search_query(payload: dict, ctx: SyscallContext) -> dict:
 
     db, owns_session = _session_from_context(ctx)
     try:
+        outcome_weights = _outcome_weights_for(db, ctx.user_id, query)
         if search_type in (SEARCH_TYPE_LEADGEN, SEARCH_TYPE_LEAD_PREVIEW):
             raw = search_service.search_leads(
                 query, db=db, user_id=ctx.user_id, max_results=limit
             )
-            response = to_search_response(raw, search_type=SEARCH_TYPE_LEADGEN)
+            response = to_search_response(
+                raw, search_type=SEARCH_TYPE_LEADGEN, outcome_weights=outcome_weights
+            )
         elif search_type in (SEARCH_TYPE_SEO, "seo"):
             raw = search_service.analyze_seo_content(query, db=db, user_id=ctx.user_id)
             response = to_search_response(raw, search_type=SEARCH_TYPE_SEO)
@@ -197,7 +220,9 @@ def _handle_search_query(payload: dict, ctx: SyscallContext) -> dict:
             )
         else:
             raw = search_service.unified_query(query, db=db, user_id=ctx.user_id)
-            response = to_search_response(raw, search_type=SEARCH_TYPE_RESEARCH)
+            response = to_search_response(
+                raw, search_type=SEARCH_TYPE_RESEARCH, outcome_weights=outcome_weights
+            )
         return response.model_dump()
     finally:
         if owns_session:
