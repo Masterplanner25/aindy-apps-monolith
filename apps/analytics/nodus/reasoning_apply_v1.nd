@@ -1,13 +1,13 @@
 workflow reasoning_apply_v1 {
   step apply {
     let attempt = 1
-    let result = call_tool(input_payload["tool"], input_payload["args"])
-    while ((result["success"] != true) && (attempt < 3) && is_retryable_error(result["error"])) {
+    let result = sys("sys.v1.analytics.get_reasoning_recommendation", input_payload["args"])
+    while ((result["status"] != "success") && (attempt < 3) && is_retryable_error(result["error"])) {
       attempt = attempt + 1
-      result = call_tool(input_payload["tool"], input_payload["args"])
+      result = sys("sys.v1.analytics.get_reasoning_recommendation", input_payload["args"])
     }
     set_state("reasoning_apply_result", result)
-    if (result["success"] != true) {
+    if (result["status"] != "success") {
       throw "reasoning apply step failed"
     }
   }

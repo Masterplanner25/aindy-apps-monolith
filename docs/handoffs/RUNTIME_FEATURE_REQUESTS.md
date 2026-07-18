@@ -22,10 +22,12 @@ v1.8.0 shipped (additive/opt-in, no schema change):
 App floor raised to `aindy-runtime>=1.8.0,<2.0` (boot smoke green: `default-apps`,
 `app_plugins_loaded=True`, `app_plugin_count=17`).
 
-> **FR-5 shipped in aindy-runtime 1.9.0 (2026-07-18)** — `run_nodus_workflow` now takes a
+> **FR-5 shipped in aindy-runtime 1.9.0 (2026-07-18) and is ADOPTED.** `run_nodus_workflow` now takes a
 > `capability_token` (so `call_tool` steps can be granted capabilities) **and** the VM's `sys()`
-> resolves app-registered syscalls. Floor raised to `>=1.9.0`. App-side Nodus-native reasoning
-> routing (the adoption) lands in a follow-on PR. Detail below.
+> resolves app-registered syscalls. Floor raised to `>=1.9.0`. App adoption done: reasoning-apply
+> routes through the Nodus VM via `sys("sys.v1.analytics.get_reasoning_recommendation", …)`,
+> flag-gated `AINDY_REASONING_NODUS_NATIVE` (default off) — `apps/analytics/services/reasoning/nodus_apply.py`;
+> `APP-DEBT-MIGRATED-1` Nodus-native reasoning row RESOLVED. Detail below.
 
 **App-side adoption status (FR-1…4):**
 

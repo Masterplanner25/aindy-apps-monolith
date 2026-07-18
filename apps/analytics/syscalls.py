@@ -150,6 +150,26 @@ def _handle_expectation_shadow_report(payload: dict, ctx: SyscallContext) -> dic
             db.close()
 
 
+def _handle_reasoning_recommendation(payload: dict, ctx: SyscallContext) -> dict:
+    """Autonomous-reasoning recommendation as a syscall — the callable a native Nodus
+    workflow (`reasoning_apply_v1.nd`) reaches via `sys()` (FR-5). Mirrors the
+    `reasoning.evaluate` agent tool's output."""
+    from apps.analytics.services.reasoning import recommend_next_action
+
+    user_id = str(payload.get("user_id") or ctx.user_id or "")
+    if not user_id:
+        return {"available": False, "reason": "no_user"}
+    db, owns_session = _session_from_context(ctx)
+    try:
+        recommendation = recommend_next_action(user_id, db)
+        if not recommendation:
+            return {"available": False, "reason": "no_score_snapshot"}
+        return {"available": True, **recommendation}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_analytics_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.analytics.get_kpi_snapshot",
@@ -242,6 +262,26 @@ def register_analytics_syscall_handlers() -> None:
         handler=_handle_expectation_shadow_report,
         capability="analytics.read",
         description="Learned-vs-heuristic expected-score MAE from the shadow ledger (Phase 0 soak report).",
+        stable=False,
+    )
+    register_syscall(
+        # The ``get_`` verb makes the runtime's capability inference resolve
+        # ``analytics.read`` (`_infer_dispatch_capability`), so a native Nodus workflow's
+        # ``sys()`` call is granted the capability this syscall requires (FR-5).
+        name="sys.v1.analytics.get_reasoning_recommendation",
+        handler=_handle_reasoning_recommendation,
+        capability="analytics.read",
+        description="Autonomous-reasoning recommendation (decision_type, reason, next action, execution_intent) — the Nodus-reachable reasoning callable (FR-5).",
+        input_schema={
+            "properties": {"user_id": {"type": "string"}},
+        },
+        output_schema={
+            "required": ["available"],
+            "properties": {
+                "available": {"type": "bool"},
+                "decision_type": {"type": "string"},
+            },
+        },
         stable=False,
     )
     logger.info(
