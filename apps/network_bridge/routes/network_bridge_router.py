@@ -51,7 +51,7 @@ def _with_execution_envelope(payload):
 # ---------------------------------------------------------------------------
 class NetworkHandshake(BaseModel):
     author_name: str = Field(..., description="Name of the external node or author")
-    platform: str = Field(..., description="Source platform (e.g., InfiniteNetwork, SYLVA)")
+    platform: str = Field(..., description="Source platform (e.g., InfiniteNetwork)")
     connection_type: str = Field(default="BridgeHandshake")
     notes: str | None = Field(default=None, description="Optional notes or context")
 
