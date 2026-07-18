@@ -32,17 +32,17 @@ describe("client API ownership boundaries", () => {
 
     expect(adminRequest).toHaveBeenNthCalledWith(
       1,
-      "/flows/runs?status=waiting&workflow_type=agent&limit=10",
+      "/platform/flows/runs?status=waiting&workflow_type=agent&limit=10",
       { method: "GET" },
     );
     expect(adminRequest).toHaveBeenNthCalledWith(
       2,
-      "/automation/scheduler/status",
+      "/platform/observability/scheduler/status",
       { method: "GET" },
     );
     expect(adminRequest).toHaveBeenNthCalledWith(
       3,
-      "/observability/dashboard?window_hours=12",
+      "/platform/observability/dashboard?window_hours=12",
       { method: "GET" },
     );
   });
