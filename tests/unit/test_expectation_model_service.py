@@ -149,3 +149,52 @@ def test_evaluate_reports_learned_vs_heuristic(db_session, monkeypatch):
     assert dt["heuristic_mae"] == 10.0
     assert dt["learned_wins"] is True
     assert report["overall"]["learned_wins"] is True
+
+
+# ── Phase 1 advisory blend ───────────────────────────────────────────────────
+
+def _put_model(db, decision_type, bias):
+    """Insert a bias-only model so predict_expected returns a known value."""
+    db.add(InfinityExpectationModel(
+        decision_type=decision_type,
+        coefficients=[0.0, 0.0, 0.0, 0.0, 0.0, float(bias)],
+        feature_keys=list(ems.FEATURE_KEYS),
+        feature_version=ems.FEATURE_VERSION,
+        sample_size=50,
+        holdout_mae=1.0,
+    ))
+    db.commit()
+
+
+def test_advisory_off_returns_heuristic(db_session, monkeypatch):
+    monkeypatch.delenv(ems.ADVISORY_FLAG_ENV, raising=False)
+    _put_model(db_session, "review_plan", bias=70)  # a model exists, but flag is off
+    effective, meta = ems.blended_expected_score(db_session, "review_plan", _snap(), 50.0)
+    assert effective == 50.0
+    assert meta["applied"] is False and meta["reason"] == "advisory_off"
+
+
+def test_advisory_on_without_model_returns_heuristic(db_session, monkeypatch):
+    monkeypatch.setenv(ems.ADVISORY_FLAG_ENV, "1")
+    effective, meta = ems.blended_expected_score(db_session, "review_plan", _snap(), 50.0)
+    assert effective == 50.0
+    assert meta["applied"] is False and meta["reason"] == "no_model"
+
+
+def test_advisory_blends_within_weight(db_session, monkeypatch):
+    monkeypatch.setenv(ems.ADVISORY_FLAG_ENV, "1")
+    _put_model(db_session, "review_plan", bias=70)  # learned = 70
+    effective, meta = ems.blended_expected_score(db_session, "review_plan", _snap(), 50.0)
+    assert meta["applied"] is True
+    assert meta["learned_expected"] == 70.0
+    assert effective == 56.0            # 50 + 0.3*(70-50)
+    assert meta["shift"] == 6.0
+
+
+def test_advisory_shift_is_bounded(db_session, monkeypatch):
+    monkeypatch.setenv(ems.ADVISORY_FLAG_ENV, "1")
+    _put_model(db_session, "review_plan", bias=200)  # predict clamps learned to 100
+    effective, meta = ems.blended_expected_score(db_session, "review_plan", _snap(), 50.0)
+    assert meta["learned_expected"] == 100.0
+    assert effective == 50.0 + ems.ADVISORY_MAX_SHIFT   # bounded, not 0.3*50=15
+    assert meta["shift"] == ems.ADVISORY_MAX_SHIFT

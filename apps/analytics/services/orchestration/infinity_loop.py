@@ -216,7 +216,24 @@ def evaluate_pending_adjustment(
                 if actual_score is not None
                 else (_adjustment_get(adjustment, "score_snapshot") or {}).get("master_score", 50.0)
             )
-            score_delta = round(actual_score_value - expected_score, 2)
+            # Phase 1 advisory (BUILD_PLAN learned recursion): blend the learned
+            # expectation into the anchor — heuristic anchors, bounded, flag-gated
+            # (AINDY_INFINITY_LEARNED_ADVISORY). Falls back to the heuristic when off
+            # or no model exists, and never raises into REFLECT.
+            try:
+                from ..scoring.expectation_model_service import blended_expected_score
+
+                effective_expected, advisory_meta = blended_expected_score(
+                    db,
+                    _adjustment_get(adjustment, "decision_type"),
+                    score_snapshot_ctx,
+                    expected_score,
+                )
+            except Exception as _adv_exc:
+                logger.debug("[InfinityLoop] advisory blend skipped: %s", _adv_exc)
+                effective_expected, advisory_meta = expected_score, {"applied": False, "reason": "error"}
+
+            score_delta = round(actual_score_value - effective_expected, 2)
             deviation_score = int(round(abs(score_delta)))
             outcome_match = 1.0 if actual_outcome == expected_outcome else 0.5
             score_accuracy = max(0.0, 1.0 - min(1.0, abs(score_delta) / 25.0))
@@ -227,6 +244,8 @@ def evaluate_pending_adjustment(
                 "expected_outcome": expected_outcome,
                 "actual_outcome": actual_outcome,
                 "expected_score": expected_score,
+                "effective_expected_score": effective_expected,
+                "advisory": advisory_meta,
                 "actual_score": actual_score_value,
                 "score_delta": score_delta,
                 "deviation_score": deviation_score,

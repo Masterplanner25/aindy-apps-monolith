@@ -24,6 +24,13 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 SHADOW_FLAG_ENV = "AINDY_INFINITY_LEARNED_SHADOW"
+ADVISORY_FLAG_ENV = "AINDY_INFINITY_LEARNED_ADVISORY"
+
+# Phase 1 advisory blend: the learned expectation nudges the REFLECT anchor, but the
+# heuristic stays the anchor. The learned contribution is weighted and the total
+# shift is bounded so the model can only *advise*, never take over (that is Phase 2).
+ADVISORY_BLEND_WEIGHT = 0.3   # learned weight in (1-w)*heuristic + w*learned
+ADVISORY_MAX_SHIFT = 8.0      # max points the learned model may move the anchor
 
 # Decision-time features: the 5 KPI sub-scores. decision_type is the grouping key
 # (one model each), not a feature.
@@ -43,6 +50,10 @@ _TRUE = {"1", "true", "yes", "on"}
 
 def shadow_enabled() -> bool:
     return os.getenv(SHADOW_FLAG_ENV, "").strip().lower() in _TRUE
+
+
+def advisory_enabled() -> bool:
+    return os.getenv(ADVISORY_FLAG_ENV, "").strip().lower() in _TRUE
 
 
 def build_features(score_snapshot: dict | None) -> list[float]:
@@ -104,6 +115,41 @@ def predict_expected(db, decision_type: str, features: list[float]) -> float | N
     if len(coefs) != len(features) + 1:
         return None  # feature-schema drift -> abstain to the heuristic
     return _predict_coefs(coefs, features)
+
+
+# ── advisory blend (Phase 1) ─────────────────────────────────────────────────
+
+def blended_expected_score(
+    db,
+    decision_type: str | None,
+    score_snapshot: dict | None,
+    heuristic_expected: float,
+) -> tuple[float, dict]:
+    """The effective expected-score for REFLECT, blending the learned model in.
+
+    Advisory: the heuristic is the anchor. When the flag is off, or no trained
+    model exists for this decision_type, the heuristic is returned unchanged. When
+    it applies, the learned expectation moves the anchor by a *weighted, bounded*
+    shift — it can advise, never take over. Returns ``(effective_expected, meta)``.
+    """
+    heuristic_expected = float(heuristic_expected)
+    if not advisory_enabled():
+        return heuristic_expected, {"applied": False, "reason": "advisory_off"}
+    learned = predict_expected(db, decision_type, build_features(score_snapshot)) if decision_type else None
+    if learned is None:
+        return heuristic_expected, {"applied": False, "reason": "no_model", "learned_expected": None}
+
+    raw_shift = ADVISORY_BLEND_WEIGHT * (learned - heuristic_expected)
+    shift = max(-ADVISORY_MAX_SHIFT, min(ADVISORY_MAX_SHIFT, raw_shift))
+    effective = round(min(100.0, max(0.0, heuristic_expected + shift)), 2)
+    return effective, {
+        "applied": True,
+        "learned_expected": round(learned, 2),
+        "heuristic_expected": round(heuristic_expected, 2),
+        "effective_expected": effective,
+        "blend_weight": ADVISORY_BLEND_WEIGHT,
+        "shift": round(shift, 2),
+    }
 
 
 # ── shadow logging (the hook) ────────────────────────────────────────────────
