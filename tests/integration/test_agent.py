@@ -452,3 +452,34 @@ class TestAgentResume:
         assert r.status_code == 200, f"resume: {r.status_code} {r.text[:200]}"
         assert mock_resume.called, "resume_agent_run_runtime was not invoked"
         assert mock_resume.call_args.kwargs.get("run_id") == run_id
+
+
+# ---------------------------------------------------------------------------
+# GET /apps/agent/next-action/outcomes — FR-3 dispatch-outcome read
+# ---------------------------------------------------------------------------
+
+class TestNextActionOutcomes:
+
+    def test_outcomes_shape_for_new_user(self, client):
+        token = _register_and_login(client)
+        r = client.get("/apps/agent/next-action/outcomes", headers=_auth(token))
+        assert r.status_code == 200, f"outcomes: {r.status_code} {r.text[:200]}"
+        d = _data(r)
+        # fresh user, acting off by default -> empty ledger, well-formed envelope
+        assert d.get("outcomes") == []
+        assert d.get("summary") == {}
+        assert d.get("count") == 0
+        assert "acting_enabled" in d
+
+    def test_outcomes_accepts_trace_and_limit(self, client):
+        token = _register_and_login(client)
+        r = client.get(
+            "/apps/agent/next-action/outcomes",
+            params={"trace_id": "nonexistent", "limit": 5},
+            headers=_auth(token),
+        )
+        assert r.status_code == 200, r.text[:200]
+        assert _data(r).get("count") == 0
+
+    def test_outcomes_requires_auth(self, client):
+        assert client.get("/apps/agent/next-action/outcomes").status_code == 401

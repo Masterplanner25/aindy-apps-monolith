@@ -179,6 +179,35 @@ def get_agent_run(
     )
 
 
+@router.get("/next-action/outcomes")
+@limiter.limit("60/minute")
+def get_next_action_outcomes(
+    request: Request,
+    trace_id: Optional[str] = None,
+    limit: int = 20,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Recent Next-Action dispatch outcomes (FR-3): what the runtime did with each
+    chosen ``trigger_execution`` — disposition, follow-up run, and a per-disposition
+    summary. The observability for soaking autonomous acting before flipping it on."""
+    user_id = _current_user_id(current_user)
+
+    def _handler(_ctx):
+        from apps.agent.agents.next_action_outcomes import get_dispatch_outcomes
+
+        return get_dispatch_outcomes(db, user_id=user_id, trace_id=trace_id, limit=limit)
+
+    return _execute_agent(
+        request,
+        "agent.next_action.outcomes",
+        _handler,
+        db=db,
+        user_id=str(user_id),
+        input_payload={"trace_id": trace_id, "limit": limit},
+    )
+
+
 @router.post("/runs/{run_id}/approve")
 @limiter.limit("5/minute")
 def approve_agent_run(
