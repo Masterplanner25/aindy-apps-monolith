@@ -679,6 +679,55 @@ is the bulk (38 sites, each needs judgment); budget a half-day if driving to zer
 
 ---
 
+## UIKIT-ROUTE-DRIFT-1: client calls 18 backend routes that 404 (ui-kit `ROUTES` missing a prefix)
+
+**Status:** Open — root fix is upstream in `@aindy/ui-kit`; handoff spec authored. Found by the
+live-frontend verification (2026-07-18).
+
+**Context:** The client reaches the backend via `@aindy/ui-kit`'s `ROUTES` (this repo's
+`client/src/api/_routes.js` just re-exports it). A cross-check of all 135 client route
+definitions against the live backend surface (566 routes from `/openapi.json`) found **18**
+that resolve — through `buildApiUrl` (verbatim `API_BASE` prepend, no domain routing) — to a
+path the backend never registers. All 18 **omit their router-prefix segment**:
+- `ROUTES.ANALYTICS.CALCULATE_*` (14) — `/calculate_twr` → should be `/compute/calculate_twr`, etc.
+- `ROUTES.SEARCH.{ANALYZE_SEO,GENERATE_META,SUGGEST_IMPROVEMENTS}` (3) — `/analyze_seo/` → `/seo/analyze_seo/`, etc.
+- `ROUTES.OPERATOR.FLOW_STRATEGIES` (1) — `/flows/strategies` → `/platform/flows/strategies`.
+
+The other 117 client routes resolve correctly. Routes with no intermediate prefix
+(`/tasks/list`, `/agent/run`) work; only these three prefixed families drift.
+
+**Confirmed live break:** `AiSeoTool` (mounted at `/search/seo`) calls all three SEO wrappers →
+each 404s. The 14 compute routes back the KPI panels; the operator one backs the flows-strategies view.
+
+**Fix (root):** correct the 18 `ROUTES` values in `@aindy/ui-kit` per the exact spec in
+`docs/handoffs/UIKIT_ROUTE_FIXES.md`, then bump the `@aindy/ui-kit` dependency here. No app-side
+change otherwise (this repo does not vendor `ROUTES`). **Stopgap** if the SEO break needs unblocking
+sooner: replace `_routes.js`'s bare re-export with a module that spreads `ROUTES` and overrides the
+18 corrected values.
+
+**Reopen trigger:** ui-kit ships the fix (bump + drop the stopgap if one was added), or a new
+route family is added behind a router prefix.
+
+---
+
+## CLIENT-DEAD-SIDEBAR-1: orphaned `Sidebar.jsx` with stale nav links
+
+**Status:** Open — low severity (dead code). Found by the live-frontend verification (2026-07-18).
+
+**Context:** `client/src/components/shared/Sidebar.jsx` is **not imported anywhere** — the app
+renders `AppShell.jsx`'s own `<nav>` (whose 28 links all map to mounted routes; no dead links in the
+live nav). The orphaned `Sidebar.jsx` still carries 5 links that don't match any mounted route:
+`/agents`, `/arm/generate`, `/arm/logs`, `/network/feed`, `/social/profile/me` (the live equivalents
+are `/agent`, `/arm/config/generate`, `/arm/config/logs`, `/network`, `/profile/:username`). No live
+impact — the component never renders.
+
+**Fix:** delete `Sidebar.jsx` (and any now-unused sub-nav helpers it alone uses). Quick, no
+behavior change; the frontend build + tests already pass without it.
+
+**Reopen trigger:** a decision to revive a sidebar nav (rebuild against current routes, not the stale copy).
+
+---
+
 ## SEARCH-RANKING-EMBEDDINGS-1: hybrid semantic (embedding) ranking — RESOLVED
 
 **Status:** RESOLVED (2026-06-28). The hybrid embedding seam scoped here is now implemented:
