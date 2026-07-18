@@ -1,15 +1,17 @@
-"""External automation connectors — CRM + social (MASTERPLAN_SAAS Step 4).
+"""Outbound automation connectors — FR-1 capability-enforced dispatch.
 
-The CRM connector was a pure echo stub and the social connector was internal-only
-(Mongo feed post, no external API). Both now reach external surfaces, mirroring the
-existing email/webhook/stripe pattern: outbound HTTP is built by the app and
-wrapped in the runtime's `perform_external_call` observability boundary.
+The connectors (social / crm / email / webhook / stripe / subscription) are registered
+with the runtime via `register_connector` and dispatched through
+`connector_service.dispatch_connector` instead of a hardcoded app-side if/elif ladder.
+Each handler performs outbound I/O through `ctx.call` (the enforcement-enabled successor
+to `perform_external_call`), so the same authorization scope the runtime applies to agent
+tools now applies to connector egress.
 
-`perform_external_call` (runtime-owned observability wrapper) and `urlopen` are
-faked here — we assert the app's branch selection, payload/auth construction, and
-that outbound calls are correctly wrapped, not the runtime's event emission or real
-network I/O. Backward-compatible fallbacks (CRM record-only, social internal-only)
-are covered too.
+`authorized_external_call` (what `ctx.call` delegates to) and `urlopen` are faked here —
+we assert the app's branch selection, payload/auth construction, that outbound calls are
+routed through the capability boundary, and the envelope→exception contract, not the
+runtime's enforcement internals or real network I/O. Backward-compatible fallbacks (CRM
+record-only, social internal-only) are covered too.
 """
 
 from __future__ import annotations
@@ -18,9 +20,16 @@ import json
 
 import pytest
 
+import AINDY.platform_layer.external_call_service as ecs
 import apps.automation.services.automation_execution_service as aes
 
 pytestmark = pytest.mark.app_profile
+
+
+@pytest.fixture(autouse=True)
+def _register_connectors():
+    """Connectors are registered at app bootstrap; register them for direct-call tests."""
+    aes.register_automation_connectors(overwrite=True)
 
 
 class _FakeResp:
@@ -41,12 +50,14 @@ class _FakeResp:
 
 @pytest.fixture
 def capture_http(monkeypatch):
-    """Fake the runtime external-call wrapper (running the operation) + urlopen."""
+    """Fake the runtime authorized-call boundary (running the operation) + urlopen."""
     calls: dict[str, list] = {"external": [], "requests": []}
 
-    def fake_perform(*, service_name, db, user_id, endpoint, method, extra, operation):
+    def fake_authorized(*, service_name, capability=None, operation, endpoint=None,
+                        method=None, extra=None, **_kw):
         calls["external"].append(
-            {"service_name": service_name, "endpoint": endpoint, "method": method, "extra": extra}
+            {"service_name": service_name, "capability": capability,
+             "endpoint": endpoint, "method": method, "extra": extra}
         )
         return operation()
 
@@ -54,7 +65,8 @@ def capture_http(monkeypatch):
         calls["requests"].append(req)
         return _FakeResp()
 
-    monkeypatch.setattr(aes, "perform_external_call", fake_perform)
+    # ctx.call imports authorized_external_call from this module at call time.
+    monkeypatch.setattr(ecs, "authorized_external_call", fake_authorized)
     monkeypatch.setattr(aes.urllib_request, "urlopen", fake_urlopen)
     return calls
 
@@ -88,6 +100,18 @@ def fake_mongo(monkeypatch):
     monkeypatch.setattr(mongo_setup, "require_mongo_client", lambda *a, **k: _FakeMongo(coll))
     monkeypatch.setattr(mongo_setup, "MONGO_DB_NAME", "test_db", raising=False)
     return coll
+
+
+# --------------------------------------------------------------------------- #
+# Registration (FR-1)
+# --------------------------------------------------------------------------- #
+def test_connectors_registered_with_capabilities():
+    from AINDY.platform_layer.registry import get_connector
+
+    for ct in ("social", "crm", "email", "webhook", "stripe", "subscription"):
+        entry = get_connector(ct)
+        assert entry is not None, f"{ct} connector not registered"
+        assert entry["capability"] == f"outbound.{ct}"
 
 
 # --------------------------------------------------------------------------- #
@@ -203,4 +227,32 @@ def test_social_requires_content(capture_http, fake_mongo):
     with pytest.raises(ValueError, match="social_content_required"):
         aes.execute_automation_action(
             {"automation_type": "social", "automation_config": {}}, None
+        )
+
+
+def test_content_generation_stays_internal(capture_http):
+    # content_generation has no outbound I/O -> handled locally, not via a connector.
+    result = aes.execute_automation_action(
+        {"automation_type": "content_generation", "automation_config": {"prompt": "hi"}},
+        None,
+    )
+    assert result["status"] == "completed"
+    assert result["generated_content"]
+    assert capture_http["external"] == []
+
+
+def test_capability_denial_raises_permission_error(monkeypatch, capture_http):
+    # A capability/policy/rate denial comes back as a denied envelope -> PermissionError.
+    def _deny(*, operation, **_kw):
+        raise ecs.OutboundCallDenied("outbound 'crm' denied: host not allowed")
+
+    monkeypatch.setattr(ecs, "authorized_external_call", _deny)
+    with pytest.raises(PermissionError, match="denied"):
+        aes.execute_automation_action(
+            {
+                "automation_type": "crm",
+                "user_id": "u1",
+                "automation_config": {"endpoint": "https://blocked.example.com", "contact": "x@y.z"},
+            },
+            None,
         )

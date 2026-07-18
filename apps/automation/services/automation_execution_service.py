@@ -8,18 +8,43 @@ from typing import Any
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
-from AINDY.platform_layer.external_call_service import perform_external_call
+
+# Outbound connectors are registered with the runtime (FR-1 /
+# MASTERPLAN-CONNECTOR-RUNTIME-1) and dispatched through
+# ``connector_service.dispatch_connector`` — which runs each handler under its
+# capability's authorization scope (recipient/domain allowlist, rate limit,
+# socket-level egress guard, JIT credential vaulting), all opt-in and vacuous until an
+# operator registers a policy. ``content_generation`` is internal-only (no outbound
+# I/O), so it is handled locally rather than as a connector.
+_OUTBOUND_CONNECTOR_TYPES = ("social", "crm", "email", "webhook", "stripe", "subscription")
+SUPPORTED_AUTOMATION_TYPES = {*_OUTBOUND_CONNECTOR_TYPES, "content_generation"}
 
 
-SUPPORTED_AUTOMATION_TYPES = {
-    "social",
-    "crm",
-    "email",
-    "webhook",
-    "stripe",
-    "subscription",
-    "content_generation",
-}
+def register_automation_connectors(*, overwrite: bool = False) -> None:
+    """Register the app's outbound connectors with the runtime (FR-1).
+
+    Symmetric to the other ``register_*`` bootstrap steps. Each capability defaults to
+    ``outbound.<type>``; enforcement stays vacuous until a ``CapabilityPolicy`` / secret
+    scope is registered for it, so this changes dispatch routing only, not behavior.
+    """
+    from AINDY.platform_layer.registry import register_connector
+
+    handlers = {
+        "social": _social_connector,
+        "crm": _crm_connector,
+        "email": _email_connector,
+        "webhook": _webhook_connector,
+        "stripe": _stripe_connector,
+        "subscription": _subscription_connector,
+    }
+    for connector_type, handler in handlers.items():
+        register_connector(
+            connector_type,
+            handler,
+            capability=f"outbound.{connector_type}",
+            description=f"Masterplan automation outbound connector: {connector_type}",
+            overwrite=overwrite,
+        )
 
 
 def execute_automation_action(payload: dict[str, Any], db) -> dict[str, Any]:
@@ -29,19 +54,31 @@ def execute_automation_action(payload: dict[str, Any], db) -> dict[str, Any]:
     if automation_type not in SUPPORTED_AUTOMATION_TYPES:
         raise ValueError(f"unsupported_automation_type:{automation_type or 'unknown'}")
 
-    if automation_type == "social":
-        return _execute_social_action(payload, config, db=db)
-    if automation_type == "crm":
-        return _execute_crm_action(payload, config, db=db)
-    if automation_type == "email":
-        return _execute_email_action(payload, config, db=db)
-    if automation_type == "webhook":
-        return _execute_webhook_action(payload, config, db=db)
-    if automation_type == "stripe":
-        return _execute_stripe_action(payload, config, db=db)
-    if automation_type == "subscription":
-        return _execute_stripe_subscription(payload, config, db=db)
-    return _execute_content_generation(payload, config)
+    # Internal-only: no outbound I/O, so not a connector.
+    if automation_type == "content_generation":
+        return _execute_content_generation(payload, config)
+
+    # Outbound: route through the runtime's capability-enforced connector boundary
+    # instead of a hardcoded if/elif ladder.
+    from AINDY.platform_layer.connector_service import dispatch_connector
+
+    user_id = payload.get("user_id")
+    envelope = dispatch_connector(
+        automation_type,
+        {"payload": payload, "config": config},
+        user_id=str(user_id) if user_id else None,
+        db=db,
+    )
+    if envelope.get("success"):
+        return envelope["result"]
+
+    error = envelope.get("error") or f"{automation_type}_connector_failed"
+    if envelope.get("denied"):
+        # Capability / policy / rate denial — distinct from a validation or transport error.
+        raise PermissionError(error)
+    # Handler validation errors (e.g. ``social_content_required``) surface here as the
+    # message string; re-raise as ValueError to preserve the pre-FR-1 caller contract.
+    raise ValueError(error)
 
 
 def _auth_headers(config: dict[str, Any], *, header_key: str = "auth_header", key_key: str = "api_key") -> dict[str, str]:
@@ -74,7 +111,9 @@ def _http_json(endpoint: str, body: Any, headers: dict[str, str], method: str) -
         }
 
 
-def _execute_social_action(payload: dict[str, Any], config: dict[str, Any], *, db=None) -> dict[str, Any]:
+def _social_connector(action: dict[str, Any], ctx) -> dict[str, Any]:
+    payload = action["payload"]
+    config = action["config"]
     content = str(config.get("content") or payload.get("task_name") or "").strip()
     if not content:
         raise ValueError("social_content_required")
@@ -127,10 +166,8 @@ def _execute_social_action(payload: dict[str, Any], config: dict[str, Any], *, d
                 "tags": tags,
                 "user_id": str(payload.get("user_id") or ""),
             }
-        external_response = perform_external_call(
+        external_response = ctx.call(
             service_name="social",
-            db=db,
-            user_id=payload.get("user_id"),
             endpoint=str(external_endpoint),
             method=f"http.{method.lower()}",
             extra={"purpose": "social_external_delivery"},
@@ -142,8 +179,10 @@ def _execute_social_action(payload: dict[str, Any], config: dict[str, Any], *, d
     return result
 
 
-def _execute_crm_action(payload: dict[str, Any], config: dict[str, Any], *, db=None) -> dict[str, Any]:
-    action = config.get("action", "record_follow_up")
+def _crm_connector(action: dict[str, Any], ctx) -> dict[str, Any]:
+    payload = action["payload"]
+    config = action["config"]
+    crm_action = config.get("action", "record_follow_up")
     contact = config.get("contact")
     details = config.get("details") or config.get("notes")
     endpoint = config.get("endpoint") or config.get("url") or config.get("crm_url")
@@ -155,7 +194,7 @@ def _execute_crm_action(payload: dict[str, Any], config: dict[str, Any], *, db=N
             "automation_type": "crm",
             "status": "recorded",
             "delivery": "internal",
-            "action": action,
+            "action": crm_action,
             "contact": contact,
             "details": details,
             "task_id": payload.get("task_id"),
@@ -166,27 +205,25 @@ def _execute_crm_action(payload: dict[str, Any], config: dict[str, Any], *, db=N
     body = config.get("body")
     if body is None:
         body = {
-            "action": action,
+            "action": crm_action,
             "contact": contact,
             "details": details,
             "task_name": payload.get("task_name"),
             "user_id": str(payload.get("user_id") or ""),
             "metadata": config.get("metadata") or {},
         }
-    response = perform_external_call(
+    response = ctx.call(
         service_name="crm",
-        db=db,
-        user_id=payload.get("user_id"),
         endpoint=str(endpoint),
         method=f"http.{method.lower()}",
-        extra={"purpose": "crm_sync", "action": action, "contact": contact},
+        extra={"purpose": "crm_sync", "action": crm_action, "contact": contact},
         operation=lambda: _http_json(endpoint, body, headers, method),
     )
     return {
         "automation_type": "crm",
         "status": "completed",
         "delivery": "external",
-        "action": action,
+        "action": crm_action,
         "contact": contact,
         "details": details,
         "task_id": payload.get("task_id"),
@@ -194,7 +231,9 @@ def _execute_crm_action(payload: dict[str, Any], config: dict[str, Any], *, db=N
     }
 
 
-def _execute_email_action(payload: dict[str, Any], config: dict[str, Any], *, db) -> dict[str, Any]:
+def _email_connector(action: dict[str, Any], ctx) -> dict[str, Any]:
+    payload = action["payload"]
+    config = action["config"]
     subject = str(config.get("subject") or payload.get("task_name") or "A.I.N.D.Y. automated message")
     body = str(config.get("body") or config.get("content") or "")
     recipient = config.get("recipient")
@@ -224,10 +263,8 @@ def _execute_email_action(payload: dict[str, Any], config: dict[str, Any], *, db
                 smtp.send_message(message)
             return {"transport": "smtp", "host": smtp_host, "port": smtp_port}
 
-        response = perform_external_call(
+        response = ctx.call(
             service_name="smtp",
-            db=db,
-            user_id=payload.get("user_id"),
             endpoint=f"{smtp_host}:{smtp_port}",
             method="smtp.send",
             extra={"purpose": "email_delivery", "recipient": recipient},
@@ -259,10 +296,8 @@ def _execute_email_action(payload: dict[str, Any], config: dict[str, Any], *, db
                     "body": resp.read().decode("utf-8", errors="ignore")[:2000],
                 }
 
-        response = perform_external_call(
+        response = ctx.call(
             service_name="email_api",
-            db=db,
-            user_id=payload.get("user_id"),
             endpoint=str(provider_url),
             method="http.post",
             extra={"purpose": "email_delivery", "recipient": recipient},
@@ -281,7 +316,9 @@ def _execute_email_action(payload: dict[str, Any], config: dict[str, Any], *, db
     }
 
 
-def _execute_webhook_action(payload: dict[str, Any], config: dict[str, Any], *, db) -> dict[str, Any]:
+def _webhook_connector(action: dict[str, Any], ctx) -> dict[str, Any]:
+    payload = action["payload"]
+    config = action["config"]
     webhook_url = config.get("url") or config.get("webhook_url")
     if not webhook_url:
         raise ValueError("webhook_url_required")
@@ -310,10 +347,8 @@ def _execute_webhook_action(payload: dict[str, Any], config: dict[str, Any], *, 
                 "body": resp.read().decode("utf-8", errors="ignore")[:2000],
             }
 
-    response = perform_external_call(
+    response = ctx.call(
         service_name="webhook",
-        db=db,
-        user_id=payload.get("user_id"),
         endpoint=str(webhook_url),
         method=f"http.{method.lower()}",
         extra={"purpose": "webhook_delivery"},
@@ -326,7 +361,9 @@ def _execute_webhook_action(payload: dict[str, Any], config: dict[str, Any], *, 
     }
 
 
-def _execute_stripe_action(payload: dict[str, Any], config: dict[str, Any], *, db=None) -> dict[str, Any]:
+def _stripe_connector(action: dict[str, Any], ctx) -> dict[str, Any]:
+    payload = action["payload"]
+    config = action["config"]
     from AINDY.config import settings
 
     stripe_key = config.get("stripe_secret_key") or settings.STRIPE_SECRET_KEY
@@ -405,10 +442,8 @@ def _execute_stripe_action(payload: dict[str, Any], config: dict[str, Any], *, d
             "payment_link_url": link["url"],
         }
 
-    response = perform_external_call(
+    response = ctx.call(
         service_name="stripe",
-        db=db,
-        user_id=payload.get("user_id"),
         endpoint="/v1/payment_links",
         method="stripe.payment_links.create",
         extra={
@@ -433,15 +468,10 @@ def _execute_stripe_action(payload: dict[str, Any], config: dict[str, Any], *, d
     }
 
 
-def _execute_stripe_subscription(
-    payload: dict[str, Any],
-    config: dict[str, Any],
-    *,
-    db=None,
-) -> dict[str, Any]:
-    """
-    Create a Stripe customer + recurring subscription.
-    """
+def _subscription_connector(action: dict[str, Any], ctx) -> dict[str, Any]:
+    """Create a Stripe customer + recurring subscription."""
+    payload = action["payload"]
+    config = action["config"]
     from AINDY.config import settings as _settings
 
     stripe_key = config.get("stripe_secret_key") or _settings.STRIPE_SECRET_KEY
@@ -544,10 +574,8 @@ def _execute_stripe_subscription(
             "current_period_end": period_end,
         }
 
-    response = perform_external_call(
+    response = ctx.call(
         service_name="stripe",
-        db=db,
-        user_id=payload.get("user_id"),
         endpoint="/v1/subscriptions",
         method="stripe.subscriptions.create",
         extra={
@@ -597,5 +625,3 @@ def get_automation_log(db, log_id: str, user_id: str) -> Any | None:
     from apps.automation.models import AutomationLog
 
     return db.query(AutomationLog).filter(AutomationLog.id == log_id).first()
-
-
