@@ -169,8 +169,8 @@ adding an agent-invocable content tool.
 
 ## TASK-COMPLETE-IDEMPOTENCY-1: `complete_task` has no prior-status guard — repeated completion re-fires side effects
 
-**Status:** Tracked (2026-07-05). App-owned correctness issue in `apps/tasks`; not yet fixed
-(track-only per review). Flagged during the Infinity docset review.
+**Status:** RESOLVED (2026-07-17). App-owned correctness issue in `apps/tasks`; guard added
+2026-07-17 (Resolution below). Flagged during the Infinity docset review.
 
 **Context:** `complete_task` (`apps/tasks/services/task_service.py:568`) sets
 `task.status = "completed"` without checking the task's current status. A second completion
@@ -186,13 +186,17 @@ duplicate Infinity loop runs / memory writes for one logical completion — doub
 signal substrate the Infinity Algorithm depends on. Low frequency (needs a repeated complete
 call) but a real skew in analytics/loop signal counts.
 
-**Fix when triggered:** early-return / no-op when `task.status == "completed"` before mutating
-or emitting; add a regression test asserting a second complete is a no-op (no second event, no
-second unlock). Touches the integration-tier task-completion path, so deferred from the
-app-profile doc pass.
+**Resolved (2026-07-17):** `complete_task` (`apps/tasks/services/task_service.py`) now early-returns
+`"Task already completed: <name>"` when `task.status == "completed"`, before any mutation or emit —
+so a repeated completion re-fires none of the side-effect chain (TASK_COMPLETED event, downstream
+unlock, ExecutionUnit update, the Infinity re-score + memory capture, and the `time_spent`
+re-accrual). The `sys.v1.task.complete` syscall and `/tasks/complete` route pass the string through
+unchanged, so the idempotent return is non-breaking. Regression coverage in
+`tests/unit/test_task_complete_idempotency.py` asserts side effects fire exactly once per logical
+completion, an already-completed task is an immediate no-op, and `time_spent` is not re-accrued.
 
-**Reopen trigger:** any work on task completion, or evidence of double-counted completion
-signals in analytics / the Infinity loop.
+**Reopen trigger:** a need to treat other terminal states (e.g. `cancelled`) as idempotent, or a
+completion path that bypasses `complete_task`.
 
 ---
 
