@@ -90,6 +90,16 @@ Get Arm Metrics
 
 ### Agent
 
+#### GET /apps/agent/next-action/outcomes
+Get Next Action Outcomes — recent Next-Action dispatch outcomes (FR-3): what the runtime
+did with each chosen `trigger_execution` (disposition, follow-up run, reason), the
+CHOSEN→DISPATCHED chain, and a per-disposition summary. Read-only observability for
+soaking autonomous acting (`AINDY_NEXT_ACTION_ACTING`) before flipping it on.
+
+**Parameters:** trace_id (query): string | null, limit (query): integer
+
+**Response 200:** unspecified
+
 #### POST /apps/agent/run
 Create Agent Run
 
