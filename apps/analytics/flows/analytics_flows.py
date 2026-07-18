@@ -317,15 +317,16 @@ def reasoning_apply_node(state, context):
     Computes the user's reasoning recommendation (incl. its execution_intent) and
     returns it as the flow result — so a reasoning outcome runs through a flow with
     durable traceability. Backs the ``reasoning_apply`` flow and the ``reasoning``
-    flow strategy.
+    flow strategy. The apply itself routes in-process by default, or through the Nodus
+    VM behind ``AINDY_REASONING_NODUS_NATIVE`` (FR-5) — same result envelope either way.
     """
     try:
-        from apps.analytics.services.reasoning import recommend_next_action
+        from apps.analytics.services.reasoning.nodus_apply import run_reasoning_apply
 
         db = context.get("db")
         user_id = str(context.get("user_id"))
-        recommendation = recommend_next_action(user_id, db) or {}
-        return {"status": "SUCCESS", "output_patch": {"reasoning_apply_result": {"data": recommendation}}}
+        result = run_reasoning_apply(db, user_id)
+        return {"status": "SUCCESS", "output_patch": {"reasoning_apply_result": result}}
     except Exception as e:
         return {"status": "FAILURE", "error": f"HTTP_500:reasoning apply failed: {e}"}
 
