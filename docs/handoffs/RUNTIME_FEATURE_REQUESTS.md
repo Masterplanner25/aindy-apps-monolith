@@ -22,8 +22,10 @@ v1.8.0 shipped (additive/opt-in, no schema change):
 App floor raised to `aindy-runtime>=1.8.0,<2.0` (boot smoke green: `default-apps`,
 `app_plugins_loaded=True`, `app_plugin_count=17`).
 
-> **One new open request surfaced (2026-07-18): FR-5** — `run_nodus_workflow` cannot invoke
-> app callables (blocks Nodus-native reasoning execution). Detail below; not yet shipped.
+> **FR-5 shipped in aindy-runtime 1.9.0 (2026-07-18)** — `run_nodus_workflow` now takes a
+> `capability_token` (so `call_tool` steps can be granted capabilities) **and** the VM's `sys()`
+> resolves app-registered syscalls. Floor raised to `>=1.9.0`. App-side Nodus-native reasoning
+> routing (the adoption) lands in a follow-on PR. Detail below.
 
 **App-side adoption status (FR-1…4):**
 
@@ -38,10 +40,13 @@ The per-item detail below is retained as the adoption contract for each.
 
 ---
 
-## FR-5 — `run_nodus_workflow` cannot invoke app callables (NEW, 2026-07-18) 🔴 net-new
+## FR-5 — `run_nodus_workflow` reaches app callables — ✅ SHIPPED 1.9.0
 
-**apps-monolith ref:** `APP-DEBT-MIGRATED-1` (Nodus-native reasoning row) · **Status:** confirmed
-runtime gap, diagnosed by probe on aindy-runtime 1.8.0.
+**apps-monolith ref:** `APP-DEBT-MIGRATED-1` (Nodus-native reasoning row) · **Status:** ✅ shipped in
+aindy-runtime **1.9.0** (2026-07-18). Diagnosed by probe on 1.8.0 (below); the runtime shipped **both**
+asks — `run_nodus_workflow` gained a `capability_token` param (the `call_tool` path) **and** the VM's
+`sys()` now resolves app-registered syscalls (the syscall path). App adoption (flag-gated Nodus reasoning
+routing) is the follow-on. Original diagnosis retained below as the adoption contract.
 
 ### The goal (app side)
 Route the analytics reasoning `execution_intent` to execute on the **Nodus VM** via
