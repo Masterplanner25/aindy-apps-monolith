@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from collections.abc import Callable
@@ -197,6 +198,49 @@ def default_relevance_provider() -> RelevanceFn:
     if embedding_ranking_enabled():
         return EmbeddingRelevanceProvider()
     return lexical_relevance
+
+
+# --------------------------------------------------------------------------- #
+# Outcome→query weighting — Search v4 §8 (TECH_DEBT search-v4 residual)
+#
+# The result-feedback capture (``SearchResultFeedback`` / ``feedback_service``)
+# records whether a result actually *worked* and aggregates it into a per-query
+# outcome weight. Here that weight becomes a small, bounded nudge on the ranking
+# composite so results the user (or their agents) have acted on drift up, and
+# ones they dismissed drift down — without letting a single vote dominate the
+# relevance+quality signal. Opt-in: lexical/quality ranking is unchanged unless
+# ``AINDY_SEARCH_OUTCOME_WEIGHTING`` is enabled *and* weights are supplied.
+# --------------------------------------------------------------------------- #
+_OUTCOME_FLAG = "AINDY_SEARCH_OUTCOME_WEIGHTING"
+
+# Bounds: a strong single signal (convert / thumbs_up ≈ +1.0) lifts the
+# composite by ~0.07; the nudge saturates at ±0.15 no matter how much feedback
+# accumulates, so relevance+quality always stays the dominant axis.
+_OUTCOME_MAX_NUDGE = 0.15
+_OUTCOME_COEFFICIENT = 0.5
+
+
+def outcome_weighting_enabled() -> bool:
+    """Whether outcome→query ranking weighting is opted into via the env flag."""
+    return os.environ.get(_OUTCOME_FLAG, "").strip().lower() in _TRUTHY
+
+
+def outcome_nudge(
+    weight: Optional[float],
+    *,
+    coefficient: float = _OUTCOME_COEFFICIENT,
+    max_nudge: float = _OUTCOME_MAX_NUDGE,
+) -> float:
+    """Map an aggregated outcome weight onto a bounded ranking nudge on ±max_nudge.
+
+    ``tanh`` keeps the nudge smooth, sign-preserving, and saturating: near zero it
+    is roughly linear in the weight, and no amount of accumulated feedback can push
+    a result more than ``max_nudge`` in either direction. Returns 0.0 for a missing
+    or zero weight.
+    """
+    if not weight:
+        return 0.0
+    return max_nudge * math.tanh(coefficient * float(weight))
 
 
 def composite_score(

@@ -15,6 +15,7 @@ from apps.search.schemas import (
     research_to_search_response,
     seo_to_search_response,
 )
+from apps.search.schemas.search_schema import to_search_response
 from apps.search.services.search_scoring import (
     EmbeddingRelevanceProvider,
     composite_score,
@@ -22,6 +23,8 @@ from apps.search.services.search_scoring import (
     embedding_ranking_enabled,
     embedding_relevance,
     lexical_relevance,
+    outcome_nudge,
+    outcome_weighting_enabled,
     tokenize,
 )
 
@@ -180,6 +183,105 @@ def test_rank_items_uses_embeddings_when_enabled(monkeypatch):
     ranked = rank_items("cloud security", items)
     assert ranked[0].title == "Cloud Security Inc"
     assert ranked[0].metadata["relevance"] == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------- #
+# Outcome→query ranking weighting — Search v4 §8
+# --------------------------------------------------------------------------- #
+def test_outcome_weighting_flag(monkeypatch):
+    monkeypatch.delenv("AINDY_SEARCH_OUTCOME_WEIGHTING", raising=False)
+    assert outcome_weighting_enabled() is False
+    monkeypatch.setenv("AINDY_SEARCH_OUTCOME_WEIGHTING", "1")
+    assert outcome_weighting_enabled() is True
+
+
+def test_outcome_nudge_bounds_and_sign():
+    assert outcome_nudge(0.0) == 0.0
+    assert outcome_nudge(None) == 0.0
+    assert outcome_nudge(1.0) > 0.0
+    assert outcome_nudge(-1.0) < 0.0
+    assert outcome_nudge(-1.0) == pytest.approx(-outcome_nudge(1.0))
+    # saturating: no amount of feedback exceeds ±max_nudge (0.15)
+    assert outcome_nudge(1000.0) <= 0.15
+    assert outcome_nudge(1000.0) == pytest.approx(0.15, abs=1e-6)
+    # monotonic in weight
+    assert outcome_nudge(2.0) > outcome_nudge(0.5)
+
+
+def test_rank_items_ignores_outcome_weights_when_absent():
+    items = [SearchResultItem(title="A", url="https://a.io", snippet="cloud", score=0.5)]
+    ranked = rank_items("cloud", items)  # no outcome_weights
+    assert "outcome_weight" not in ranked[0].metadata
+    baseline = ranked[0].score
+    same = rank_items("cloud", items, outcome_weights={})  # empty map is a no-op
+    assert same[0].score == pytest.approx(baseline)
+    assert "outcome_weight" not in same[0].metadata
+
+
+def test_rank_items_applies_outcome_nudge_and_annotates():
+    items = [SearchResultItem(title="A", url="https://a.io", snippet="cloud security", score=0.5)]
+    base = rank_items("cloud security", items)[0].score
+    lifted = rank_items(
+        "cloud security", items, outcome_weights={"https://a.io": 1.0}
+    )[0]
+    assert lifted.score == pytest.approx(base + outcome_nudge(1.0), abs=1e-4)
+    assert lifted.metadata["outcome_weight"] == pytest.approx(1.0)
+    assert lifted.metadata["outcome_nudge"] == pytest.approx(outcome_nudge(1.0), abs=1e-4)
+
+
+def test_outcome_weight_can_flip_close_results():
+    # two near-tied results; feedback tips the balance
+    items = [
+        SearchResultItem(title="First", url="https://first.io", snippet="cloud security", score=0.5),
+        SearchResultItem(title="Second", url="https://second.io", snippet="cloud security", score=0.5),
+    ]
+    # equal relevance+quality -> stable order without feedback
+    neutral = rank_items("cloud security", items)
+    assert [r.url for r in neutral] == ["https://first.io", "https://second.io"]
+    # a strong positive on the second + a dismissal on the first flips them
+    flipped = rank_items(
+        "cloud security",
+        items,
+        outcome_weights={"https://first.io": -1.0, "https://second.io": 1.0},
+    )
+    assert flipped[0].url == "https://second.io"
+
+
+def test_outcome_weight_keys_on_url_then_title():
+    items = [SearchResultItem(title="Bare Title", snippet="cloud", score=0.5)]  # no url
+    lifted = rank_items("cloud", items, outcome_weights={"Bare Title": 1.0})[0]
+    assert lifted.metadata["outcome_weight"] == pytest.approx(1.0)
+
+
+def test_to_search_response_forwards_outcome_weights_to_leadgen():
+    payload = {
+        "query": "cloud security",
+        "results": [
+            {"company": "Alpha", "url": "https://alpha.io", "context": "cloud security", "overall_score": 50},
+            {"company": "Beta", "url": "https://beta.io", "context": "cloud security", "overall_score": 50},
+        ],
+    }
+    resp = to_search_response(
+        payload, search_type="leadgen", outcome_weights={"https://beta.io": 1.0}
+    )
+    assert resp.results[0].url == "https://beta.io"
+
+
+def test_to_search_response_seo_ignores_outcome_weights():
+    payload = {
+        "query": "growth content",
+        "search_score": 0.72,
+        "readability": 65.0,
+        "word_count": 800,
+        "top_keywords": ["growth"],
+        "keyword_densities": {"growth": 1.5},
+    }
+    # SEO is an analysis surface; weights must not raise or reorder it
+    resp = to_search_response(
+        payload, search_type="seo_analysis", outcome_weights={"SEO analysis": 1.0}
+    )
+    assert resp.results[0].title == "SEO analysis"
+    assert "outcome_weight" not in resp.results[0].metadata
 
 
 def test_seo_adapter_annotates_relevance_without_reordering():

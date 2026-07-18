@@ -217,12 +217,12 @@ The Search System is currently:
 > lexical+hybrid ranking layer, a `search.query` agent tool, and the `unified_search`
 > workflow. Semantic memory recall is integrated into the leadgen/research flows.
 
-It is NOT yet:
+It is now (Phase v4, 2026-07-17):
 
-* a full closed-loop AI search optimizer — outcomes are persisted and history is
-  reusable (`search_history`, `learning_context`), but prior outcomes do not yet
-  re-weight future queries (Phase v4 residual)
-* a complete AI SEO optimizer — SEO *improvement* suggestions remain stubbed (§3.1)
+* a closed-loop AI search optimizer — outcomes are captured (`SearchResultFeedback`,
+  implicit + explicit) and, behind `AINDY_SEARCH_OUTCOME_WEIGHTING`, re-weight future
+  query ranking; the flag is off by default pending a live-data soak before the flip
+* an AI SEO optimizer — SEO *improvement* suggestions ship via `seo_improvement_suggestions` (§3.1)
 
 ---
 
@@ -287,8 +287,26 @@ lexical and deterministic (testing-mode embeddings return zero vectors → fallb
 
 **Actions:**
 
-* persist outcomes to Memory Bridge
-* feed results into future query weighting
+* persist outcomes to Memory Bridge — DONE
+* feed results into future query weighting — DONE (flag-gated)
+
+**Result-feedback capture (2026-07-17):** `SearchResultFeedback` + `feedback_service`
+record whether a result actually *worked* — both implicit (`click` / `dwell` /
+`convert` / `dismiss`) and explicit (`thumbs_up` / `thumbs_down`), since not every
+user thumbs. Signals are deduped per `(user, query, result_ref, signal)`; an explicit
+vote clears the opposing thumbs (latest opinion wins). `get_result_outcome_weights`
+sums per `result_ref` into a blended per-query weight. Captured via
+`POST /apps/search/feedback` + `GET /apps/search/feedback/weights` and the
+`sys.v1.search.record_feedback` syscall.
+
+**Outcome→query weighting (2026-07-17, opt-in):** when
+`AINDY_SEARCH_OUTCOME_WEIGHTING` is enabled, `sys.v1.search.query` looks up the
+per-query outcome weights and passes them into `rank_items`, which nudges each
+result's composite by a small, bounded amount (`outcome_nudge`, `tanh`-saturated at
+±0.15) toward results the user acted on and away from ones they dismissed. Relevance
++ quality stays the dominant axis; the applied `outcome_weight` / `outcome_nudge` are
+recorded on each item's `metadata`. Default off → ranking is byte-for-byte unchanged.
+**Tests:** `tests/unit/test_search_result_feedback.py`, `tests/unit/test_search_ranking.py`.
 
 ---
 
@@ -326,9 +344,9 @@ LeadGen each show a `SearchHistory` result-history view.
 * ✅ leadgen search now uses real retrieval (orchestrator + provider)
 * ✅ research search executes via `/research/query`
 * ✅ ranking unified: shared lexical relevance + composite score order results across surfaces
-* SEO improvement suggestions still stubbed (§3.1) — the one remaining functional gap
-* Phase v4 residual: outcomes are persisted and history is reusable, but prior
-  outcomes do not yet re-weight future queries
+* ✅ SEO improvement suggestions shipped (§3.1) — `seo_improvement_suggestions`
+* ✅ Phase v4: outcomes are captured (`SearchResultFeedback`) and, behind
+  `AINDY_SEARCH_OUTCOME_WEIGHTING`, re-weight future query ranking via `outcome_nudge`
 
 ### Conceptual
 
@@ -344,7 +362,7 @@ LeadGen each show a `SearchHistory` result-history view.
 | v1    | Surface Alignment    | Partial     | Normalize       |
 | v2    | Retrieval Integration| Complete    | Maintenance only |
 | v3    | Ranking Unification  | Complete    | Maintenance only |
-| v4    | Feedback Loop        | Partial     | Query re-weighting from outcomes |
+| v4    | Feedback Loop        | Complete (opt-in) | Flag-gated; soak then flip default |
 | v5    | UI Integration       | Complete    | Maintenance only |
 
 ---
@@ -369,7 +387,7 @@ LeadGen each show a `SearchHistory` result-history view.
 
 ### Step 4 - Add shared search history and reuse - DONE
 **Files:** `apps/search/models/search_history.py`, `apps/search/models/leadgen_model.py`, `apps/search/models/research_results.py`, `apps/search/services/research_results_service.py`, `apps/search/services/search_service.py`  
-**Outcome:** search outcomes are persisted to a shared `SearchHistory` model and reusable across the system (`get_search_history` / `get_search_history_item` / `delete_search_history_item` in `search_service`), instead of staying siloed by feature. **Residual (Phase v4):** history is queryable but prior outcomes do not yet re-weight future queries.
+**Outcome:** search outcomes are persisted to a shared `SearchHistory` model and reusable across the system (`get_search_history` / `get_search_history_item` / `delete_search_history_item` in `search_service`), instead of staying siloed by feature. **Phase v4 (2026-07-17):** result outcomes are now also captured explicitly (`SearchResultFeedback`) and, behind `AINDY_SEARCH_OUTCOME_WEIGHTING`, re-weight future query ranking (`get_result_outcome_weights` → `rank_items`).
 
 ### Step 5 - Integrate unified search into agent tools - DONE
 **Files:** `apps/search/agents/tools.py`, `apps/search/agents/capabilities.py`, `apps/search/syscalls.py`

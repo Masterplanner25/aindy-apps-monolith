@@ -153,12 +153,18 @@ def enrich_lead_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _outcome_ref(item: SearchResultItem) -> str | None:
+    """The stable key a result is keyed by in outcome feedback (url, else title)."""
+    return item.url or item.title or None
+
+
 def rank_items(
     query: str,
     items: list[SearchResultItem],
     *,
     reorder: bool = True,
     relevance_fn: Any = None,
+    outcome_weights: dict[str, float] | None = None,
 ) -> list[SearchResultItem]:
     """Score items by a shared relevance+quality composite and (optionally) sort.
 
@@ -174,12 +180,19 @@ def rank_items(
     is enabled (TECH_DEBT SEARCH-RANKING-EMBEDDINGS-1); the embedding provider
     falls back to lexical on its own when the backend is unavailable, so the
     default is always safe.
+
+    ``outcome_weights`` is an optional ``{result_ref: aggregated_weight}`` map from
+    the result-feedback loop (Search v4 §8). When supplied, each item's composite
+    is nudged by a small, bounded amount toward results the user has acted on and
+    away from ones they dismissed (``outcome_nudge``), and the applied weight/nudge
+    are recorded under ``metadata``. Omitted (the default) leaves ranking unchanged.
     """
     if not items or not (query or "").strip():
         return list(items)
     from apps.search.services.search_scoring import (
         composite_score,
         default_relevance_provider,
+        outcome_nudge,
     )
 
     if relevance_fn is None:
@@ -194,13 +207,23 @@ def rank_items(
         metadata = dict(item.metadata or {})
         metadata.setdefault("quality_score", round(quality, 4))
         metadata["relevance"] = round(relevance, 4)
+        if outcome_weights:
+            ref = _outcome_ref(item)
+            weight = outcome_weights.get(ref) if ref is not None else None
+            if weight:
+                nudge = outcome_nudge(weight)
+                metadata["outcome_weight"] = round(float(weight), 4)
+                metadata["outcome_nudge"] = round(nudge, 4)
+                composite = max(0.0, min(1.0, composite + nudge))
         ranked.append(item.model_copy(update={"score": round(composite, 4), "metadata": metadata}))
     if reorder:
         ranked.sort(key=lambda i: i.score if i.score is not None else 0.0, reverse=True)
     return ranked
 
 
-def leadgen_to_search_response(payload: Any) -> SearchResponse:
+def leadgen_to_search_response(
+    payload: Any, *, outcome_weights: dict[str, float] | None = None
+) -> SearchResponse:
     """Normalize a leadgen / lead-preview payload into a ``SearchResponse``."""
     data = _as_dict(payload)
     query = data.get("query", "")
@@ -211,6 +234,7 @@ def leadgen_to_search_response(payload: Any) -> SearchResponse:
             for row in (data.get("results") or [])
             if isinstance(row, dict)
         ],
+        outcome_weights=outcome_weights,
     )
     search_score = items[0].score if items else data.get("search_score")
 
@@ -225,7 +249,9 @@ def leadgen_to_search_response(payload: Any) -> SearchResponse:
     )
 
 
-def research_to_search_response(payload: Any) -> SearchResponse:
+def research_to_search_response(
+    payload: Any, *, outcome_weights: dict[str, float] | None = None
+) -> SearchResponse:
     """Normalize a research / unified-query payload into a ``SearchResponse``."""
     data = _as_dict(payload)
     query = data.get("query", "")
@@ -263,7 +289,7 @@ def research_to_search_response(payload: Any) -> SearchResponse:
         if len(items) >= 6:
             break
 
-    items = rank_items(query, items)
+    items = rank_items(query, items, outcome_weights=outcome_weights)
     return SearchResponse(
         query=query,
         search_type=data.get("search_type") or SEARCH_TYPE_RESEARCH,
@@ -328,16 +354,28 @@ _ADAPTERS = {
 }
 
 
-def to_search_response(payload: Any, search_type: str | None = None) -> SearchResponse:
+def to_search_response(
+    payload: Any,
+    search_type: str | None = None,
+    *,
+    outcome_weights: dict[str, float] | None = None,
+) -> SearchResponse:
     """Dispatch a raw surface payload to the correct adapter.
 
     ``search_type`` overrides the value embedded in the payload; when neither is
     present the research adapter is used as the most general fallback.
+
+    ``outcome_weights`` (Search v4 §8) is forwarded to the retrieval adapters
+    (leadgen / research) to nudge ranking by captured result feedback. The SEO
+    adapter is an analysis surface, not retrieval, so it is left unweighted.
     """
     data = _as_dict(payload)
     resolved = (search_type or data.get("search_type") or SEARCH_TYPE_RESEARCH).lower()
     adapter = _ADAPTERS.get(resolved, research_to_search_response)
-    response = adapter(data)
+    if outcome_weights and adapter in (leadgen_to_search_response, research_to_search_response):
+        response = adapter(data, outcome_weights=outcome_weights)
+    else:
+        response = adapter(data)
     if search_type:
         response.search_type = search_type
     return response
