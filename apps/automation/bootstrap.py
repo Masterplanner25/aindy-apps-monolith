@@ -149,7 +149,14 @@ def _register_connectors() -> None:
         register_automation_connectors,
     )
 
-    register_automation_connectors()
+    # overwrite=True keeps registration idempotent across the in-process reboots the
+    # test harness performs (``_fresh_main_app`` reloads ``AINDY.startup``): the runtime
+    # connector registry persists across the reload, so a second overwrite=False call
+    # would raise "already registered" and degrade the automation domain — which
+    # bridge/freelance/rippletrace declare as a dependency, cascading to a bootstrap
+    # validation failure. Re-registering also re-points the registry at the freshly
+    # reloaded handler objects.
+    register_automation_connectors(overwrite=True)
 
 
 def _register_capture_rules() -> None:
