@@ -18,6 +18,7 @@ Gap notes:
 - AI Productivity Boost uses output/input token ratio as a proxy
   for result quality (richer JSON responses = more output tokens).
 """
+import json
 import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -25,7 +26,70 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from apps.arm.models import AnalysisResult, CodeGeneration
-from AINDY.platform_layer.user_ids import require_user_id
+from AINDY.platform_layer.user_ids import parse_user_id, require_user_id
+
+
+def analysis_quality_signals(
+    db: Session,
+    user_id: str,
+    *,
+    window_days: int,
+    status: str = "success",
+) -> dict:
+    """ARM's own analysis-quality signal for a user, computed inside the ARM domain.
+
+    ARM owns the meaning of its ``AnalysisResult.result_full`` (the
+    ``architecture_score`` / ``integrity_score`` it writes). Analytics consumes this
+    signal for the Infinity ``ai_productivity_boost`` / ``decision_efficiency`` KPIs
+    instead of re-parsing ARM's result schema itself (single source of truth).
+
+    Returns per-analysis quality = ``(architecture_score + integrity_score) / 2``
+    (0-10, defaulting to 5 on missing/unparsable data), aggregated over successful
+    analyses in the window (ascending by time so earliest/latest are meaningful):
+      ``{usage_count, quality_avg, quality_earliest, quality_latest, quality_trend}``.
+    """
+    default = {
+        "usage_count": 0,
+        "quality_avg": 5.0,
+        "quality_earliest": 5.0,
+        "quality_latest": 5.0,
+        "quality_trend": 0.0,
+    }
+    user_db_id = parse_user_id(user_id)
+    if user_db_id is None:
+        return default
+
+    window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
+    rows = (
+        db.query(AnalysisResult)
+        .filter(
+            AnalysisResult.user_id == user_db_id,
+            AnalysisResult.created_at >= window_start,
+            AnalysisResult.status == status,
+        )
+        .order_by(AnalysisResult.created_at.asc())
+        .all()
+    )
+    if not rows:
+        return default
+
+    quality: list[float] = []
+    for row in rows:
+        try:
+            data = json.loads(row.result_full) if row.result_full else {}
+            arch = data.get("architecture_score", 5)
+            integrity = data.get("integrity_score", 5)
+            quality.append((arch + integrity) / 2)
+        except (json.JSONDecodeError, TypeError):
+            quality.append(5.0)
+
+    return {
+        "usage_count": len(rows),
+        "quality_avg": sum(quality) / len(quality),
+        "quality_earliest": quality[0],
+        "quality_latest": quality[-1],
+        "quality_trend": (quality[-1] - quality[0]) if len(quality) >= 2 else 0.0,
+    }
 
 
 class ARMMetricsService:

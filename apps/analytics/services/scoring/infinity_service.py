@@ -240,10 +240,8 @@ def calculate_decision_efficiency(user_id: str, db: Session) -> tuple:
     Returns (score: float, data_points_used: int)
     """
     try:
-        from apps.arm.public import list_analysis_results
+        from apps.arm.public import get_analysis_quality_signals
 
-        now = datetime.now(timezone.utc)
-        window_start = now - timedelta(days=SCORING_WINDOW_DAYS)
         tasks = _get_user_tasks_for_scoring(user_id, db)
 
         completed = sum(1 for task in tasks if task.get("status") == "completed")
@@ -255,33 +253,12 @@ def calculate_decision_efficiency(user_id: str, db: Session) -> tuple:
         total = completed + pending
         completion_rate = completed / total if total > 0 else 0.5
 
-        # ARM quality trend — parse result_full JSON
-        arm_score = 5.0
-        arm_results = list_analysis_results(
-            user_id,
-            db,
-            created_at_gte=window_start,
-            status="success",
-        )
-
-        data_points = len(arm_results)
-
-        if arm_results:
-            scores = []
-            for r in arm_results:
-                try:
-                    result_data = json.loads(r.get("result_full")) if r.get("result_full") else {}
-                    arch = result_data.get("architecture_score", 5)
-                    integrity = result_data.get("integrity_score", 5)
-                    scores.append((arch + integrity) / 2)
-                except (json.JSONDecodeError, TypeError):
-                    scores.append(5.0)
-            if scores:
-                arm_score = sum(scores) / len(scores)
-
-        arm_quality = arm_score / 10.0
+        # ARM quality — computed by the ARM domain (single source of truth), not
+        # re-parsed from ARM's result_full schema here.
+        signals = get_analysis_quality_signals(user_id, db, window_days=SCORING_WINDOW_DAYS)
+        arm_quality = signals["quality_avg"] / 10.0
         score = round((completion_rate * 60) + (arm_quality * 40), 2)
-        return min(100.0, score), data_points + total
+        return min(100.0, score), signals["usage_count"] + total
 
     except Exception as e:
         logger.warning("decision_efficiency calc failed: %s", e)
@@ -303,38 +280,15 @@ def calculate_ai_productivity_boost(user_id: str, db: Session) -> tuple:
     Returns (score: float, data_points_used: int)
     """
     try:
-        from apps.arm.public import list_analysis_results
+        from apps.arm.public import get_analysis_quality_signals
 
-        now = datetime.now(timezone.utc)
-        window_start = now - timedelta(days=SCORING_WINDOW_DAYS)
-
-        arm_results = list_analysis_results(
-            user_id,
-            db,
-            created_at_gte=window_start,
-            status="success",
-            ascending=True,
-        )
-
-        usage_count = len(arm_results)
+        # ARM usage + code-quality trend — computed by the ARM domain (single source
+        # of truth), not re-parsed from ARM's result_full schema here.
+        signals = get_analysis_quality_signals(user_id, db, window_days=SCORING_WINDOW_DAYS)
+        usage_count = signals["usage_count"]
         usage_score = _sigmoid_score(usage_count, 5.0, steepness=0.5)
-
-        trend_score = 50.0
-
-        if len(arm_results) >= 2:
-            def _extract_avg(r):
-                try:
-                    result_data = json.loads(r.get("result_full")) if r.get("result_full") else {}
-                    arch = result_data.get("architecture_score", 5)
-                    integ = result_data.get("integrity_score", 5)
-                    return (arch + integ) / 2
-                except (json.JSONDecodeError, TypeError):
-                    return 5.0
-
-            earliest = _extract_avg(arm_results[0])
-            latest = _extract_avg(arm_results[-1])
-            trend = latest - earliest
-            trend_score = _normalize(trend, -5.0, 5.0)
+        # quality_trend is 0.0 for < 2 analyses, so _normalize -> 50.0 (the prior default).
+        trend_score = _normalize(signals["quality_trend"], -5.0, 5.0)
 
         score = round((usage_score * 0.5) + (trend_score * 0.5), 2)
         return min(100.0, score), usage_count
