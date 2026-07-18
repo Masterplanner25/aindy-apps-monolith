@@ -53,7 +53,7 @@ app profile — an image that installs the pinned `aindy-runtime` and provides t
 manifest so `apps.bootstrap` registers the domain apps into the runtime via the plugin ABI.
 
 **Delivered (this change):**
-- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.7.0,<2.0`), copies the
+- `Dockerfile` — installs the app package (pulls `aindy-runtime>=1.8.0,<2.0`), copies the
   app-profile inputs (`aindy_plugins.json`, `apps/`, `alembic/`, `alembic.ini`), and serves via
   `aindy-runtime serve` from the repo root (shape follows the runtime's own `aindy-runtime init`
   scaffold: `libpq-dev`, `AINDY_HOST=0.0.0.0`).
@@ -352,7 +352,7 @@ across `duration` (hours) and `time_spent` (seconds).
 **Status:** **RESOLVED in aindy-runtime 1.5.3 (2026-07-05).** nodus_vm execute-to-completion
 was blocked by two stacked, PG-only, transaction-poisoning runtime bugs (SQLite masked both);
 both are now fixed and published, and Gate 2 of `tests/integration/test_nodus_vm.py`
-hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.7.0,<2.0`):
+hard-asserts the resumed run reaches a terminal state (pin floor `aindy-runtime>=1.8.0,<2.0`):
 
 1. **#152** (PR #155, v1.5.2) — `ExecutionPipeline.run()` emitted its own `execution.started`
    *before* marking itself active, so the nested flow-runner pipeline reached during a
