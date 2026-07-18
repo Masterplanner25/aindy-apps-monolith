@@ -1,6 +1,6 @@
 ---
 title: "Runtime Dependency"
-last_verified: "2026-06-29"
+last_verified: "2026-07-18"
 api_version: "1.0"
 status: current
 owner: "platform-team"
@@ -25,11 +25,19 @@ aindy-runtime>=1.0,<2.0
 The upper bound is required. The apps repo should not accept unbounded runtime
 upgrades.
 
-Validated on `2026-07-09`:
+Validated on `2026-07-18`:
 
-- installed runtime version: `1.7.0`
-- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.7.0,<2.0`
+- installed runtime version: `1.8.0`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.8.0,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
+- app-profile boot smoke on 1.8.0: `boot_profile=default-apps`, `app_plugins_loaded=True`, `app_plugin_count=17`
+
+Floor raised to `1.8.0` to adopt v1.8.0 (additive/opt-in, no schema change): FR-1
+connector-registration hook + capability-enforced outbound boundary
+(`register_connector`), FR-3 `NEXT_ACTION_DISPATCHED` dispatch-outcome contract, the
+FR-4 / DOCS-BUCKET-A-1 error-handling-policy runtime/app split, plus a
+`setuptools>=83.0.0` (CVE-2026-59890) security bump and `nodus-lang 4.1.0` / `nltk
+3.10.0`. App-side adoption of the FR-1 / FR-3 hooks lands in follow-on PRs.
 
 The floor stays at or above `1.5.3` for **both** nodus_vm execute-to-completion fixes (first shipped in v1.5.2 / v1.5.3): aindy-runtime
 #152 / PR #155 (v1.5.2 — `ExecutionPipeline.run()` marks itself active before emitting its
@@ -46,7 +54,7 @@ live, published dependency contract — not a pre-publication staging arrangemen
 
 `aindy-runtime` is installed from PyPI as a normal pinned dependency:
 
-- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.7.0,<2.0`
+- the declared dependency in `pyproject.toml` is `aindy-runtime>=1.8.0,<2.0`
 - CI installs it via `pip install -e .[test]` (no runtime-repo checkout, no source
   install)
 - CI verifies the installed runtime version and that `/api/version` reports the

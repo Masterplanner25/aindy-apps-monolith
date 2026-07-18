@@ -1,12 +1,35 @@
 ---
 title: "Runtime Feature Requests — handoff to aindy-runtime"
-last_verified: "2026-07-17"
+last_verified: "2026-07-18"
 api_version: "1.0"
 status: current
 owner: "app-team"
 ---
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
+
+## Shipped in aindy-runtime v1.8.0 (2026-07-18) — now an adoption tracker
+
+**All four items are now delivered upstream** (FR-2 was already present; v1.8.0 shipped
+FR-1, FR-3, FR-4). This doc flips from a *request* handoff to an *adoption* tracker. What
+v1.8.0 shipped (additive/opt-in, no schema change):
+
+- **FR-1** — `register_connector` hook + capability-enforced outbound boundary.
+- **FR-3** — `NEXT_ACTION_DISPATCHED` dispatch-outcome contract.
+- **FR-4 / DOCS-BUCKET-A-1** — `ERROR_HANDLING_POLICY` runtime/app split (closed).
+- Plus: `setuptools>=83.0.0` (CVE-2026-59890), `nodus-lang 4.1.0`, `nltk 3.10.0`.
+
+App floor raised to `aindy-runtime>=1.8.0,<2.0` (boot smoke green: `default-apps`,
+`app_plugins_loaded=True`, `app_plugin_count=17`). **App-side adoption status:**
+
+| ID | Upstream | App adoption |
+|---|---|---|
+| FR-1 | ✅ 1.8.0 (`register_connector`) | ⏳ replace the connector `if/elif` ladder in `automation_execution_service` with hook registrations |
+| FR-3 | ✅ 1.8.0 (`NEXT_ACTION_DISPATCHED`) | ⏳ read the dispatch-outcome record; then ops soak + flip `AINDY_NEXT_ACTION_ACTING` |
+| FR-2 | ✅ 1.7.0 | ✅ adopted — `reasoning_apply_v1.nd` registered at boot (see TECH_DEBT) |
+| FR-4 | ✅ 1.8.0 | ⏳ update reciprocal doc cross-links |
+
+The per-item detail below is retained as the adoption contract for each.
 
 ## What this is
 

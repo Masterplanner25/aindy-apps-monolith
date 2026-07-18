@@ -109,7 +109,7 @@ Apps CI scope in `.github/workflows/app-ci.yml` is intentionally repo-owned:
 GitHub Actions note:
 
 - `aindy-runtime` is published on PyPI, so this workflow installs it as a normal
-  pinned dependency (`aindy-runtime>=1.7.0,<2.0`) via `pip install -e .[test]`,
+  pinned dependency (`aindy-runtime>=1.8.0,<2.0`) via `pip install -e .[test]`,
   then verifies the installed version at boot. No runtime-repo checkout is needed.
 - Playwright E2E is not in the default push/PR workflow yet; those tests are
   product/integration heavy and should be added separately once the extracted
