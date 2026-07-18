@@ -679,10 +679,14 @@ is the bulk (38 sites, each needs judgment); budget a half-day if driving to zer
 
 ---
 
-## UIKIT-ROUTE-DRIFT-1: client called 18 backend routes that 404 (missing router prefix) — 17 fixed app-side, 1 upstream
+## UIKIT-ROUTE-DRIFT-1: client called 18 backend routes that 404 (missing router prefix) — RESOLVED
 
-**Status:** App-side RESOLVED (2026-07-18); 1 runtime/platform route pending `@aindy/ui-kit`.
-Found by the live-frontend verification.
+**Status:** RESOLVED (2026-07-18). 17 app-domain routes corrected app-side (`_routes.js`); the 1
+runtime/platform route fixed upstream in `@aindy/ui-kit@1.0.6` and adopted here (dep bumped
+`^1.0.0` → `^1.0.6`). 1.0.6 also broadened the platform fix (all `OPERATOR.*` → `/platform/*`) and
+moved `AGENT.*` → `/apps/agent/*`; the app's existing `/tasks/*`, `/leadgen/`, etc. still resolve.
+**Effective client→backend drift is now 0** (139 routes cross-checked vs the live `/openapi.json`;
+frontend build + 136 tests green). Found by the live-frontend verification.
 
 **Context:** The client reaches the backend via `@aindy/ui-kit`'s `ROUTES`. A cross-check of all
 135 client route definitions against the live backend (566 routes from `/openapi.json`) found

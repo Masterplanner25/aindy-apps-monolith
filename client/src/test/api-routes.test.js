@@ -27,9 +27,9 @@ describe("API route registry", () => {
   });
 
   it("builds representative static and dynamic paths correctly", () => {
-    expect(ROUTES.OPERATOR.FLOW_RUN("abc-123")).toBe("/flows/runs/abc-123");
+    expect(ROUTES.OPERATOR.FLOW_RUN("abc-123")).toBe("/platform/flows/runs/abc-123");
     expect(ROUTES.ARM.ANALYZE).toBe("/arm/analyze");
-    expect(ROUTES.AGENT.EVENTS("run-7")).toBe("/agent/runs/run-7/events");
+    expect(ROUTES.AGENT.EVENTS("run-7")).toBe("/apps/agent/runs/run-7/events");
     expect(ROUTES.MASTERPLAN.PLAN_ANCHOR("plan-9")).toBe("/masterplans/plan-9/anchor");
     expect(ROUTES.RIPPLETRACE.CAUSAL_CHAIN("drop 1")).toBe("/rippletrace/causal/chain/drop%201");
     expect(ROUTES.PLATFORM.VERSION).toBe("/api/version");

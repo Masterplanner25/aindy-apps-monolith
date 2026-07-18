@@ -8,6 +8,16 @@ owner: "app-team"
 
 # UI-Kit Route Fixes — handoff to `@aindy/ui-kit`
 
+## ✅ Resolved (2026-07-18)
+
+`@aindy/ui-kit@1.0.6` shipped the runtime/platform fix and the app bumped to it
+(`client/package.json` → `^1.0.6`). 1.0.6 corrected the platform surface broadly —
+`OPERATOR.FLOW_STRATEGIES` **and** the rest of `OPERATOR.*` now resolve under `/platform/*`,
+and `AGENT.*` now uses the canonical `/apps/agent/*`. The 17 app-domain routes (`/compute/*`,
+`/seo/*`) were **not** changed upstream (correctly — they're app-owned) and remain corrected by
+this repo's `client/src/api/_routes.js`. **Effective client→backend drift is now 0** (139
+routes cross-checked vs the live `/openapi.json`). The detail below is retained for history.
+
 ## What this is
 
 A live-frontend verification of `client/` (2026-07-18) cross-checked all 135 client route

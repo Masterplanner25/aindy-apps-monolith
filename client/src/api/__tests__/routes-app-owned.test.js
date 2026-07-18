@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 
+import { ROUTES as UIKIT_ROUTES } from "@aindy/ui-kit";
 import { ROUTES, APP_OWNED_ROUTE_CORRECTIONS } from "../_routes.js";
 
 // Guards the app-owned route corrections (UIKIT-ROUTE-DRIFT-1): @aindy/ui-kit's ROUTES
@@ -20,12 +21,13 @@ describe("app-owned route corrections", () => {
     }
   });
 
-  it("leaves non-app-domain routes untouched", () => {
-    // These already resolve correctly (no intermediate router prefix) and must not be
-    // rewritten by the override.
-    expect(ROUTES.TASKS.LIST).toBe("/tasks/list");
-    expect(ROUTES.AGENT.CREATE_RUN).toBe("/agent/run");
-    expect(ROUTES.SEARCH.LEAD_GEN).toBe("/leadgen/");
+  it("leaves non-app-domain routes as ui-kit defines them (passthrough)", () => {
+    // The override only corrects the app-domain /compute + /seo paths; everything else
+    // passes through unchanged from ui-kit (robust to ui-kit route revisions).
+    expect(ROUTES.TASKS.LIST).toBe(UIKIT_ROUTES.TASKS.LIST);
+    expect(ROUTES.AGENT.CREATE_RUN).toBe(UIKIT_ROUTES.AGENT.CREATE_RUN);
+    expect(ROUTES.SEARCH.LEAD_GEN).toBe(UIKIT_ROUTES.SEARCH.LEAD_GEN);
+    expect(ROUTES.OPERATOR.FLOW_STRATEGIES).toBe(UIKIT_ROUTES.OPERATOR.FLOW_STRATEGIES);
   });
 
   it("is idempotent — does not double-prefix", () => {
