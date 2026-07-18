@@ -10,179 +10,166 @@ owner: "app-team"
 
 ## What this is
 
-Four items surfaced during the apps-monolith build that are **runtime-owned** — they
-require editing `AINDY/` (the runtime), which this repo does not own. Per the split,
-apps extend the runtime only through `register_*` hooks; a need the runtime doesn't
-expose is a feature request against `aindy-runtime`, built + published there, then
-adopted here.
+Four items surfaced during the apps-monolith build that touch `AINDY/` (the runtime),
+which this repo does not own. Per the split, apps extend the runtime only through
+`register_*` hooks; a need the runtime doesn't expose is a request against
+`aindy-runtime`, built + published there, then adopted here.
 
-Each request below is self-contained (a runtime dev needs no apps-monolith context to
-act on it). **How to use:** file each as an issue in `aindy-runtime`, or fold into
-`aindy-runtime/TECH_DEBT.md`. The `App-side adoption` section is the contract this repo
-will consume once the runtime ships the capability — treat it as the acceptance target.
+## Triage update — checked against `aindy-runtime` (2026-07-17)
 
-Cross-referenced from this repo's `TECH_DEBT.md` (the IDs match). Priority order:
-**FR-3 (Next-Action) > FR-1 (connectors) > FR-2 (Nodus) > FR-4 (docs)**.
+**Two of the four were already shipped upstream; the original priority was inverted.**
+Corrected status and the *real* remaining work per item:
+
+| ID | Item | Status | Actual remaining work |
+|---|---|---|---|
+| **FR-1** | `register_connector` + capability-enforced outbound I/O | 🔴 **net-new** | The real build — but mostly *wiring*: enforcement primitives already exist unwired (`CapabilityPolicy`, `SecretBroker`, G4a egress seam). |
+| **FR-3** | Next-Action autonomous dispatch | 🟡 **~70% shipped** | Acting half exists (`maybe_act_on_next_action`, v1.6.2, flag-gated). Delta: broaden verbs, add a dispatch-outcome record, soak+flip. |
+| **FR-2** | `register_nodus_workflow` | ✅ **shipped** | None upstream. **App can adopt today** — see contract doc. |
+| **FR-4** | Docs relocation (Bucket A + INVARIANTS runtime half) | 🟢 **hygiene** | Relocate per the existing ownership map. |
+
+**Real priority order (runtime-side effort): FR-1 > FR-3 > FR-2 (adopt) > FR-4.**
+The original doc said `FR-3 > FR-1 > FR-2 > FR-4` — wrong, because FR-2 is done and FR-3
+is mostly done, leaving **FR-1 as the actual net-new work.**
+
+Cross-referenced from this repo's `TECH_DEBT.md` (IDs match). Details below.
 
 ---
 
-## FR-1 — Connector registration hook + capability-enforced outbound I/O
+## FR-1 — Connector registration hook + capability-enforced outbound I/O 🔴 net-new
 
-**apps-monolith ref:** `MASTERPLAN-CONNECTOR-RUNTIME-1` · **Priority:** Medium (hardening; delivery works today)
+**apps-monolith ref:** `MASTERPLAN-CONNECTOR-RUNTIME-1` · **Status:** confirmed real gap; the actual work.
 
 ### Today (the limitation)
 External automation connectors (`social`, `crm`, `email`, `webhook`, `stripe`,
 `subscription`) are dispatched by a **hardcoded `if/elif` ladder** in a single app
 service, `apps/automation/services/automation_execution_service.py::execute_automation_action`.
-Each connector builds its own outbound HTTP/SMTP with stdlib (`urllib`/`smtplib`) and
-wraps it in the runtime's `perform_external_call`
-(`AINDY.platform_layer.external_call_service`) — which is an **observability wrapper
-only**: it emits `external.call.started|completed|failed` and times the call, but does
-**not** authorize, allow-list, rate-limit, sandbox, or vault credentials. There is no
-`register_connector`-style hook in `AINDY.platform_layer.registry`.
+Each builds its own outbound HTTP/SMTP with stdlib and wraps it in
+`perform_external_call` (`AINDY.platform_layer.external_call_service`) — which is
+**observability-only** (emits `external.call.started|completed|failed`, times the call;
+no auth, allow-list, rate-limit, sandbox, or credential vaulting). No `register_connector`
+hook exists in `AINDY.platform_layer.registry`.
 
-### The ask (runtime)
-1. **Connector registration hook** — `register_connector(connector_type: str, handler)`
-   in the platform registry, pluggable like `register_router` / `register_syscall` /
-   `register_job`, so connectors are runtime-dispatched and multiple apps can contribute
-   types. Suggested handler shape: `handler(action: dict, ctx) -> dict`.
-2. **Capability-enforced outbound boundary** — a real gate around external calls:
-   per-user authorization, endpoint allow-lists, credential vaulting, and rate-limiting.
-   Either `perform_external_call` grows enforcement, or a new `authorized_external_call`
-   primitive layered above it.
-3. **Shared outbound HTTP client** with retry + circuit-breaking, replacing app-side raw
-   `urllib`.
+### The ask (runtime) — mostly wiring, not greenfield
+Per the upstream triage, the enforcement primitives **already exist but are unwired**:
+- `CapabilityPolicy` (AGENT-HARDEN-8) — recipient/domain allow-lists + rate-limiting.
+- `SecretBroker` (AGENT-HARDEN-9) — credential vaulting.
+- the G4a egress seam.
+
+So FR-1 is: **(1)** a `register_connector(connector_type, handler)` hook symmetric to
+`register_router`/`register_syscall`/`register_job` (suggested handler shape
+`handler(action, ctx) -> dict`); **(2)** route connector outbound I/O through
+`CapabilityPolicy` + `SecretBroker` + the egress seam so calls are authorized /
+allow-listed / rate-limited / vaulted rather than observe-only; **(3)** a shared outbound
+HTTP client with retry + circuit-breaking to replace app-side raw `urllib`.
 
 ### App-side adoption (the contract)
 The app deletes its `if/elif` ladder and registers each connector via the hook; outbound
-calls become authorized / allow-listed / rate-limited by the runtime; credentials are
-resolved from a runtime vault rather than app config. No behavior change to *delivery* —
-this is enforcement + pluggability.
+calls become authorized/allow-listed/rate-limited by the runtime and pull credentials from
+the broker rather than app config. No change to *delivery* — this is enforcement + pluggability.
 
 ### References
-- App: `apps/automation/services/automation_execution_service.py` (dispatch ladder),
-  `tests/unit/test_automation_connectors.py`.
-- Runtime: `AINDY/platform_layer/external_call_service.py`, `AINDY/platform_layer/registry.py`.
+- App: `apps/automation/services/automation_execution_service.py`, `tests/unit/test_automation_connectors.py`.
+- Runtime: `AINDY/platform_layer/external_call_service.py`, `AINDY/platform_layer/registry.py`,
+  `CapabilityPolicy` (AGENT-HARDEN-8), `SecretBroker` (AGENT-HARDEN-9), the G4a egress seam.
 
 ---
 
-## FR-2 — `register_nodus_workflow` hook for app-defined Nodus `.nd` workflows
+## FR-3 — Next-Action autonomous dispatch 🟡 ~70% shipped (Deliverable C)
 
-**apps-monolith ref:** `APP-DEBT-MIGRATED-1` (Nodus-native reasoning row) · **Priority:** Medium/Low (only when Nodus is the primary substrate)
+**apps-monolith ref:** `INFINITY-RUNTIME-1` Gap 4 · **Status:** acting half shipped in aindy-runtime **1.6.2**.
 
-### Today (the limitation)
-Nodus is the runtime's native workflow VM (it backs the `nodus_vm` agent-execution
-backend, this monolith's default). Apps can register **Python flows** via `register_flow`,
-and reasoning `execution_intent` runs through the flow engine. But there is **no
-app-facing registration surface for native Nodus `.nd` workflow definitions** — apps
-cannot contribute Nodus-native workflows, so reasoning/automation cannot execute on the
-Nodus VM directly, only through the Python flow-engine path.
+### Already shipped upstream (correction to the original doc)
+The original request was written as if the runtime were still **record-first only** — it
+isn't. `AINDY/core/next_action_dispatch.py::maybe_act_on_next_action` (PR #213, v1.6.2)
+already does the bounded, opt-in **autonomous-acting** half this asked for:
+- flag `AINDY_NEXT_ACTION_ACTING` (**default off**),
+- chain-depth cap,
+- approval gate + admission reuse,
+- app-sourced `trigger_execution` only.
 
-### The ask (runtime)
-A `register_nodus_workflow(name: str, definition)` (or path-based) registration hook,
-symmetric to `register_flow`, so an app can contribute a `.nd` workflow the runtime
-compiles and executes through the Nodus VM. The registered workflow should be reachable
-from the same intent-execution path apps already use (e.g. via a flow strategy or an
-execution_intent target).
+### Genuine remaining delta
+1. **Broaden verbs** beyond `trigger_execution` (e.g. `retry`, `schedule_follow_up`).
+2. **Explicit dispatch-outcome contract** — part 2 of the original ask. Dispatch currently
+   reuses events; there is **no dedicated outcome record** the app can read back.
+3. **Soak + flip** — turn `AINDY_NEXT_ACTION_ACTING` on after a real-deployment soak (ops).
 
 ### App-side adoption (the contract)
-The analytics reasoning layer (and any domain) registers a `.nd` workflow and routes a
-reasoning/automation `execution_intent` to it, getting **Nodus-native, VM-executed,
-durable** execution instead of the Python flow engine. Adopted behind the app's existing
-`register_flow_strategy("reasoning", …)` seam.
+The app already returns a runtime-coercible NextAction from its completion hook
+(`apps/agent/agents/runtime_extensions.py::handle_agent_run_completed`, boundary-preserving
+contract, `INFINITY-COMPLETION-HOOK-BOUNDARY-1` RESOLVED in 1.6.1). Once #2 lands, the app
+reads the dispatch outcome from the new record; #3 is the operational flip that activates the
+app's autonomous-acting phase.
+
+> **Disambiguation:** distinct from the learned-recursion **Phase 2** (which makes a learned
+> model *drive canonical scoring* and is gated on the app-side **3b-full** values decision —
+> `docs/architecture/INFINITY_LEARNED_RECURSION_SCOPE.md`). FR-3 is the *autonomous-acting*
+> frontier, not learned scoring.
 
 ### References
-- App: `apps/analytics/services/reasoning/` (reasoning `execution_intent`),
-  `apps/analytics/bootstrap.py::_register_flow_strategies` (the `register_flow` analog).
-- Runtime: `AINDY/runtime/nodus_execution_service.py`, `AINDY/runtime/flow_engine/`,
-  `register_flow` (the existing symmetric hook).
+- Runtime: `AINDY/core/next_action_dispatch.py` (`maybe_act_on_next_action`, PR #213, v1.6.2),
+  `AINDY/core/next_action.py`, `docs/runtime/INFINITY_LOOP_AUDIT.md` (Gap 4), `INFINITY-RUNTIME-1`.
+- App: `apps/agent/agents/runtime_extensions.py`, `INFINITY-COMPLETION-HOOK-BOUNDARY-1` (this repo's `TECH_DEBT.md`).
 
 ---
 
-## FR-3 — Next-Action engine primitive: record-first → autonomous pre-dispatch
+## FR-2 — `register_nodus_workflow` ✅ SHIPPED (adopt-today)
 
-**apps-monolith ref:** `INFINITY-RUNTIME-1` Gap 4 (runtime board) · **Priority:** Medium/High (gates real autonomy)
+**apps-monolith ref:** `APP-DEBT-MIGRATED-1` (Nodus-native reasoning row) · **Status:** the exact hook exists upstream.
 
-### Today (the limitation)
-The runtime is **record-first** for Next-Action. When an agent run completes, the app's
-completion hook (`apps/agent/agents/runtime_extensions.py::handle_agent_run_completed`)
-returns a runtime-coercible NextAction; the runtime **records** it as a `NEXT_ACTION_CHOSEN`
-ledger event but does **not** autonomously dispatch it. So the Infinity loop can *decide*
-"do X next," but nothing acts on that decision without a human. The engine primitive lives
-runtime-side (`AINDY/core/next_action.py`). This is Gap 4 of the runtime's own
-`INFINITY_LOOP_AUDIT.md` (the 5 structural loop-closure gaps).
+### Already shipped upstream (no runtime work needed)
+The requested hook is present and symmetric to `register_flow`, reachable from the
+manifest/extension path:
+- `AINDY/platform_layer/registry.py:1711` — `register_nodus_workflow(name, source, kind=, version=, capabilities=, …)`
+- impl `AINDY/runtime/nodus_workflow_registry.py`; DB model `nodus_workflow.py`; migration `0006`;
+  router `nodus_flow_router.py`; **contract doc `docs/runtime/NODUS_WORKFLOW_CONTRACT.md`**;
+  tests `test_nodus_workflow_registry.py`.
 
-### The ask (runtime)
-A Next-Action **engine** that can, under a bounded policy, **autonomously dispatch** the
-recorded next action (pre-dispatch control) — turning the record-first ledger into an
-acting loop. It should expose:
-1. a **policy/gate surface** so autonomous acting is bounded, opt-in, and auditable
-   (aligns with the autonomy-controller pattern already used for scheduled triggers);
-2. an **app-consumable dispatch-outcome contract** so the app can read what the runtime
-   did with a chosen next action (from the `NEXT_ACTION_CHOSEN` → dispatch → outcome chain).
+This is a "**reply to app team: it exists, here's the contract doc**" item, not a build.
 
-### App-side adoption (the contract)
-The app returns a next action from its completion hook and, under the runtime policy, the
-runtime executes it autonomously; the app reads the dispatch outcome from the ledger. This
-unblocks the app's **Infinity autonomous-acting phase** (the `AINDY_NEXT_ACTION_ACTING`
-frontier) and lets the app align its completion-hook return to the runtime NextAction
-contract.
-
-> **Disambiguation:** this is a *different* "Phase 2" from the learned-recursion Phase 2
-> (which makes a learned model *drive canonical scoring* and is gated on the app-side
-> **3b-full** values decision — see `docs/architecture/INFINITY_LEARNED_RECURSION_SCOPE.md`).
-> FR-3 gates the **autonomous-acting** frontier, not learned scoring.
+### App-side adoption (this repo's follow-on)
+The analytics reasoning layer can register a native `.nd` workflow via
+`register_nodus_workflow(...)` per `NODUS_WORKFLOW_CONTRACT.md` and route a reasoning
+`execution_intent` to it (behind the existing `register_flow_strategy("reasoning", …)` seam)
+for Nodus-native, VM-executed execution instead of the Python flow engine. **Adoptable now.**
 
 ### References
-- Runtime: `AINDY/core/next_action.py`, `docs/runtime/INFINITY_LOOP_AUDIT.md` (Gap 4),
-  the `INFINITY-RUNTIME-1` entry in `aindy-runtime/TECH_DEBT.md`.
-- App (context, resolved): `INFINITY-COMPLETION-HOOK-BOUNDARY-1` in this repo's
-  `TECH_DEBT.md` (the boundary-preserving completion-hook contract shipped in
-  aindy-runtime 1.6.1), `apps/agent/agents/runtime_extensions.py`.
+- Runtime: `AINDY/platform_layer/registry.py:1711`, `AINDY/runtime/nodus_workflow_registry.py`,
+  `docs/runtime/NODUS_WORKFLOW_CONTRACT.md`.
+- App: `apps/analytics/services/reasoning/`, `apps/analytics/bootstrap.py::_register_flow_strategies`.
 
 ---
 
-## FR-4 — Docs relocation: Bucket A + the runtime half of `INVARIANTS.md`
+## FR-4 — Docs relocation: Bucket A + the runtime half of `INVARIANTS.md` 🟢 hygiene
 
-**apps-monolith ref:** `DOCS-MIGRATION-2` · **Priority:** Low (hygiene; zero functional impact)
-
-### Today (the limitation)
-When the combined repo (`masterplan-infiniteweave-monday-node-2025-0411`) was split into
-`aindy-runtime` + `aindy-apps-monolith`, a set of runtime-owned pre-split docs were
-triaged but not yet relocated **into `aindy-runtime`**. They currently live only in the
-pre-split archive.
+**apps-monolith ref:** `DOCS-MIGRATION-2` · **Status:** hygiene; the ownership map already exists.
 
 ### The ask (runtime)
-Relocate/author into `aindy-runtime`, per the ownership map in
+Relocate/author into `aindy-runtime` per the existing ownership map
 `aindy-runtime/docs/runtime/RUNTIME_DOCSET_BOUNDARY.md`:
-
 - **Bucket A (relocate as-is):** `architecture/DATA_MODEL_MAP.md`,
-  `architecture/MODEL_OWNERSHIP_POLICY.md`, `platform/governance/AGENT_WORKING_RULES.md`,
-  `platform/governance/ERROR_HANDLING_POLICY.md`, `platform/governance/CHANGELOG.md`, and
-  all four `tutorials/*` (they teach runtime primitives — memory bridge, flow WAIT/RESUME,
-  scheduler, Nodus — no app-domain workflow).
-- **Runtime invariants (author):** the runtime half of `INVARIANTS.md` —
-  PostgreSQL/UTC/session-isolation/memory-graph/embedding/schema-drift invariants. The
-  **app-domain** half already lives in this repo at
-  `docs/platform/governance/INVARIANTS.md` (original section numbers preserved for
-  traceability); author the runtime half upstream and cross-link.
+  `architecture/MODEL_OWNERSHIP_POLICY.md`, `platform/governance/{AGENT_WORKING_RULES,
+  ERROR_HANDLING_POLICY, CHANGELOG}.md`, and all four `tutorials/*` (they teach runtime
+  primitives — memory bridge, flow WAIT/RESUME, scheduler, Nodus).
+- **Runtime invariants (author):** the runtime half of `INVARIANTS.md`
+  (PostgreSQL/UTC/session-isolation/memory-graph/embedding/schema-drift). The app-domain half
+  already lives here at `docs/platform/governance/INVARIANTS.md` (section numbers preserved).
 
-### App-side adoption (the contract)
-None functional — once the runtime docset holds these, update the reciprocal cross-links.
-This repo's `GOVERNANCE_INDEX.md` already references runtime contracts as upstream authority.
+### App-side adoption
+None functional — update the reciprocal cross-links once relocated.
 
 ### References
-- App: `DOCS-MIGRATION-2` in this repo's `TECH_DEBT.md` (full triage + bucketing).
-- Runtime: `docs/runtime/RUNTIME_DOCSET_BOUNDARY.md` (ownership map), the pre-split archive.
+- App: `DOCS-MIGRATION-2` in this repo's `TECH_DEBT.md`.
+- Runtime: `docs/runtime/RUNTIME_DOCSET_BOUNDARY.md`, the pre-split archive.
 
 ---
 
-## Coming back to apps-monolith
+## Coming back to apps-monolith — adoption follow-ons
 
-Once any of these ship in `aindy-runtime` (and the pin here is bumped if a floor change
-is involved), the app-side adoption is the follow-on work in this repo:
-- **FR-1** → replace the connector `if/elif` ladder with `register_connector` calls.
-- **FR-2** → register the reasoning `.nd` workflow(s) behind the existing flow-strategy seam.
-- **FR-3** → align the completion-hook return + build the app-side autonomous-acting phase
-  (currently unscoped; scope it after the primitive lands).
-- **FR-4** → update reciprocal doc cross-links.
+- **FR-2 (adopt now):** register the reasoning `.nd` workflow(s) per `NODUS_WORKFLOW_CONTRACT.md`,
+  behind the existing flow-strategy seam. No upstream dependency.
+- **FR-3:** the acting flag exists (`AINDY_NEXT_ACTION_ACTING`, default off); adopt once the
+  dispatch-outcome record lands, then it's an ops soak+flip. App-side autonomous-acting phase
+  still to be scoped on top.
+- **FR-1:** adopt after the runtime ships the hook — replace the connector `if/elif` ladder with
+  `register_connector` calls; credentials/allow-lists move to the runtime.
+- **FR-4:** update reciprocal doc cross-links after relocation.
