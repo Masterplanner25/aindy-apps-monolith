@@ -18,6 +18,8 @@ def register() -> None:
     _register_flows()
     _register_flow_results()
     _register_syscalls()
+    _register_agent_capabilities()
+    _register_agent_tools()
     _register_health_check()
 
 
@@ -25,6 +27,18 @@ def _register_syscalls() -> None:
     from apps.freelance.syscalls import register_freelance_syscall_handlers
 
     register_freelance_syscall_handlers()
+
+
+def _register_agent_capabilities() -> None:
+    from apps.freelance.agents.capabilities import register as register_capabilities
+
+    register_capabilities()
+
+
+def _register_agent_tools() -> None:
+    from apps.freelance.agents.tools import register as register_tools
+
+    register_tools()
 
 
 def _register_models() -> None:
