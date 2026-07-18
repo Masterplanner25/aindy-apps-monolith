@@ -825,11 +825,16 @@ not app-owned — the apps-monolith slice was small. Disposition:
   (PostgreSQL/UTC/session-isolation/memory-graph/embedding/schema-drift) remain runtime-owned —
   **author the runtime half in `aindy-runtime`** (fold into the Bucket A handoff).
 
-**Status:** DOCS-MIGRATION-2 complete (apps side). Open items, both on `aindy-runtime`: the **Bucket A**
-relocation and the **runtime half of `INVARIANTS.md`**.
+**Status:** RESOLVED (2026-07-18). The two open `aindy-runtime` items — the **Bucket A**
+relocation and the **runtime half of `INVARIANTS.md`** — shipped upstream with
+aindy-runtime 1.8.0 (DOCS-BUCKET-A-1 / FR-4). App-side reciprocal cross-links updated:
+`docs/GOVERNANCE_INDEX.md` Level 0 lists the relocated runtime governance docs,
+`docs/platform/governance/INVARIANTS.md` points at the now-authored runtime half (via
+`RUNTIME_DOCSET_BOUNDARY.md`), and `docs/apps/EVOLUTION_PLAN.md`'s cross-repo preamble
+notes the relocation. Nothing further app-side.
 
-**Reopen trigger:** Follow-up on the `aindy-runtime` items, or a re-triage of `EVOLUTION_PLAN` phases
-as they complete.
+**Reopen trigger:** A re-triage of `EVOLUTION_PLAN` phases as they complete, or a new
+shared-doc split.
 
 ---
 

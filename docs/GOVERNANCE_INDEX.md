@@ -27,6 +27,10 @@ App code and docs must conform to these and must not contradict or redefine them
 - Runtime Public API Contract — the only `AINDY.*` surface apps may import.
 - Runtime DB Ownership Contract — runtime-owned vs app-owned tables/migrations.
 - `RUNTIME_DOCSET_BOUNDARY.md` — the doc ownership map between the two repos.
+- Runtime governance docs relocated upstream (DOCS-MIGRATION-2 Bucket A, shipped with
+  aindy-runtime 1.8.0 / FR-4): `ERROR_HANDLING_POLICY`, `AGENT_WORKING_RULES`,
+  `DATA_MODEL_MAP`, `MODEL_OWNERSHIP_POLICY`, the four runtime `tutorials/*`, and the
+  runtime half of `INVARIANTS.md`. App docs reference these; they are not vendored here.
 
 ### Level 1 — Repo operating instructions
 - `CLAUDE.md` (repo root) — conventions, commands, and boundary rules that
