@@ -139,6 +139,17 @@ def _handle_get_latest_adjustment(payload: dict, ctx: SyscallContext) -> dict:
             db.close()
 
 
+def _handle_expectation_shadow_report(payload: dict, ctx: SyscallContext) -> dict:
+    from apps.analytics.services.scoring.expectation_model_service import evaluate
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        return evaluate(db)
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_analytics_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.analytics.get_kpi_snapshot",
@@ -224,6 +235,13 @@ def register_analytics_syscall_handlers() -> None:
         handler=_handle_get_latest_adjustment,
         capability="analytics.read",
         description="Return the latest serialized adjustment for the given user.",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.analytics.expectation_shadow_report",
+        handler=_handle_expectation_shadow_report,
+        capability="analytics.read",
+        description="Learned-vs-heuristic expected-score MAE from the shadow ledger (Phase 0 soak report).",
         stable=False,
     )
     logger.info(

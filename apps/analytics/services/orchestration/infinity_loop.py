@@ -203,6 +203,9 @@ def evaluate_pending_adjustment(
             if not adjustment:
                 return None
 
+            # Captured before the update for the shadow expectation log (Phase 0).
+            score_snapshot_ctx = _adjustment_get(adjustment, "score_snapshot")
+
             actual_outcome = _derive_actual_outcome(trigger_event)
             expected_outcome = _adjustment_get(adjustment, "expected_outcome") or _derive_expected_outcome(
                 _adjustment_get(adjustment, "decision_type")
@@ -239,6 +242,23 @@ def evaluate_pending_adjustment(
                 evaluated_at=datetime.now(timezone.utc),
                 adjustment_payload=payload,
             ) or adjustment
+
+        # Shadow-mode learned expectation (Phase 0 — BUILD_PLAN learned recursion):
+        # logs a prediction next to the heuristic for the soak comparison. Default
+        # off (AINDY_INFINITY_LEARNED_SHADOW); drives nothing, isolated transaction.
+        try:
+            from ..scoring.expectation_model_service import shadow_log_expectation
+
+            shadow_log_expectation(
+                db=db,
+                loop_adjustment_id=_adjustment_get(adjustment, "id"),
+                decision_type=_adjustment_get(adjustment, "decision_type"),
+                score_snapshot=score_snapshot_ctx,
+                heuristic_expected=expected_score,
+                actual_score=actual_score_value,
+            )
+        except Exception as _shadow_exc:
+            logger.debug("[InfinityLoop] shadow expectation logging skipped: %s", _shadow_exc)
 
         try:
             from ..scoring.kpi_weight_service import adapt_kpi_weights
