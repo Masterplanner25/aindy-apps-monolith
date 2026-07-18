@@ -130,8 +130,8 @@ record-first Next-Action to autonomous pre-dispatch action.
 
 ## RIPPLETRACE-CONTENT-LLM-1: rippletrace content generation is template-only (LLM path dropped in the port)
 
-**Status:** Tracked (2026-07-05). App-owned. Found comparing the standalone RippleTrace MVP
-(`C:\dev\Rippletrace`) against this app's port.
+**Status:** RESOLVED (2026-07-17). App-owned. Found comparing the standalone RippleTrace MVP
+(`C:\dev\Rippletrace`) against this app's port; the LLM path was restored 2026-07-17 (Resolution below).
 
 **Context:** The standalone `content_generator` generated post drafts via OpenAI
 `gpt-4o-mini` (platform-aware prompt: LinkedIn short-form / Medium long-form / general) with
@@ -150,8 +150,20 @@ output as the deterministic fallback (and under `settings.is_testing`) so app-pr
 stay offline/deterministic. Preserve a `source` field so callers can distinguish model vs
 template output.
 
-**Reopen trigger:** productizing rippletrace content generation, or any work on the
-`/generate_content*` surface.
+**Resolved (2026-07-17):** `apps/rippletrace/services/content_generator.py` now authors
+`generate_content` / `generate_variations` through the runtime LLM abstraction
+(`perform_external_call` + `chat_completion`, the same seam search/ARM use), with the
+existing template as a deterministic fallback and a `source` field ("llm" | "template") on
+every response. The LLM path is skipped under `settings.is_testing` (app-profile / CI stay
+offline + deterministic) and on any LLM error. `generate_variations` produces genuinely
+distinct model variants when the base is model-authored, else the template "(1)/(2)/(3)"
+behavior. Covered by `tests/unit/test_rippletrace_content_generator.py`. No agent-tool
+surface was added (rippletrace has none); a `register_tool` content tool remains an optional
+follow-up. `narrative_engine.generate_story_summary` (a factual timeline summary, not
+creative copy) is intentionally left as deterministic assembly.
+
+**Reopen trigger:** productizing rippletrace content generation beyond post drafts, or
+adding an agent-invocable content tool.
 
 ---
 
