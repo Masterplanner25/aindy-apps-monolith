@@ -116,6 +116,7 @@ Mutable domain features. All paths below are prefixed with `/apps`.
 - `apps/dashboard/routes/health_dashboard_router.py` (router prefix `/dashboard`) **[JWT auth required]** ? `/apps/dashboard/health`
 - `apps/search/routes/seo_routes.py` (router prefix `/seo`) **[JWT auth required]** ? `/apps/seo/analyze`, `/apps/seo/meta`, `/apps/seo/suggest`, etc.
 - `apps/search/routes/research_results_router.py` (router prefix `/research`; the same module also registers `search_history_router` at prefix `/search`, serving `/apps/search/*`) **[JWT auth required]** ? `/apps/research/`
+- `apps/search/routes/search_feedback_router.py` (router prefix `/search`) **[JWT auth required]** ? `/apps/search/feedback`, `/apps/search/feedback/weights`
 - `apps/authorship/routes/authorship_router.py` (router prefix `/authorship`) **[JWT auth required]** ? `/apps/authorship/reclaim`
 - `apps/rippletrace/routes/rippletrace_router.py` (router prefix `/rippletrace`) **[JWT auth required]** ? `/apps/rippletrace/*`
 - `apps/network_bridge/routes/network_bridge_router.py` (router prefix `/network_bridge`) **[API key required]** ? `/apps/network_bridge/*`

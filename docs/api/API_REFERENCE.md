@@ -1,6 +1,6 @@
 ---
 title: "App HTTP REST API Reference"
-last_verified: "2026-07-16"
+last_verified: "2026-07-17"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -1903,6 +1903,26 @@ Delete Search History Detail
 Get Search History Detail
 
 **Parameters:** history_id (path): string
+
+**Response 200:** unspecified
+
+### Search Feedback
+
+#### POST /apps/search/feedback
+Record Search Feedback
+
+Record implicit (click / dwell / convert / dismiss) or explicit (thumbs_up / thumbs_down) feedback on a search result. Idempotent per (user, query, result_ref, signal); an explicit vote clears the opposing thumbs.
+
+**Body:** query: string (required), result_ref: string (required), signal: string (required), history_id: string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/search/feedback/weights
+Get Search Feedback Weights
+
+Aggregated per-result outcome weight for a query (implicit + explicit blended).
+
+**Parameters:** query (query): string (required)
 
 **Response 200:** unspecified
 
