@@ -223,6 +223,24 @@ def _handle_search_performance_signals(payload: dict, ctx: SyscallContext) -> di
             db.close()
 
 
+def _handle_search_record_feedback(payload: dict, ctx: SyscallContext) -> dict:
+    from apps.search.services.feedback_service import record_feedback
+
+    db, owns_session = _session_from_context(ctx)
+    try:
+        return record_feedback(
+            db,
+            user_id=payload.get("user_id") or ctx.user_id,
+            query=payload.get("query", ""),
+            result_ref=payload.get("result_ref", ""),
+            signal=payload.get("signal", ""),
+            history_id=payload.get("history_id"),
+        )
+    finally:
+        if owns_session:
+            db.close()
+
+
 def register_search_syscall_handlers() -> None:
     register_syscall(
         name="sys.v1.leadgen.search",
@@ -271,5 +289,12 @@ def register_search_syscall_handlers() -> None:
         handler=_handle_search_performance_signals,
         capability="search.read",
         description="Recent leadgen-yield signals for the Infinity support state (re-tether).",
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.search.record_feedback",
+        handler=_handle_search_record_feedback,
+        capability="search.feedback",
+        description="Record implicit/explicit feedback on a search result (Search v4 outcome signal).",
         stable=False,
     )

@@ -41,12 +41,14 @@ def _register_routers() -> None:
     from apps.search.routes.leadgen_router import router as leadgen_router
     from apps.search.routes.research_results_router import router as research_router
     from apps.search.routes.research_results_router import search_history_router
+    from apps.search.routes.search_feedback_router import router as feedback_router
     from apps.search.routes.seo_routes import router as seo_router
 
     register_router(leadgen_router)
     register_router(research_router)
     register_router(search_history_router)
     register_router(seo_router)
+    register_router(feedback_router)
 
 
 def _register_route_prefixes() -> None:
