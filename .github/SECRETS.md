@@ -36,7 +36,7 @@ These are intentionally mocked or local-only in CI:
 ### Runtime Install (No Secret Required)
 
 App CI installs `aindy-runtime` from PyPI as a normal pinned dependency
-(`aindy-runtime>=1.8.0,<2.0`), so **no runtime-checkout secret or variable is
+(`aindy-runtime>=1.9.0,<2.0`), so **no runtime-checkout secret or variable is
 needed**. The previously-used `AINDY_RUNTIME_REPO` / `AINDY_RUNTIME_CHECKOUT_TOKEN`
 config was for the pre-publication source-checkout strategy and is no longer
 referenced by the workflow (`PYPI-PUBLISH-1` is closed).
