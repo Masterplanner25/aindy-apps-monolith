@@ -31,6 +31,24 @@ def _analysis_result_to_dict(result) -> dict:
     }
 
 
+def get_analysis_quality_signals(
+    user_id: str,
+    db: Session,
+    *,
+    window_days: int,
+    status: str = "success",
+) -> dict:
+    """ARM's computed analysis-quality signal (single source of truth).
+
+    Public accessor so analytics/Infinity can consume ARM's own quality measurement
+    (usage count + architecture/integrity quality avg + trend) rather than re-parsing
+    ARM's ``result_full`` schema. See ``arm_metrics_service.analysis_quality_signals``.
+    """
+    from apps.arm.services.arm_metrics_service import analysis_quality_signals
+
+    return analysis_quality_signals(db, user_id, window_days=window_days, status=status)
+
+
 def get_analysis_result(result_id: str, db: Session) -> dict | None:
     from apps.arm.models import AnalysisResult
 
@@ -61,6 +79,7 @@ def list_analysis_results(
 
 
 __all__ = [
+    "get_analysis_quality_signals",
     "get_analysis_result",
     "list_analysis_results",
 ]
