@@ -259,10 +259,28 @@ class TestIdentityContext:
 
 
 # ---------------------------------------------------------------------------
-# GET /identity/boot
+# GET /identity/inference — evidence behind inferred dimensions
 # ---------------------------------------------------------------------------
 
-class TestIdentityBoot:
+class TestIdentityInference:
+
+    def test_inference_shape_for_new_user(self, client):
+        token = _register_and_login(client)
+        r = client.get("/identity/inference", headers=_auth(token))
+        assert r.status_code == 200, r.text[:300]
+        d = _data(r)
+        assert isinstance(d.get("dimensions"), list)
+        dims = {row["dimension"] for row in d["dimensions"]}
+        assert {"speed_vs_quality", "risk_tolerance"} <= dims
+        # a fresh user has no evidence -> nothing inferred, nothing committable
+        for row in d["dimensions"]:
+            assert row["inferred"] is None
+            assert row["committable"] is False
+        assert d["languages"]["current"] == []
+        assert d["languages"]["evidence"] == {}
+
+    def test_inference_requires_auth(self, client):
+        assert client.get("/identity/inference").status_code == 401
 
     def test_boot_returns_200(self, client):
         token = _register_and_login(client)

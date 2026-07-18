@@ -1,6 +1,6 @@
 ---
 title: "App HTTP REST API Reference"
-last_verified: "2026-07-17"
+last_verified: "2026-07-18"
 api_version: "1.0"
 status: current
 owner: "apps-team"
@@ -854,6 +854,14 @@ Get Identity Context
 
 #### GET /apps/identity/evolution
 Get Identity Evolution
+
+**Response 200:** unspecified
+
+#### GET /apps/identity/inference
+Get Identity Inference — inspect the evidence behind each inferred identity dimension:
+the currently committed value, what the accumulated evidence points to, and its
+confidence, support, and full distribution (the probabilistic inference, made
+transparent).
 
 **Response 200:** unspecified
 

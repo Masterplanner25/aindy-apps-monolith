@@ -223,97 +223,167 @@ class IdentityService:
         Observe a workflow event and infer identity signals.
         Called automatically by the capture engine.
 
-        This is how identity is built without explicit input —
-        A.I.N.D.Y. watches what the user does and infers
-        their preferences over time.
+        This is how identity is built without explicit input — A.I.N.D.Y. watches
+        what the user does and infers their preferences over time. Rather than
+        flipping a dimension on a single observation, each event is recorded as
+        weighted evidence (`IdentitySignal`) and the affected dimensions are
+        re-derived from the accumulated evidence: a value is committed only when the
+        inference is confident and well-supported, and an already-set value is only
+        replaced when the new evidence beats it by a margin (see
+        `identity_inference_service`). One off-pattern event no longer churns the
+        profile; sustained counter-evidence still moves it.
         """
         try:
+            from apps.identity.services import identity_inference_service as inference
+
+            signals = self._event_to_signals(event_type, context)
+            if not signals:
+                return
+
             identity = self.get_or_create()
-            changes = []
             now = _now_utc()
 
-            def maybe_add_to_list(
-                field_name: str, current_list: list, value: str
-            ):
-                if value and value not in (current_list or []):
-                    new_list = list(current_list or []) + [value]
-                    setattr(identity, field_name, new_list)
-                    changes.append(
-                        {
-                            "timestamp": now.isoformat(),
-                            "dimension": field_name,
-                            "old_value": current_list,
-                            "new_value": new_list,
-                            "trigger": f"observed:{event_type}",
-                        }
-                    )
+            for dimension, value, weight in signals:
+                inference.record_signal(
+                    self.db, self.user_id, dimension, value,
+                    weight=weight, event_type=event_type,
+                )
 
-            if event_type == "arm_analysis_complete":
-                lang = context.get("language") or context.get("file_type")
-                if lang:
-                    clean_lang = lang.strip(".")
-                    maybe_add_to_list(
-                        "preferred_languages",
-                        identity.preferred_languages,
-                        clean_lang,
-                    )
+            dims = {dimension for dimension, _, _ in signals}
+            changes = self._commit_inferred_dimensions(identity, dims, event_type, now, inference)
 
-            if event_type == "arm_generation_complete":
-                lang = context.get("language")
-                if lang:
-                    maybe_add_to_list(
-                        "preferred_languages",
-                        identity.preferred_languages,
-                        lang,
-                    )
-
-            if event_type == "masterplan_locked":
-                posture = context.get("posture")
-                posture_to_risk = {
-                    "aggressive": "aggressive",
-                    "accelerated": "moderate",
-                    "stable": "conservative",
-                    "reduced": "conservative",
-                }
-                inferred_risk = posture_to_risk.get(posture)
-                if inferred_risk and identity.risk_tolerance != inferred_risk:
-                    changes.append(
-                        {
-                            "timestamp": now.isoformat(),
-                            "dimension": "risk_tolerance",
-                            "old_value": identity.risk_tolerance,
-                            "new_value": inferred_risk,
-                            "trigger": "observed:masterplan_posture",
-                        }
-                    )
-                    identity.risk_tolerance = inferred_risk
-
-            if event_type == "arm_analysis_complete":
-                score = context.get("score", 0)
-                if score >= 8 and identity.speed_vs_quality != "quality":
-                    changes.append(
-                        {
-                            "timestamp": now.isoformat(),
-                            "dimension": "speed_vs_quality",
-                            "old_value": identity.speed_vs_quality,
-                            "new_value": "quality",
-                            "trigger": "observed:high_quality_code",
-                        }
-                    )
-                    identity.speed_vs_quality = "quality"
-
+            # Every observation counts, whether or not it moved a dimension — the
+            # evidence itself is the record. Always commit so the signal rows persist.
+            identity.observation_count = (identity.observation_count or 0) + 1
             if changes:
                 log = list(identity.evolution_log or [])
                 log.extend(changes)
                 identity.evolution_log = log
                 identity.last_updated = now
-                identity.observation_count = (
-                    identity.observation_count or 0
-                ) + 1
-                self.db.add(identity)
-                self.db.commit()
+            self.db.add(identity)
+            self.db.commit()
         except Exception as e:
             logger.warning(f"Identity observation failed: {e}")
+            try:
+                self.db.rollback()
+            except Exception:  # pragma: no cover - defensive
+                pass
+
+    # Posture -> risk tolerance evidence (an explicit posture is stronger evidence).
+    _POSTURE_TO_RISK = {
+        "aggressive": "aggressive",
+        "accelerated": "moderate",
+        "stable": "conservative",
+        "reduced": "conservative",
+    }
+
+    @staticmethod
+    def _event_to_signals(event_type: str, context: dict) -> list[tuple[str, str, float]]:
+        """Translate a workflow event into weighted (dimension, value, weight) votes."""
+        signals: list[tuple[str, str, float]] = []
+        context = context or {}
+
+        if event_type in ("arm_analysis_complete", "arm_generation_complete"):
+            lang = context.get("language") or context.get("file_type")
+            if lang:
+                clean = str(lang).strip().strip(".")
+                if clean:
+                    signals.append(("language", clean, 1.0))
+
+        if event_type == "arm_analysis_complete":
+            score = context.get("score")
+            if isinstance(score, (int, float)):
+                # High-quality output is evidence of a quality bias; fast, low-scoring
+                # output is evidence of a speed bias — counter-evidence, both directions.
+                if score >= 8:
+                    signals.append(("speed_vs_quality", "quality", 1.0))
+                elif score <= 4:
+                    signals.append(("speed_vs_quality", "speed", 1.0))
+                else:
+                    signals.append(("speed_vs_quality", "balanced", 0.5))
+
+        if event_type == "masterplan_locked":
+            inferred_risk = IdentityService._POSTURE_TO_RISK.get(context.get("posture"))
+            if inferred_risk:
+                signals.append(("risk_tolerance", inferred_risk, 1.5))
+
+        return signals
+
+    def _commit_inferred_dimensions(self, identity, dims: set, event_type: str, now, inference) -> list:
+        """Re-derive each affected dimension from evidence; commit confident verdicts."""
+        from AINDY.db.models.user_identity import (
+            VALID_RISK_TOLERANCE,
+            VALID_SPEED_VS_QUALITY,
+        )
+
+        changes = []
+
+        # Single-value categorical dimensions.
+        for dim, field, valid in (
+            ("speed_vs_quality", "speed_vs_quality", VALID_SPEED_VS_QUALITY),
+            ("risk_tolerance", "risk_tolerance", VALID_RISK_TOLERANCE),
+        ):
+            if dim not in dims:
+                continue
+            current = getattr(identity, field)
+            verdict = inference.infer_dimension(self.db, self.user_id, dim, current=current)
+            new_value = verdict["value"]
+            if verdict["committable"] and new_value in valid and new_value != current:
+                setattr(identity, field, new_value)
+                changes.append({
+                    "timestamp": now.isoformat(),
+                    "dimension": field,
+                    "old_value": current,
+                    "new_value": new_value,
+                    "confidence": verdict["confidence"],
+                    "support": verdict["support"],
+                    "trigger": f"inferred:{event_type}",
+                })
+
+        # List dimension: languages ranked by evidence, only those clearing support.
+        if "language" in dims:
+            ranked = inference.infer_ranked(self.db, self.user_id, "language")
+            current_langs = list(identity.preferred_languages or [])
+            if ranked and ranked != current_langs:
+                identity.preferred_languages = ranked
+                changes.append({
+                    "timestamp": now.isoformat(),
+                    "dimension": "preferred_languages",
+                    "old_value": current_langs,
+                    "new_value": ranked,
+                    "trigger": f"inferred:{event_type}",
+                })
+
+        return changes
+
+    def get_inference_summary(self) -> dict:
+        """Inspectable view of the evidence behind each inferred dimension.
+
+        Surfaces, per dimension, the currently committed value, the value the
+        accumulated evidence points to, its confidence and support, and the full
+        distribution — so the probabilistic inference is transparent, not a black box.
+        """
+        from apps.identity.services import identity_inference_service as inference
+
+        identity = self.get_or_create()
+        dimensions = [
+            inference.dimension_summary(
+                self.db, self.user_id, "speed_vs_quality", current=identity.speed_vs_quality
+            ),
+            inference.dimension_summary(
+                self.db, self.user_id, "risk_tolerance", current=identity.risk_tolerance
+            ),
+        ]
+        language_evidence = inference.aggregate(self.db, self.user_id, "language")
+        return {
+            "user_id": self.user_id,
+            "dimensions": dimensions,
+            "languages": {
+                "current": identity.preferred_languages or [],
+                "inferred": inference.infer_ranked(self.db, self.user_id, "language"),
+                "evidence": {k: round(v, 4) for k, v in language_evidence.items()},
+            },
+        }
 
     def get_context_for_prompt(self) -> str:
         """
