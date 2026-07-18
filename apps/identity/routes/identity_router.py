@@ -180,6 +180,33 @@ async def get_identity_evolution(
     )
 
 
+@router.get("/inference")
+@limiter.limit("60/minute")
+async def get_identity_inference(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Inspect the evidence behind each inferred identity dimension — the currently
+    committed value, what the accumulated evidence points to, and its confidence,
+    support, and full distribution (the probabilistic inference, made transparent).
+    """
+    user_id = str(current_user.get("sub"))
+
+    def handler(ctx):
+        service = IdentityService(db=db, user_id=user_id)
+        return service.get_inference_summary()
+
+    return await execute_with_pipeline(
+        request=request,
+        route_name="identity.inference",
+        handler=handler,
+        user_id=user_id,
+        metadata={"db": db},
+    )
+
+
 @router.get("/context")
 @limiter.limit("60/minute")
 async def get_identity_context(
