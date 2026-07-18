@@ -20,7 +20,12 @@ v1.8.0 shipped (additive/opt-in, no schema change):
 - Plus: `setuptools>=83.0.0` (CVE-2026-59890), `nodus-lang 4.1.0`, `nltk 3.10.0`.
 
 App floor raised to `aindy-runtime>=1.8.0,<2.0` (boot smoke green: `default-apps`,
-`app_plugins_loaded=True`, `app_plugin_count=17`). **App-side adoption status:**
+`app_plugins_loaded=True`, `app_plugin_count=17`).
+
+> **One new open request surfaced (2026-07-18): FR-5** — `run_nodus_workflow` cannot invoke
+> app callables (blocks Nodus-native reasoning execution). Detail below; not yet shipped.
+
+**App-side adoption status (FR-1…4):**
 
 | ID | Upstream | App adoption |
 |---|---|---|
@@ -30,6 +35,69 @@ App floor raised to `aindy-runtime>=1.8.0,<2.0` (boot smoke green: `default-apps
 | FR-4 | ✅ 1.8.0 | ✅ adopted (2026-07-18) — reciprocal cross-links updated (GOVERNANCE_INDEX L0, INVARIANTS runtime-half pointer, EVOLUTION_PLAN preamble); `DOCS-MIGRATION-2` RESOLVED |
 
 The per-item detail below is retained as the adoption contract for each.
+
+---
+
+## FR-5 — `run_nodus_workflow` cannot invoke app callables (NEW, 2026-07-18) 🔴 net-new
+
+**apps-monolith ref:** `APP-DEBT-MIGRATED-1` (Nodus-native reasoning row) · **Status:** confirmed
+runtime gap, diagnosed by probe on aindy-runtime 1.8.0.
+
+### The goal (app side)
+Route the analytics reasoning `execution_intent` to execute on the **Nodus VM** via
+`run_nodus_workflow("reasoning_apply_v1", …)` instead of the Python flow engine — the last
+open item on the reasoning roadmap. FR-2 already registers the `.nd`; this is about
+*executing* it.
+
+### What works (verified 1.8.0)
+`run_nodus_workflow(name, *, db, user_id, input_payload, error_policy, trace_id, initial_state)`
+runs a registered flow-graph `.nd` **to a terminal state** in-process (`nodus_status:
+success`); `set_state` values surface at `return["data"]["nodus_output_state"]`. The old
+execute-to-completion caveat (nodus_vm §5 gates / RTR-1) is genuinely resolved. So the
+executor is fine.
+
+### The gap — neither VM call surface can reach an app callable from this entry point
+A `.nd` that needs app logic must call it via one of the VM's two surfaces; **both fail**
+when the workflow is launched through the public `run_nodus_workflow`:
+
+1. **`call_tool("<app tool>", args)`** → returns
+   `{"success": false, "error": "tool execution requires a capability token"}`. The tool path
+   is fail-closed on a **scoped capability token** (`nodus_worker.run_agent_tool`), but the
+   public `run_nodus_workflow` signature exposes **no** `capability_token` /
+   `granted_capabilities` parameter. (The lower-level `nodus_execution_service` *does* take a
+   `capability_token` — `nodus_execution_service.py:281,991` — it is simply not threaded through
+   the public entry point.)
+2. **`sys("sys.v1.<app syscall>", payload)`** → the workflow completes but the kernel
+   `dispatch_syscall` the VM routes to returns `"Unknown syscall"` for **app-registered**
+   syscalls (`register_syscall`). The app syscall surface is not resolved in the VM's syscall
+   dispatch context.
+
+Net: there is **no app-side way** to make a native `.nd` invoke app reasoning (or any app
+tool/syscall) through `run_nodus_workflow` as shipped.
+
+### The ask (runtime) — either is sufficient
+- **(a)** Thread a `granted_capabilities` / `capability_token` argument through the public
+  `run_nodus_workflow` (it already exists one layer down) so an app-initiated native workflow
+  can be granted the capabilities its `call_tool` steps require; **or**
+- **(b)** Make the VM's `sys()` dispatch resolve app-registered syscalls (route through the same
+  registry `register_syscall` populates), so a `.nd` can reach app logic via a syscall.
+
+### App-side adoption (once shipped)
+Rewrite `reasoning_apply_v1.nd` to invoke the reasoning callable (tool `reasoning.evaluate`
+under (a), or a new `sys.v1.analytics.reasoning_recommendation` syscall under (b)), add a
+flag-gated (`AINDY_REASONING_NODUS_NATIVE`, default off) branch in the reasoning-apply path
+that calls `run_nodus_workflow` and normalizes `nodus_output_state.reasoning_apply_result` to
+the existing `{data: recommendation}` envelope, then integration-test end-to-end completion
+(postgres tier, like `test_nodus_vm.py`). Behavior-neutral substrate change; soak-then-flip.
+
+### References
+- Runtime: `AINDY/runtime/nodus_workflow_registry.py` (`run_nodus_workflow`),
+  `AINDY/runtime/nodus_execution_service.py:281,991` (`capability_token` exists here),
+  `AINDY/runtime/nodus_worker.py:92` (`run_agent_tool` fail-closed; `sys()` → `dispatch_syscall`
+  at ~258).
+- App: `apps/analytics/nodus/reasoning_apply_v1.nd`, `apps/analytics/agents/tools.py`
+  (`reasoning.evaluate`), `apps/analytics/services/reasoning/`, the `APP-DEBT-MIGRATED-1`
+  Nodus-native reasoning row in `TECH_DEBT.md`.
 
 ## What this is
 
