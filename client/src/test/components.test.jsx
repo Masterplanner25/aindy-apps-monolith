@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { EmptyState } from "../components/shared/EmptyState";
 import { LoadingPanel } from "../components/shared/LoadingPanel";
 import AppShell from "../components/shared/AppShell";
-import Sidebar from "../components/shared/Sidebar";
 import { Toast } from "../components/shared/Toast";
 import { SystemProvider } from "../context/SystemContext";
 
@@ -343,74 +342,6 @@ describe("RippleTraceViewer insight tabs", () => {
     expect(
       await screen.findByText("No drop point linked to this trace.")
     ).toBeInTheDocument();
-  });
-});
-
-describe("Sidebar navigation", () => {
-  it("renders without error when authenticated", () => {
-    const { container } = render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    expect(container.firstChild).not.toBeNull();
-  });
-
-  it("renders navigation links for authenticated admin user", () => {
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByRole("navigation")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /genesis/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /master plan/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /execution engine/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /agent console/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /approval inbox/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /freelance hub/i })).toBeInTheDocument();
-  });
-});
-
-describe("Sidebar", () => {
-  it("renders without error when user is authenticated", () => {
-    const { container } = render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    expect(container.firstChild).not.toBeNull();
-  });
-
-  it("renders a navigation element", () => {
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByRole("navigation")).toBeInTheDocument();
-  });
-
-  it("renders primary navigation links", () => {
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /genesis/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /master plan/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /execution engine/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /arm module/i }));
-    expect(screen.getByRole("link", { name: /^analyze$/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /memory/i }));
-    expect(screen.getByRole("link", { name: /memory browser/i })).toBeInTheDocument();
   });
 });
 

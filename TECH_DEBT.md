@@ -679,50 +679,56 @@ is the bulk (38 sites, each needs judgment); budget a half-day if driving to zer
 
 ---
 
-## UIKIT-ROUTE-DRIFT-1: client calls 18 backend routes that 404 (ui-kit `ROUTES` missing a prefix)
+## UIKIT-ROUTE-DRIFT-1: client called 18 backend routes that 404 (missing router prefix) — 17 fixed app-side, 1 upstream
 
-**Status:** Open — root fix is upstream in `@aindy/ui-kit`; handoff spec authored. Found by the
-live-frontend verification (2026-07-18).
+**Status:** App-side RESOLVED (2026-07-18); 1 runtime/platform route pending `@aindy/ui-kit`.
+Found by the live-frontend verification.
 
-**Context:** The client reaches the backend via `@aindy/ui-kit`'s `ROUTES` (this repo's
-`client/src/api/_routes.js` just re-exports it). A cross-check of all 135 client route
-definitions against the live backend surface (566 routes from `/openapi.json`) found **18**
-that resolve — through `buildApiUrl` (verbatim `API_BASE` prepend, no domain routing) — to a
-path the backend never registers. All 18 **omit their router-prefix segment**:
-- `ROUTES.ANALYTICS.CALCULATE_*` (14) — `/calculate_twr` → should be `/compute/calculate_twr`, etc.
-- `ROUTES.SEARCH.{ANALYZE_SEO,GENERATE_META,SUGGEST_IMPROVEMENTS}` (3) — `/analyze_seo/` → `/seo/analyze_seo/`, etc.
-- `ROUTES.OPERATOR.FLOW_STRATEGIES` (1) — `/flows/strategies` → `/platform/flows/strategies`.
+**Context:** The client reaches the backend via `@aindy/ui-kit`'s `ROUTES`. A cross-check of all
+135 client route definitions against the live backend (566 routes from `/openapi.json`) found
+**18** that resolve — through `buildApiUrl` (verbatim `API_BASE` prepend, no domain routing) — to a
+path the backend never registers. All 18 **omit their router-prefix segment**. The other 117 resolve
+correctly (routes with no intermediate prefix like `/tasks/list`, `/agent/run` work).
 
-The other 117 client routes resolve correctly. Routes with no intermediate prefix
-(`/tasks/list`, `/agent/run`) work; only these three prefixed families drift.
+**Ownership split (runtime-side review):** 17 of 18 are **app-domain** routes (this monolith's
+own endpoints, not runtime routes); 1 is **runtime/platform**:
+- `ROUTES.ANALYTICS.CALCULATE_*` (14) — `/calculate_twr` → `/compute/calculate_twr`, etc. **App-owned.**
+- `ROUTES.SEARCH.{ANALYZE_SEO,GENERATE_META,SUGGEST_IMPROVEMENTS}` (3) — `/analyze_seo/` → `/seo/analyze_seo/`, etc. **App-owned.**
+- `ROUTES.OPERATOR.FLOW_STRATEGIES` (1) — `/flows/strategies` → `/platform/flows/strategies`. **Runtime-owned.**
 
-**Confirmed live break:** `AiSeoTool` (mounted at `/search/seo`) calls all three SEO wrappers →
-each 404s. The 14 compute routes back the KPI panels; the operator one backs the flows-strategies view.
+**Confirmed live break (now fixed):** `AiSeoTool` (mounted at `/search/seo`) called all three SEO
+wrappers → 404. The 14 compute routes back the KPI panels.
 
-**Fix (root):** correct the 18 `ROUTES` values in `@aindy/ui-kit` per the exact spec in
-`docs/handoffs/UIKIT_ROUTE_FIXES.md`, then bump the `@aindy/ui-kit` dependency here. No app-side
-change otherwise (this repo does not vendor `ROUTES`). **Stopgap** if the SEO break needs unblocking
-sooner: replace `_routes.js`'s bare re-export with a module that spreads `ROUTES` and overrides the
-18 corrected values.
+**Resolution (app-side):** per the runtime/app split applied at the frontend layer — the shared kit
+owns runtime/platform routes, each app owns its own app routes — the 17 app-domain routes are
+corrected in this repo's **app-owned route map**, `client/src/api/_routes.js` (re-exports ui-kit
+`ROUTES`, overrides the app-domain paths; self-healing — only prepends a missing prefix, so a future
+ui-kit that drops these app routes makes it a no-op; frozen-map contract preserved). This is the
+**correct end-state**, not a stopgap — the app owning its own routes mirrors the backend split.
+Guarded by `client/src/api/__tests__/routes-app-owned.test.js`.
 
-**Reopen trigger:** ui-kit ships the fix (bump + drop the stopgap if one was added), or a new
-route family is added behind a router prefix.
+**Remaining (upstream):** `/platform/flows/strategies` is a genuine runtime/platform route — fixed in
+`@aindy/ui-kit` (every consumer benefits), then bump the dependency here. Spec + the optional ui-kit
+hygiene ask (remove the app-domain paths from the shared `ROUTES`) in `docs/handoffs/UIKIT_ROUTE_FIXES.md`.
+
+**Reopen trigger:** ui-kit ships the `/platform/flows` fix (bump the dep), or a new app-domain route
+family lands behind a backend router prefix (extend the `_routes.js` override).
 
 ---
 
-## CLIENT-DEAD-SIDEBAR-1: orphaned `Sidebar.jsx` with stale nav links
+## CLIENT-DEAD-SIDEBAR-1: orphaned `Sidebar.jsx` with stale nav links — RESOLVED
 
-**Status:** Open — low severity (dead code). Found by the live-frontend verification (2026-07-18).
+**Status:** RESOLVED (2026-07-18). Deleted. Found by the live-frontend verification.
 
-**Context:** `client/src/components/shared/Sidebar.jsx` is **not imported anywhere** — the app
-renders `AppShell.jsx`'s own `<nav>` (whose 28 links all map to mounted routes; no dead links in the
-live nav). The orphaned `Sidebar.jsx` still carries 5 links that don't match any mounted route:
-`/agents`, `/arm/generate`, `/arm/logs`, `/network/feed`, `/social/profile/me` (the live equivalents
-are `/agent`, `/arm/config/generate`, `/arm/config/logs`, `/network`, `/profile/:username`). No live
-impact — the component never renders.
+**Context:** `client/src/components/shared/Sidebar.jsx` was **not imported anywhere** — the app
+renders `AppShell.jsx`'s own `<nav>` (28 links, all map to mounted routes). The orphaned component
+carried 5 links matching no mounted route and never rendered.
 
-**Fix:** delete `Sidebar.jsx` (and any now-unused sub-nav helpers it alone uses). Quick, no
-behavior change; the frontend build + tests already pass without it.
+**Resolution:** deleted `Sidebar.jsx` (its only local helper, `SubNavItem`, was unused elsewhere).
+Two test files referenced it: the two `Sidebar` describe blocks in `components.test.jsx` were removed,
+and `search-nav.test.jsx` (which guarded the previously-orphaned `/search/*` nav links against the
+*dead* Sidebar) was **retargeted to the live `AppShell` nav** — a stronger guard testing the surface
+users actually see. Frontend build + 136 tests green.
 
 **Reopen trigger:** a decision to revive a sidebar nav (rebuild against current routes, not the stale copy).
 
