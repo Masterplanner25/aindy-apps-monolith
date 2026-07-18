@@ -51,6 +51,13 @@ class ActionIntakeRequest(BaseModel):
     auto_generate_delivery: bool = False
 
 
+class FulfillOrderRequest(BaseModel):
+    """Deliver an order and refresh revenue metrics in one step (Phase 3)."""
+
+    ai_output: Optional[str] = None
+    generated_by_ai: bool = False
+
+
 class ClientAccountResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

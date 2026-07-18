@@ -122,6 +122,8 @@ def _register_flow_results() -> None:
         "freelance_delivery_generate": "freelance_delivery_generate_result",
         "freelance_refund": "freelance_refund_result",
         "freelance_subscription_cancel": "freelance_subscription_cancel_result",
+        "freelance_client_onboarding": "freelance_client_onboarding_result",
+        "freelance_order_fulfillment": "freelance_order_fulfillment_result",
     }
     for flow_name, result_key in result_keys.items():
         register_flow_result(flow_name, result_key=result_key)

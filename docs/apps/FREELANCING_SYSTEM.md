@@ -516,33 +516,39 @@ Success criteria:
 - at least one freelance workflow creates an auditable `AgentRun`
 - freelance layer references agent results rather than storing only manual output strings
 
-### Phase 3. Client Workflow Automation
+### Phase 3. Client Workflow Automation — DONE (2026-07-17)
 
 Objective:
 
 - define repeatable commercial workflows above the raw services
 
-Files to modify:
+Shipped: two multi-step, state-threaded client-workflow flows in
+`apps/freelance/flows/freelance_flows.py`, registered via `register_flow` (app-owned —
+no runtime edit) and run through the existing flow engine, each step its own observable
+`FlowHistory` entry:
 
-- `apps/automation/flows/flow_definitions.py`
-- `AINDY/runtime/flow_engine/runner.py`
-- `AINDY/runtime/nodus_adapter.py`
-- `apps/freelance/services/freelance_service.py`
+- **`freelance_client_onboarding`** — `onboarding_intake` → `onboarding_dispatch` →
+  `onboarding_summarize`: convert a qualified lead into a client + order, then dispatch
+  delivery generation when the intake asked for it (resilient — a dispatch failure is
+  recorded, not raised, since the client/order are already committed), and return a
+  consolidated envelope with a `next_action`. The order id minted at step 1 threads
+  forward to drive the dispatch step. Exposed at `POST /apps/freelance/clients/onboard`.
+- **`freelance_order_fulfillment`** — `fulfillment_deliver` → `fulfillment_metrics`:
+  attach the deliverable to an order, then refresh revenue metrics in the same flow so
+  they reflect the delivery. Exposed at `POST /apps/freelance/orders/{order_id}/fulfill`.
 
-Potential files to create:
+**Tests:** `tests/unit/test_freelance_client_workflow.py` (node contracts + full-chain
+state threading), `tests/integration/test_freelance_client_workflow.py` (endpoint
+contracts).
 
-- `services/freelance/workflow_service.py` _(planned; not yet present)_
-- freelance flow definitions
-- later: repo-managed freelance `.nd` workflows when Nodus becomes primary
+Deferred (not app-doable): repo-managed freelance `.nd` workflows when Nodus becomes the
+primary execution surface — gated on the same runtime execute-to-completion work as the
+analytics `reasoning_apply_v1` native-Nodus routing (see `TECH_DEBT.md`).
 
-Expected behavior:
+Success criteria — met:
 
-- client/job workflows move from manual API calls to structured execution paths
-
-Success criteria:
-
-- at least one end-to-end freelance workflow is executable through the existing flow layer
-- workflow state is durable and inspectable
+- ✅ two end-to-end freelance workflows execute through the existing flow layer
+- ✅ workflow state is durable and inspectable (per-step `FlowHistory`)
 
 ### Phase 4. Revenue Tracking + Metrics
 

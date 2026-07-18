@@ -17,6 +17,7 @@ from apps.freelance.schemas.freelance import (
     FeedbackCreate,
     FreelanceDeliveryConfigUpdate,
     FreelanceOrderCreate,
+    FulfillOrderRequest,
     LeadIntakeRequest,
     RefundRequest,
     SubscriptionCancelRequest,
@@ -249,6 +250,26 @@ def _do_intake_from_lead(db: Session, intake: "LeadIntakeRequest", user_id: str,
     result = _run_flow_freelance(
         "freelance_intake_from_lead",
         {"intake": intake.model_dump(), "idempotency_key": idempotency_key},
+        db,
+        user_id,
+    )
+    return result.get("data") if isinstance(result, dict) and "data" in result else result
+
+
+def _do_onboard_client(db: Session, intake: "LeadIntakeRequest", user_id: str, idempotency_key: str):
+    result = _run_flow_freelance(
+        "freelance_client_onboarding",
+        {"intake": intake.model_dump(), "idempotency_key": idempotency_key},
+        db,
+        user_id,
+    )
+    return result.get("data") if isinstance(result, dict) and "data" in result else result
+
+
+def _do_fulfill_order(db: Session, order_id: int, body: "FulfillOrderRequest", user_id: str):
+    result = _run_flow_freelance(
+        "freelance_order_fulfillment",
+        {"order_id": order_id, "ai_output": body.ai_output, "generated_by_ai": body.generated_by_ai},
         db,
         user_id,
     )
@@ -599,6 +620,61 @@ def intake_from_action(
         user_id=user_id,
         input_payload={**intake.model_dump(), "idempotency_key": idempotency_key},
         success_status_code=201,
+    )
+
+
+@router.post("/clients/onboard", status_code=201)
+@limiter.limit("30/minute")
+def onboard_client(
+    request: Request,
+    intake: LeadIntakeRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Onboard a qualified lead end-to-end (Phase 3): convert lead -> client + order,
+    then dispatch delivery generation when requested — one multi-step, observable flow."""
+    user_id = str(current_user["sub"])
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
+
+    def handler(_ctx):
+        return _do_onboard_client(db, intake, user_id, idempotency_key)
+
+    return _execute_freelance(
+        request,
+        "freelance.clients.onboard",
+        handler,
+        db=db,
+        user_id=user_id,
+        input_payload={**intake.model_dump(), "idempotency_key": idempotency_key},
+        success_status_code=201,
+    )
+
+
+@router.post("/orders/{order_id}/fulfill")
+@limiter.limit("30/minute")
+def fulfill_order(
+    request: Request,
+    order_id: int,
+    body: FulfillOrderRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Fulfill an order end-to-end (Phase 3): attach the deliverable, then refresh
+    revenue metrics so they reflect the delivery — one multi-step flow."""
+    user_id = str(current_user["sub"])
+
+    def handler(_ctx):
+        return _do_fulfill_order(db, order_id, body, user_id)
+
+    return _execute_freelance(
+        request,
+        "freelance.orders.fulfill",
+        handler,
+        db=db,
+        user_id=user_id,
+        input_payload={"order_id": order_id, **body.model_dump()},
     )
 
 
