@@ -1,0 +1,14 @@
+workflow reasoning_apply_v1 {
+  step apply {
+    let attempt = 1
+    let result = call_tool(input_payload["tool"], input_payload["args"])
+    while ((result["success"] != true) && (attempt < 3) && is_retryable_error(result["error"])) {
+      attempt = attempt + 1
+      result = call_tool(input_payload["tool"], input_payload["args"])
+    }
+    set_state("reasoning_apply_result", result)
+    if (result["success"] != true) {
+      throw "reasoning apply step failed"
+    }
+  }
+}
