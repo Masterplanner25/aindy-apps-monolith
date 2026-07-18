@@ -561,6 +561,15 @@ Get Client Lineage
 
 **Response 200:** unspecified
 
+#### POST /apps/freelance/clients/onboard
+Onboard Client — Phase 3 client-workflow flow. Convert a qualified lead into a client
++ order, then dispatch delivery generation when requested — one multi-step, observable
+flow (`freelance_client_onboarding`). Requires an `Idempotency-Key` header.
+
+**Body:** auto_generate_delivery: boolean, client_email: string (required), client_name: string | null, delivery_config: map[unspecified] | null, delivery_type: string | null, lead_id: integer (required), price: number | null, project_details: string | null, service_type: string (required)
+
+**Response 201:** unspecified
+
 #### POST /apps/freelance/deliver/{order_id}
 Deliver Order
 
@@ -640,6 +649,17 @@ Create Freelance Order
 
 #### GET /apps/freelance/orders
 Get All Orders
+
+**Response 200:** unspecified
+
+#### POST /apps/freelance/orders/{order_id}/fulfill
+Fulfill Order — Phase 3 client-workflow flow. Attach the deliverable to an order, then
+refresh revenue metrics so they reflect the delivery — one multi-step flow
+(`freelance_order_fulfillment`).
+
+**Parameters:** order_id (path): integer
+
+**Body:** ai_output: string | null, generated_by_ai: boolean
 
 **Response 200:** unspecified
 
