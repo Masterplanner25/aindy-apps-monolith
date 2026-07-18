@@ -573,6 +573,14 @@ def complete_task(db: Session, name: str, user_id: str = None):
     task = find_task(db, name, user_id=user_id)
     if not task:
         return "Task not found."
+    if task.status == "completed":
+        # Idempotent completion: a repeated complete on an already-completed task
+        # must NOT re-fire the side-effect chain — the TASK_COMPLETED event, the
+        # downstream unlock, the ExecutionUnit update, the Infinity re-score +
+        # memory capture (via the completion path), and the time_spent re-accrual.
+        # Re-firing them double-counts the signal substrate the Infinity loop
+        # depends on. Return a no-op result.
+        return f"Task already completed: {task.name}"
     if not _dependencies_complete(db, task, user_id=user_id):
         _recompute_task_status(db, task, user_id=user_id)
         db.commit()
