@@ -21,6 +21,12 @@ trigger, full-text indexing, `node_type` enforcement), asynchronous embedding
 write safety, and the startup schema-drift guard. App code depends on those but
 must not redefine them.
 
+The runtime half is now **authored upstream** in the `aindy-runtime` docset (shipped
+with aindy-runtime 1.8.0, closing the DOCS-MIGRATION-2 / FR-4 handoff); see the doc
+ownership map `RUNTIME_DOCSET_BOUNDARY.md` in that repo for its location. This file
+remains the app-owned half; section numbers stay in lockstep with the runtime half for
+traceability.
+
 ---
 
 ## Masterplan & Genesis
