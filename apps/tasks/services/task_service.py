@@ -15,7 +15,6 @@ from apps.tasks.models import Task
 from AINDY.core.system_event_service import emit_system_event
 from apps.tasks.events import TaskEventTypes as SystemEventTypes
 from apps.tasks.services.analytics_bridge import (
-    get_kpi_snapshot_via_syscall,
     save_calculation_via_syscall,
 )
 from apps.tasks.services.masterplan_bridge import (
@@ -769,20 +768,15 @@ def orchestrate_task_completion(db: Session, name: str, user_id: str | uuid.UUID
         mongo = require_mongo_client("task_service")
         db_mongo = mongo[MONGO_DB_NAME]
         profiles = db_mongo["profiles"]
-        kpi_snapshot = get_kpi_snapshot_via_syscall(str(owner_user_id), db) or {}
-        master_score = float(kpi_snapshot.get("master_score", 0.0) or 0.0)
-        execution_speed_score = float(kpi_snapshot.get("execution_speed", 0.0) or 0.0)
+        # Only the task-completion velocity counter is written here. The analytics-
+        # derived scores (infinity_score, execution_speed) are no longer duplicated
+        # into the social profile — the social layer projects them read-through from
+        # apps.analytics.public (SOCIAL-IDENTITY-1 metrics de-duplication).
         profiles.update_one(
             {"user_id": str(owner_user_id)},
             {
-                "$inc": {
-                    "metrics_snapshot.execution_velocity": 1,
-                },
-                "$set": {
-                    "metrics_snapshot.infinity_score": master_score,
-                    "metrics_snapshot.execution_speed_score": execution_speed_score,
-                    "updated_at": datetime.now(timezone.utc),
-                },
+                "$inc": {"metrics_snapshot.execution_velocity": 1},
+                "$set": {"updated_at": datetime.now(timezone.utc)},
             },
         )
         social_sync = True

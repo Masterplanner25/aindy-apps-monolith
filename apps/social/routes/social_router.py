@@ -255,6 +255,35 @@ def _resolve_comment_author(
     return f"user-{user_id[:8]}"
 
 
+def _project_profile_metrics(profile, sql_db):
+    """Overlay the analytics-owned metrics onto a profile's ``metrics_snapshot``,
+    read-through from ``apps.analytics.public`` (the single source of truth) rather
+    than serving the stored copy. ``infinity_score`` (= analytics ``master_score``)
+    and ``execution_speed_score`` are projected live; the social/task-owned fields
+    (``twr_score``, ``trust_score``, ``execution_velocity``) are left untouched.
+
+    Best-effort: returns the profile unchanged if it has no ``user_id``, no analytics
+    score exists, or the lookup fails.
+    """
+    if not isinstance(profile, dict):
+        return profile
+    user_id = profile.get("user_id")
+    if not user_id:
+        return profile
+    try:
+        from apps.analytics.public import get_user_score
+
+        score = get_user_score(str(user_id), sql_db)
+    except Exception:
+        score = None
+    if not score:
+        return profile
+    snapshot = dict(profile.get("metrics_snapshot") or {})
+    snapshot["infinity_score"] = float(score.get("master_score") or 0.0)
+    snapshot["execution_speed_score"] = float(score.get("execution_speed_score") or 0.0)
+    return {**profile, "metrics_snapshot": snapshot}
+
+
 @router.post("/profile")
 @limiter.limit("30/minute")
 def upsert_profile(
@@ -307,12 +336,12 @@ def upsert_profile(
 
             if existing:
                 profiles.update_one({"user_id": user_id}, {"$set": update_data})
-                return {**existing, **update_data}
+                return _project_profile_metrics({**existing, **update_data}, sql_db)
 
             new_profile = profile_data.dict()
             new_profile.update(update_data)
             db["profiles"].insert_one(new_profile)
-            return new_profile
+            return _project_profile_metrics(new_profile, sql_db)
         except ServerSelectionTimeoutError:
             return _mongo_degraded_payload("mongodb_unavailable")
         except PyMongoError as exc:
@@ -330,7 +359,12 @@ def upsert_profile(
 
 @router.get("/profile/{username}")
 @limiter.limit("60/minute")
-def get_profile(request: Request, username: str, db: Database | None = Depends(get_optional_mongo_db)):
+def get_profile(
+    request: Request,
+    username: str,
+    db: Database | None = Depends(get_optional_mongo_db),
+    sql_db: Session = Depends(get_db),
+):
     def handler(ctx):
         if db is None:
             return _mongo_degraded_payload("mongodb_unavailable")
@@ -341,7 +375,7 @@ def get_profile(request: Request, username: str, db: Database | None = Depends(g
                     status_code=404,
                     detail={"error": "profile_not_found", "message": "Profile not found"},
                 )
-            return profile
+            return _project_profile_metrics(profile, sql_db)
         except ServerSelectionTimeoutError:
             return _mongo_degraded_payload("mongodb_unavailable")
         except PyMongoError as exc:
