@@ -54,20 +54,103 @@ def keyword_density(text: str, keyword: str):
     return round((words.count(keyword.lower()) / len(words)) * 100, 2)
 
 
+# Thresholds for SEO improvement suggestions (Search v4 §3.1).
+_MIN_WORD_COUNT = 300           # thin-content floor
+_READABILITY_HARD = 30.0        # Flesch reading ease below this = very hard to read
+_READABILITY_DIFFICULT = 50.0   # below this = fairly difficult
+_KEYWORD_STUFFING_PCT = 4.0     # single-keyword density above this = stuffing risk
+_WEAK_FOCUS_PCT = 0.5           # top keyword density below this = weak topical focus
+
+
+def seo_improvement_suggestions(analysis: dict) -> list[dict]:
+    """Actionable SEO improvement suggestions derived from a ``seo_analysis`` result.
+
+    Deterministic heuristics over the computed metrics (no LLM, no network). Each
+    item: ``{metric, issue, suggestion, severity}`` (severity: "warn" | "info").
+    Returns a single "healthy" info item when nothing is flagged.
+    """
+    suggestions: list[dict] = []
+    word_count = int(analysis.get("word_count") or 0)
+    readability = analysis.get("readability")
+    densities = analysis.get("keyword_densities") or {}
+    top_keywords = analysis.get("top_keywords") or []
+
+    if word_count < _MIN_WORD_COUNT:
+        suggestions.append({
+            "metric": "word_count",
+            "issue": f"Thin content ({word_count} words).",
+            "suggestion": f"Expand to at least {_MIN_WORD_COUNT} words — thin pages rank poorly.",
+            "severity": "warn",
+        })
+
+    if isinstance(readability, (int, float)):
+        if readability < _READABILITY_HARD:
+            suggestions.append({
+                "metric": "readability",
+                "issue": f"Very hard to read (Flesch {round(readability, 1)}).",
+                "suggestion": "Shorten sentences and simplify wording to lift readability.",
+                "severity": "warn",
+            })
+        elif readability < _READABILITY_DIFFICULT:
+            suggestions.append({
+                "metric": "readability",
+                "issue": f"Fairly difficult to read (Flesch {round(readability, 1)}).",
+                "suggestion": "Consider simpler phrasing for a broader audience.",
+                "severity": "info",
+            })
+
+    for keyword, density in densities.items():
+        if isinstance(density, (int, float)) and density > _KEYWORD_STUFFING_PCT:
+            suggestions.append({
+                "metric": "keyword_density",
+                "issue": f"'{keyword}' density is {density}%.",
+                "suggestion": f"Reduce use of '{keyword}' — over {_KEYWORD_STUFFING_PCT}% risks keyword-stuffing penalties.",
+                "severity": "warn",
+            })
+
+    if not top_keywords:
+        suggestions.append({
+            "metric": "keywords",
+            "issue": "No substantive keywords detected.",
+            "suggestion": "Add keyword-rich, topical content so search engines can classify the page.",
+            "severity": "warn",
+        })
+    elif densities:
+        max_density = max((d for d in densities.values() if isinstance(d, (int, float))), default=0.0)
+        if max_density < _WEAK_FOCUS_PCT:
+            suggestions.append({
+                "metric": "keyword_focus",
+                "issue": f"Weak primary-keyword focus (top density {max_density}%).",
+                "suggestion": "Reinforce your main keyword so search engines can identify the topic.",
+                "severity": "info",
+            })
+
+    if not suggestions:
+        suggestions.append({
+            "metric": "overall",
+            "issue": "No issues detected.",
+            "suggestion": "SEO signals look healthy — keep content fresh and on-topic.",
+            "severity": "info",
+        })
+    return suggestions
+
+
 def seo_analysis(text: str, top_n: int = 10):
-    """Performs a basic SEO analysis on given text."""
+    """Performs a basic SEO analysis on given text, with improvement suggestions."""
     prepared_text = prepare_input_text(text)
     words = _tokenize_words(prepared_text)
     word_count = len(words)
     readability = textstat.flesch_reading_ease(prepared_text)
     keywords = extract_keywords(prepared_text, top_n)
     densities = {kw[0]: keyword_density(prepared_text, kw[0]) for kw in keywords}
-    return {
+    result = {
         "word_count": word_count,
         "readability": readability,
         "top_keywords": [kw[0] for kw in keywords],
         "keyword_densities": densities,
     }
+    result["suggestions"] = seo_improvement_suggestions(result)
+    return result
 
 
 def generate_meta_description(text: str, limit: int = 160):
