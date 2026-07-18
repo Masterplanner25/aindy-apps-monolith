@@ -279,10 +279,15 @@ when `users.username` is null the social value is kept and flagged
 table. See `apps/social/services/identity_binding_service.py`.
 
 **Deferred:**
-1. **Metrics duplication** — `SocialProfile.metrics_snapshot` (written directly to
-   Mongo by `apps/tasks/services/task_service.py`) duplicates analytics `UserScore`.
-   Make it a read-through projection of `apps/analytics/public` and retire the direct
-   write.
+1. **Metrics duplication — RESOLVED (2026-07-17).** The analytics-owned scores
+   (`infinity_score` = analytics `master_score`, `execution_speed_score`) are now
+   projected **read-through** from `apps.analytics.public.get_user_score` when the
+   social profile is served (`social_router._project_profile_metrics`, applied in
+   `get_profile` + `upsert_profile`), and `apps/tasks/services/task_service.py` no
+   longer writes those into the Mongo profile — it keeps only the task-owned
+   `execution_velocity` `$inc` counter (which analytics does not own). The
+   social/task-owned fields (`twr_score`, `trust_score`, `execution_velocity`) are
+   left untouched. Covered by `tests/unit/test_social_metrics_read_through.py`.
 2. **Profile lifecycle** — no `SocialProfile` is created at signup (only `users` +
    `UserIdentity`). Ensure one exists per user; coordinate with the runtime signup
    path (`signup_initialization_service`).
