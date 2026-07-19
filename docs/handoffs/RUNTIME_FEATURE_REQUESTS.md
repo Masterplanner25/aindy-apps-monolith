@@ -1,12 +1,85 @@
 ---
 title: "Runtime Feature Requests — handoff to aindy-runtime"
-last_verified: "2026-07-18"
+last_verified: "2026-07-19"
 api_version: "1.0"
 status: current
 owner: "app-team"
 ---
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
+
+## 🔴 OPEN BUG — RT-MEMTXN-LEAK-1: memory-node reads leak connections (idle-in-transaction), exhausting the pool
+
+**Filed 2026-07-19 (apps-monolith). Severity: HIGH — blocks real-user usability.** Found by
+the first live *browser* frontend walkthrough (a human navigating the product, not a curl/py
+harness). This is currently the top barrier to the app being usable by a real person, above
+everything else that is "proven."
+
+### Impact (user-facing)
+A single `POST /auth/login` (also `/auth/register`, and any memory-touching request) takes
+**~40 seconds** on an otherwise-healthy native-Linux stack (native `docker.io`, real
+OPENAI/ANTHROPIC keys, Claude planner default). The web client's request timeout is **30s**,
+so **a real user cannot sign in** — the browser aborts before the backend responds. (The
+account/session *does* get created server-side ~40s in, after the client gave up.) Every
+dynamic surface is unusable through the UI. **Backend testing masked this** because curl just
+waits the 40s; a browser can't.
+
+### Root cause (diagnosed via `pg_stat_activity`, not speculated)
+Snapshot taken mid-login on an otherwise-idle stack:
+
+```
+count | state                | wait_event_type | query
+------+----------------------+-----------------+------------------------------------------
+   61 | idle in transaction  | Client          | SELECT memory_nodes.id, memory_nodes.content, memory_nodes.tags, …
+    1 | idle in transaction  | Client          | SELECT system_events.id …
+```
+
+A single login opens **~60–85 connections** that each run a `SELECT memory_nodes …` and then
+sit **`idle in transaction`** with **`wait_event_type=Client`** — i.e. the runtime opened a
+transaction, ran the read, and **never committed / rolled-back / closed the session**, so
+Postgres holds the connection open waiting for a client command that never arrives. These
+leaked connections exhaust the SQLAlchemy pool; the rest of the request then waits the full
+30s `pool_timeout`, and embedding-enqueue writes fail with `QueuePool limit … reached`. Net:
+~40s per request. **At rest the pool is fine** (~20 idle, 0 active) — so it is the memory
+*read* path leaking **per request**, not steady-state saturation.
+
+### Suspected code path
+The memory recall/read layer — `AINDY/memory/bridge.py::recall_memories`,
+`AINDY/memory/memory_scoring_service.py::get_relevant_memories`,
+`AINDY/memory/nodus_memory_bridge.py::recall*` — reads `memory_nodes` on a session that isn't
+committed/returned to the pool. The exact trigger on the auth path (memory recall on login /
+`bootIdentity` / a post-auth event) is for the runtime team to trace; the leaked query is
+unambiguously the `memory_nodes` SELECT, and the `wait_event_type=Client` state is the
+abandoned-open-transaction signature.
+
+### Not app-fixable via config (attempts, for the record)
+- **Pool bump** 60 → 85 (`DB_POOL_SIZE=40`/`DB_MAX_OVERFLOW=45`, under Postgres
+  `max_connections=100`): still fully exhausts — the fan-out just grows to the new ceiling.
+- **Idle-in-transaction reap** `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` → 5000: *worse* — reaping
+  mid-flight causes rollback/retry churn. (The app had raised this to 120000 for the nodus
+  cold-start work, which *lengthens* how long these leaked connections linger — but a real fix
+  must stop the leak, not tune the reaper.)
+
+### Proposed fix direction (runtime)
+Ensure every memory-node read runs inside a scoped session that is committed/closed (or a
+read-only/autocommit connection returned to the pool immediately) — nothing left
+`idle in transaction`. E.g. a `with session_scope(): …` wrapper (or an explicit
+`db.rollback()` after read-only work), and/or routing recall through a single connection
+instead of a per-node fan-out.
+
+### Relation to existing items
+Sibling of **NODUS-WARMPOOL-1** (apps-monolith `TECH_DEBT.md`): that is the embedding-*write*
+fan-out exhausting the pool during agent execution; this is the memory-*read* transaction leak
+exhausting it on auth. Same memory/DB-session-management surface — likely worth fixing together.
+
+### Repro
+1. Boot app-profile on a native-Linux stack (Postgres, real model keys).
+2. `POST /auth/login` with valid creds; time it (~40s).
+3. Mid-request: `SELECT count(*), state, wait_event_type FROM pg_stat_activity WHERE
+   datname='aindy' AND state='idle in transaction' GROUP BY 2,3;` → ~60–85 rows on the
+   `memory_nodes` SELECT with `wait_event_type=Client`.
+
+---
 
 ## Shipped in aindy-runtime v1.8.0 (2026-07-18) — now an adoption tracker
 
