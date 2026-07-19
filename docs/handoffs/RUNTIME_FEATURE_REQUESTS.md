@@ -8,17 +8,36 @@ owner: "app-team"
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
 
-## ✅ FIXED in aindy-runtime 1.10.0 — RT-MEMTXN-LEAK-1: memory-node reads leaked connections (idle-in-transaction), exhausting the pool
+## ⚠️ PARTIAL FIX in aindy-runtime 1.10.0 — RT-MEMTXN-LEAK-1 (+ follow-up): memory-node reads leak connections (idle-in-transaction)
 
-**Filed 2026-07-19, FIXED in aindy-runtime 1.10.0 (adopted; floor `>=1.10.0`). Severity was
-HIGH — blocked real-user sign-in.** Found by the first live *browser* frontend walkthrough.
-**App-side re-verification PENDING** — the real proof the runtime team couldn't run from
-their side: re-run the repro below and confirm `pg_stat_activity` shows **no `idle in
-transaction`** on the `memory_nodes` SELECT during login, and sign-in completes well under
-the 30s client timeout. If connections still pile up, the remaining suspect is the request
-pipeline holding a transaction open *across* the recall (the reorder only helps once prior
-request work has committed) — capture a fresh `pg_stat_activity` snapshot and hand it back as
-a follow-up. The original diagnosis is retained below.
+**Filed 2026-07-19; 1.10.0 PARTIALLY fixes it; a follow-up remains (verified app-side on 1.10.0,
+2026-07-19).** Severity was HIGH — blocked real-user sign-in.
+
+**What 1.10.0 fixed (confirmed):** the post-request *lingering*. Leaked idle-in-transaction
+connections now **drain when the request completes** — after a login, `idle in transaction`
+drops back to ~2 (was lingering until the 120s idle-timeout reaped them).
+
+**Follow-up STILL OPEN (this is the suspect the runtime note called out):** the **within-request
+fan-out**. A single `POST /auth/login` still opens **30+ concurrent** `SELECT memory_nodes …`
+transactions that each sit **`idle in transaction`** (`wait_event_type=Client`) held open until
+the request ends → pool exhaustion → **login still ~45s**, over the 30s client timeout. So the
+reorder helped the tail, not the concurrent fan-out.
+
+**Fresh `pg_stat_activity` snapshot (mid-login, 1.10.0) for the follow-up:**
+```
+count | wait_event_type | xact_age_s | idle_s | query
+------+-----------------+------------+--------+--------------------------------
+    2 | Client          |    6.2     |   6.2  | SELECT memory_nodes.id, memory_nodes.content, …
+    2 | Client          |    5.3     |   5.3  | SELECT memory_nodes.id, memory_nodes.content, …
+    2 | Client          |    4.9     |   4.9  | …   (30+ total, climbing through the login)
+```
+**Decisive signal: `xact_age_s == idle_s` on every row** — each connection opened a transaction,
+ran exactly one `memory_nodes` SELECT, then went idle-in-transaction for the *whole* transaction.
+The recall fans out per-node (or per-batch) reads onto separate connections and holds each
+transaction open across the whole recall/request instead of committing/closing per read. Fix
+direction: commit/close (or use a single connection / read-only autocommit) per memory read so a
+recall doesn't hold N concurrent open transactions. **The dynamic frontend walkthrough stays
+blocked on this follow-up.** Original diagnosis retained below.
 
 ### Impact (user-facing)
 A single `POST /auth/login` (also `/auth/register`, and any memory-touching request) takes
