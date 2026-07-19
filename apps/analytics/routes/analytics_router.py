@@ -377,3 +377,28 @@ async def get_three_axis_shadow_report(
         user_id=user_id, metadata={"db": db},
     )
     return _with_execution_envelope(result)
+
+
+@router.get("/three-axis/advisory")
+@limiter.limit("60/minute")
+async def get_three_axis_advisory_preview(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Advisory preview (Phase C): what the Worth+Trajectory blend *would* make master_score,
+    vs. the behavioral anchor, from this user's current KPIs. Read-only — never writes the
+    score. The blend only *moves* the persisted score while AINDY_INFINITY_THREE_AXIS_ADVISORY
+    is on (default off); this route works either way so operators can compare before flipping."""
+    user_id = str(current_user["sub"])
+
+    def handler(ctx):
+        from apps.analytics.services.scoring.three_axis_composition import preview_advisory
+
+        return preview_advisory(db, user_id)
+
+    result = await execute_with_pipeline(
+        request=request, route_name="analytics.three_axis.advisory", handler=handler,
+        user_id=user_id, metadata={"db": db},
+    )
+    return _with_execution_envelope(result)

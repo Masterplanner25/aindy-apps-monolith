@@ -2123,6 +2123,14 @@ Records accrue only while `AINDY_INFINITY_THREE_AXIS_SHADOW` is on.
 
 **Response 200:** unspecified
 
+#### GET /apps/analytics/three-axis/advisory
+Get Three Axis Advisory Preview — read-only "advisory vs. behavioral" comparison from the
+user's current KPIs (three-axis score model, Phase C). Shows what the bounded Worth+Trajectory
+blend would make `master_score`. The blend only *moves* the persisted score while
+`AINDY_INFINITY_THREE_AXIS_ADVISORY` is on (default off); this preview works either way.
+
+**Response 200:** unspecified
+
 #### POST /apps/analytics/worth/declare
 Declare Worth — declare what a task / masterplan / project is worth (the Worth axis's prior).
 Upserts per (user, target_type, target_id).

@@ -41,6 +41,19 @@ VOLUME_EFFORT_SCALE = 40.0     # effort-hours in window → ~63 (saturating); 80
 TRAJECTORY_RATIO_CAP = 2.0     # 2× faster than estimate = max; 2× slower ≈ 25
 WORTH_DECLARED_SCALE = 100.0   # declared-units → provisional 0..100 (saturating)
 
+# --- Trajectory anti-gaming guard (Phase C, decision §8.3) ---
+# The gaming vector is estimate *padding*: since trajectory ∝ estimated/actual, inflating
+# every estimate makes every task finish "ahead" and pins the axis at 100. The per-task
+# ratio is already capped (TRAJECTORY_RATIO_CAP), so the realistic exploit is chronic,
+# across-the-board over-estimation. The guard dampens the ahead-of-plan *excess* (the part
+# above the neutral 50) when the ahead-signature is both pervasive (most tasks ahead) and
+# strong (mean ratio well above 1). A genuinely fast-but-variable worker — some tasks
+# behind, some on-time — trips neither condition and is not penalized.
+PAD_GUARD_MIN_TASKS = 5        # need a real sample before judging "chronic"
+PAD_GUARD_AHEAD_FRACTION = 0.80  # >80% of tasks ahead starts to look systematic
+PAD_GUARD_RATIO_REF = 1.6      # mean ratio at/above which the padding penalty is full-strength
+PAD_GUARD_MAX_PENALTY = 0.5    # at most halve the ahead-of-plan excess
+
 
 def _clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
     return max(lo, min(hi, v))
@@ -119,15 +132,40 @@ def compute_trajectory(db: Session, user_id) -> dict[str, Any]:
         return {"score": None, "reason": "no_estimated_completed_tasks", "tasks_measured": 0}
     mean_ratio = sum(ratios) / measured
     # ratio 1.0 (on estimate) → 50 (neutral); 2.0 → 100 (twice as fast); 0.5 → 25.
-    score = _clamp(50.0 * mean_ratio)
+    raw_score = _clamp(50.0 * mean_ratio)
+    ahead_fraction = ahead / measured
+    guarded_score, penalty = _apply_padding_guard(raw_score, measured, ahead_fraction, mean_ratio)
     return {
-        "score": round(score, 2),
+        "score": round(guarded_score, 2),
+        "raw_score": round(raw_score, 2),          # pre-guard, for interpretability
+        "padding_penalty": round(penalty, 3),      # 0 = untouched; up to PAD_GUARD_MAX_PENALTY
         "tasks_measured": measured,
         "mean_pace_ratio": round(mean_ratio, 3),
         "ahead": ahead,
         "on_time": on_time,
         "behind": behind,
     }
+
+
+def _apply_padding_guard(
+    raw_score: float, measured: int, ahead_fraction: float, mean_ratio: float
+) -> tuple[float, float]:
+    """Dampen the ahead-of-plan excess when the ahead-signature looks like chronic estimate
+    padding (see the PAD_GUARD_* constants). Returns (guarded_score, penalty_fraction).
+
+    Penalty is smooth (no cliff) in *both* how pervasive the ahead-fraction is and how strong
+    the mean ratio is, so a user just over the thresholds is nudged, not slammed. Only the
+    excess above the neutral 50 is dampened — being behind or on-time is never touched.
+    """
+    excess = raw_score - 50.0
+    if measured < PAD_GUARD_MIN_TASKS or excess <= 0 or mean_ratio <= 1.0:
+        return raw_score, 0.0
+    pervasiveness = max(0.0, ahead_fraction - PAD_GUARD_AHEAD_FRACTION) / (1.0 - PAD_GUARD_AHEAD_FRACTION)
+    strength = _clamp((mean_ratio - 1.0) / (PAD_GUARD_RATIO_REF - 1.0), 0.0, 1.0)
+    penalty = PAD_GUARD_MAX_PENALTY * pervasiveness * strength
+    if penalty <= 0:
+        return raw_score, 0.0
+    return 50.0 + excess * (1.0 - penalty), penalty
 
 
 def compute_worth(db: Session, user_id) -> dict[str, Any]:
