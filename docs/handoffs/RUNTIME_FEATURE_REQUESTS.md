@@ -8,12 +8,17 @@ owner: "app-team"
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
 
-## 🔴 OPEN BUG — RT-MEMTXN-LEAK-1: memory-node reads leak connections (idle-in-transaction), exhausting the pool
+## ✅ FIXED in aindy-runtime 1.10.0 — RT-MEMTXN-LEAK-1: memory-node reads leaked connections (idle-in-transaction), exhausting the pool
 
-**Filed 2026-07-19 (apps-monolith). Severity: HIGH — blocks real-user usability.** Found by
-the first live *browser* frontend walkthrough (a human navigating the product, not a curl/py
-harness). This is currently the top barrier to the app being usable by a real person, above
-everything else that is "proven."
+**Filed 2026-07-19, FIXED in aindy-runtime 1.10.0 (adopted; floor `>=1.10.0`). Severity was
+HIGH — blocked real-user sign-in.** Found by the first live *browser* frontend walkthrough.
+**App-side re-verification PENDING** — the real proof the runtime team couldn't run from
+their side: re-run the repro below and confirm `pg_stat_activity` shows **no `idle in
+transaction`** on the `memory_nodes` SELECT during login, and sign-in completes well under
+the 30s client timeout. If connections still pile up, the remaining suspect is the request
+pipeline holding a transaction open *across* the recall (the reorder only helps once prior
+request work has committed) — capture a fresh `pg_stat_activity` snapshot and hand it back as
+a follow-up. The original diagnosis is retained below.
 
 ### Impact (user-facing)
 A single `POST /auth/login` (also `/auth/register`, and any memory-touching request) takes
