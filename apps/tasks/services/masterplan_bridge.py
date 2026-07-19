@@ -80,3 +80,32 @@ def get_eta_via_syscall(masterplan_id, user_id: str, db):
             detail={"error": "syscall_unavailable", "message": result.get("error", "")},
         )
     return (result.get("data") or {}).get("eta")
+
+
+def recalculate_wcu_via_syscall(masterplan_id, user_id: str, db):
+    """Recompute the plan's WCU (Work Complexity Units) + phase via the masterplan syscall.
+
+    Sibling of ``get_eta_via_syscall`` — same plan-progress recalc surface, called on the same
+    task-completion trigger. Non-fatal to the caller: returns ``None`` on any dispatch failure so
+    a WCU hiccup never blocks task completion (the daily scheduler sweep will reconcile).
+    """
+    from AINDY.kernel.syscall_dispatcher import SyscallContext, get_dispatcher
+
+    ctx = SyscallContext(
+        execution_unit_id=str(uuid.uuid4()),
+        user_id=str(user_id),
+        capabilities=["masterplan.read"],
+        trace_id="",
+        metadata={"_db": db},
+    )
+    try:
+        result = get_dispatcher().dispatch(
+            "sys.v1.masterplan.recalculate_wcu",
+            {"masterplan_id": str(masterplan_id), "user_id": str(user_id)},
+            ctx,
+        )
+    except Exception:
+        return None
+    if result.get("status") != "success":
+        return None
+    return (result.get("data") or {}).get("wcu")

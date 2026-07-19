@@ -84,6 +84,23 @@ def _handle_get_masterplan_eta(payload: dict, ctx: SyscallContext) -> dict:
             db.close()
 
 
+def _handle_recalculate_wcu(payload: dict, ctx: SyscallContext) -> dict:
+    from AINDY.db.database import SessionLocal
+    from apps.masterplan.services.wcu_service import calculate_wcu
+
+    masterplan_id = payload["masterplan_id"]
+    user_id = payload["user_id"]
+
+    external_db = ctx.metadata.get("_db")
+    owns_session = external_db is None
+    db = external_db if external_db is not None else SessionLocal()
+    try:
+        return {"wcu": calculate_wcu(db=db, masterplan_id=masterplan_id, user_id=user_id)}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def _handle_get_active_masterplan(payload: dict, ctx: SyscallContext) -> dict:
     from apps.masterplan.models import MasterPlan
 
@@ -284,6 +301,26 @@ def register_masterplan_syscall_handlers() -> None:
             "required": ["eta"],
             "properties": {
                 "eta": {"type": "dict"},
+            },
+        },
+        stable=False,
+    )
+    register_syscall(
+        name="sys.v1.masterplan.recalculate_wcu",
+        handler=_handle_recalculate_wcu,
+        capability="masterplan.read",
+        description="Recompute + persist total_wcu (Work Complexity Units) for a plan's completed tasks and re-evaluate its phase.",
+        input_schema={
+            "required": ["masterplan_id", "user_id"],
+            "properties": {
+                "masterplan_id": {"type": "string"},
+                "user_id": {"type": "string"},
+            },
+        },
+        output_schema={
+            "required": ["wcu"],
+            "properties": {
+                "wcu": {"type": "dict"},
             },
         },
         stable=False,
