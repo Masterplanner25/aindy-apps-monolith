@@ -22,6 +22,7 @@ from apps.analytics.metrics_models import (
     RevenueScaling,
 )
 from apps.analytics.score_snapshot import ScoreSnapshotDB
+from apps.analytics.value_declaration import IntentValueDeclaration
 from apps.analytics.user_score import (
     KPI_WEIGHTS,
     KPI_WEIGHT_LEARNING_RATE,
@@ -47,6 +48,7 @@ __all__ = [
     "EngagementRate",
     "ExecutionSpeed",
     "Impact",
+    "IntentValueDeclaration",
     "InfinityExpectationModel",
     "InfinityExpectationPrediction",
     "KPI_WEIGHTS",

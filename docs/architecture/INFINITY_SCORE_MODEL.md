@@ -129,15 +129,15 @@ revenue term (it punishes high-value unpaid work), so 3b-full **requires** the l
 expected-worth model. Conversely, learned-recursion has no canonical effect until a worth
 signal is allowed to move the score. Neither ships alone.
 
-## 6. Proposed rollout
+## 6. Rollout
 
 Mirrors the shadow → advisory → drives discipline already in flight for the REFLECT
 calibrator (default-off, soak-then-flip):
 
 ```
-PHASE A  measure     Add Worth (declared prior + realized outcomes) and a first-class
-                     Trajectory KPI as OBSERVABILITY next to the score. Consolidate the
-                     3 completion KPIs into one Volume KPI. Score math unchanged. Flag-off.
+PHASE A  measure     Add Worth (declared prior + realized outcomes) and a first-class     ✅ SHIPPED
+         (this PR)   Trajectory axis + a consolidated Volume axis as OBSERVABILITY next to
+                     the score. Score math unchanged; the snapshot never writes master_score.
 PHASE B  shadow      Compute the three-axis score in parallel; log (three_axis, current,
                      realized_worth). Drives nothing. (Reuses the learned shadow ledger.)
 PHASE C  advisory    Worth/trajectory blend into the score within the existing weight
@@ -146,6 +146,22 @@ PHASE D  drives      The three-axis model IS the canonical score; learned worth-
                      (rung c) drives the worth axis. Requires soak evidence + the 3b-full
                      values flip. == learned-recursion Phase 2.
 ```
+
+**Phase A — shipped (2026-07-18).** The three axes are computed for observation only, next to
+the unchanged `master_score`:
+- `apps/analytics/services/scoring/three_axis_service.py` — `compute_three_axes` (Volume =
+  effort-weighted work completed; Trajectory = estimate-vs-actual pace from task
+  `duration`/`time_spent`; Worth = declared prior + realized freelance revenue). Reads via the
+  `sys.v1.task.get_user_tasks` snapshot (extended additively with `duration`/`time_spent`) and
+  the analytics pillar adapter — no cross-app imports.
+- Declared-worth prior: `IntentValueDeclaration` (app-owned table) +
+  `value_declaration_service` + `POST /apps/analytics/worth/declare`,
+  `GET /apps/analytics/worth/declarations`.
+- Snapshot read: `GET /apps/analytics/three-axis`.
+- **Invariant (tested):** computing the snapshot never creates or modifies `UserScore` /
+  `master_score`. Consolidating the completion KPIs into the canonical Volume KPI (i.e.
+  *changing* the score) is deferred to Phase C — Phase A only *measures* the consolidated
+  Volume alongside the existing 5-KPI score.
 
 ## 7. What this changes — and what it deliberately doesn't
 

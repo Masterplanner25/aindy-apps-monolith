@@ -2107,6 +2107,28 @@ Adapt Policy Thresholds Endpoint
 
 **Response 200:** unspecified
 
+#### GET /apps/analytics/three-axis
+Get Three Axis Snapshot — observability snapshot of the Volume / Worth / Trajectory axes
+alongside the (unchanged) `master_score` (three-axis score model, Phase A; measurement only,
+does not drive scoring).
+
+**Response 200:** unspecified
+
+#### POST /apps/analytics/worth/declare
+Declare Worth — declare what a task / masterplan / project is worth (the Worth axis's prior).
+Upserts per (user, target_type, target_id).
+
+**Body:** target_type: string (required), declared_value: number (required), target_id: string | null, label: string | null, kind: string, note: string | null
+
+**Response 200:** unspecified
+
+#### GET /apps/analytics/worth/declarations
+List Worth Declarations — this user's declared-worth entries.
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
 ### auth
 
 #### POST /auth/login

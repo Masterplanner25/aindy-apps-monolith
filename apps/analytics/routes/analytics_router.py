@@ -259,3 +259,96 @@ async def adapt_policy_thresholds_endpoint(
         metadata={"db": db},
     )
     return _with_execution_envelope(result)
+
+
+# ── Three-axis Infinity score — observability (Phase A) ───────────────────────
+# Volume / Worth / Trajectory computed alongside master_score, for observation only.
+# See docs/architecture/INFINITY_SCORE_MODEL.md. Never drives canonical scoring.
+
+from pydantic import BaseModel  # noqa: E402
+
+
+class ValueDeclarationRequest(BaseModel):
+    target_type: str            # task | masterplan | project | other
+    declared_value: float
+    target_id: str | None = None
+    label: str | None = None
+    kind: str = "strategic"     # monetary_potential | intrinsic | strategic
+    note: str | None = None
+
+
+@router.get("/three-axis")
+@limiter.limit("60/minute")
+async def get_three_axis_snapshot(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Observability snapshot of the Volume / Worth / Trajectory axes alongside the
+    (unchanged) master_score. Phase A: measurement only — does not drive scoring."""
+    user_id = str(current_user["sub"])
+
+    def handler(ctx):
+        from apps.analytics.services.scoring.three_axis_service import compute_three_axes
+
+        return compute_three_axes(db, user_id)
+
+    result = await execute_with_pipeline(
+        request=request, route_name="analytics.three_axis", handler=handler,
+        user_id=user_id, metadata={"db": db},
+    )
+    return _with_execution_envelope(result)
+
+
+@router.post("/worth/declare")
+@limiter.limit("30/minute")
+async def declare_worth(
+    request: Request,
+    body: ValueDeclarationRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Declare what a task / masterplan / project is worth (the Worth axis's prior)."""
+    user_id = str(current_user["sub"])
+
+    def handler(ctx):
+        from apps.analytics.services.scoring.value_declaration_service import record_value_declaration
+
+        try:
+            return record_value_declaration(
+                db, user_id=user_id, target_type=body.target_type,
+                declared_value=body.declared_value, target_id=body.target_id,
+                label=body.label, kind=body.kind, note=body.note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    result = await execute_with_pipeline(
+        request=request, route_name="analytics.worth.declare", handler=handler,
+        user_id=user_id, metadata={"db": db}, input_payload=body.model_dump(),
+    )
+    return _with_execution_envelope(result)
+
+
+@router.get("/worth/declarations")
+@limiter.limit("60/minute")
+async def list_worth_declarations(
+    request: Request,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """List this user's declared-worth entries."""
+    user_id = str(current_user["sub"])
+
+    def handler(ctx):
+        from apps.analytics.services.scoring.value_declaration_service import list_value_declarations
+
+        items = list_value_declarations(db, user_id, limit=limit)
+        return {"declarations": items, "count": len(items)}
+
+    result = await execute_with_pipeline(
+        request=request, route_name="analytics.worth.declarations", handler=handler,
+        user_id=user_id, metadata={"db": db},
+    )
+    return _with_execution_envelope(result)
