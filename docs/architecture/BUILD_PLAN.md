@@ -1,6 +1,6 @@
 ---
 title: "Build Plan — Shipping the Woken Decision Engine"
-last_verified: "2026-07-15"
+last_verified: "2026-07-19"
 api_version: "1.0"
 status: current
 owner: "app-team"
@@ -41,37 +41,44 @@ sub-flow; its state machine was a deliberate fix for the "infinite refinement lo
 
 ## Validated foundation (2026-07-15) — what is already proven
 
-The hard part is done and demonstrated, so the tracks below carry little backend risk:
+The hard part is done and demonstrated — and, as of **2026-07-19, proven all the way to a
+literal Claude-planned `completed` run on real hardware:**
 
-- **The reasoner reasons** — flipping `AINDY_AGENT_PLANNER_BACKEND=anthropic_chat` yields a
-  real multi-step, tool-diverse plan (6 steps) vs. the keyword heuristic's 1. (Tier 1 spike.)
-- **Its plan executes to done** — a plan drives `register → create → approve → execute →
-  completed` through `aindy-runtime serve` on Linux CI (the `serve-run-completion` /
-  `runtime_local` green; the Claude planner reached `executing` in the in-process Tier 2).
-- **The rails hold** — runtime **1.7.0** adopted; APP-DEPLOY-1 closed (`bootstrap-schema`
-  deploy split + `ensure_pgvector`); the nodus wall-clock budget made tunable
-  (`AINDY_NODUS_MAX_EXECUTION_MS`); standing CI guards (`deploy-bootstrap-guard`,
-  `serve-run-completion`).
-- **Honest edge** — the *Claude-planned* run to literal `completed` needs an environment
-  with model egress + stable containers (self-hosted / cloud). GitHub-hosted runners cannot
-  reach the LLM (RTR-1-NODUS-APPTOOL-500). The **mechanism** is proven; that last mile is
-  infrastructure, not design.
+- **The reasoner reasons** — with `AINDY_AGENT_PLANNER_BACKEND=anthropic_chat`, Claude
+  (`claude-opus-4-8`) authors a real multi-step, tool-diverse plan (5–6 steps) vs. the keyword
+  heuristic's 1.
+- **Its plan executes to done — for real, with the Claude planner** — the full HTTP loop
+  `register → create (Claude plans) → approve → execute → completed` ran on a native-Linux
+  Docker stack, verified at every layer: 6× `AGENT_STEP_COMPLETED`, run status `completed`,
+  and real side-effects (3 correctly-named tasks written to Postgres). The "last mile" the
+  earlier Tier-2 sessions could only reach `executing` on is now closed.
+- **The rails hold** — runtime **1.9.0** adopted; APP-DEPLOY-1 closed (`bootstrap-schema`
+  deploy split + `ensure_pgvector`); the nodus wall-clock budget + boot allowance are tunable
+  (`AINDY_NODUS_MAX_EXECUTION_MS` / `AINDY_NODUS_BOOT_ALLOWANCE_MS`); standing CI guards
+  (`deploy-bootstrap-guard`, `serve-run-completion`).
+- **Where it runs** — the literal Claude loop needs model egress + a stable, reasonably fast
+  datastore. Proven on a **native-Linux Docker engine** (`docker.io` inside WSL2 Ubuntu, or a
+  cloud Linux box) — **not** Docker Desktop's VM, whose slow pg exhausts the connection pool
+  under the memory-embedding fan-out (see the slow-host tunables + `NODUS-WARMPOOL-1`).
+  GitHub-hosted runners still can't reach the LLM (RTR-1-NODUS-APPTOOL-500).
 
-## Status at a glance (2026-07-15)
+## Status at a glance (2026-07-19)
 
 | Track | What | Status |
 |---|---|---|
 | **1** | The face — user-facing Assistant (`/assistant`) | ✅ **done** — merged |
-| **3** | Re-tether Search/Freelance yield → Infinity + `analytics` core | ✅ **done** (3b-lite: observability tether; 3b-full weighting deferred — a values decision) |
+| **2** | Reasoner first-class (Claude planner default) | ✅ **done** — proven end-to-end (literal Claude-planned `completed` run on a native-Linux host) |
+| **3** | Re-tether Search/Freelance yield → Infinity + `analytics` core | ✅ **done** (3b-lite: observability tether; 3b-full weighting soak-gated — a values decision) |
 | **4** | Wire orphaned UI (`InfiniteNetwork`, `ProfileView`, `GenesisDraftPreview`) | ✅ **done** — merged |
 | **5** | Fold Genesis behind the face (`?mode=genesis`) | ✅ **done** — merged |
-| **2** | Reasoner first-class (Claude planner default) | ⏸ **deferred** — gated on an LLM-egress env (infrastructure, not code) |
 
-The "one face, delegated engines" end-state is structurally in place: one Assistant face
-(`/assistant`) with an **Agent | Plan** toggle routing to the agent engine and the Genesis
-plan-authoring engine. The two remaining items are **deferred, not blocked-open**: Track 2 needs
-an egress environment; **3b-full** (which signal moves the canonical Infinity score, and at what
-weight) is a deliberate values decision left for when the weighting is chosen.
+All five tracks are shipped. The "one face, delegated engines" end-state is in place: one
+Assistant face (`/assistant`) with an **Agent | Plan** toggle routing to the agent engine and
+the Genesis plan-authoring engine, and the agent engine now reasons with Claude by default in a
+suitably-provisioned deployment. **The remaining open item is not a track** — it's **3b-full**
+(which pillar signal moves the canonical Infinity score, and at what weight), a deliberate
+values decision now framed as the Worth axis of the three-axis model and gated on a shadow soak,
+not on build. See [INFINITY_SCORE_MODEL.md](./INFINITY_SCORE_MODEL.md).
 
 ## Tracks
 
@@ -94,17 +101,25 @@ a normal user has no way to talk to the mind we just woke. This closes that gap.
   `useEffect`-polled steps → terminal result, routed via `AppShell` (not `/platform`). See the
   [Track 1 MVP build scope](#track-1--mvp-build-scope) appendix.
 
-### Track 2 — Reasoner first-class (default)
+### Track 2 — Reasoner first-class (default) ✅
 
-Make the Claude planner the default instead of opt-in, with a cost/latency posture.
+Make the Claude planner the default instead of opt-in.
 
 - Flip `AINDY_AGENT_PLANNER_BACKEND` default `runtime_local → anthropic_chat` in the deployed
-  env; set `AINDY_CLAUDE_PLANNER_MODEL`; confirm the deploy image installs `anthropic`.
-- **Dependency:** an environment with LLM egress (self-hosted runner / cloud). The face
-  (Track 1) works regardless; this is what makes it actually reason for real users.
-- **Status:** ⏸ **deferred — gated on the egress env, not on code.** The face already dispatches to
-  whichever planner the deployed env selects; this track is the one-line default flip once egress exists.
-  Turnkey steps documented in [../deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md) ("Enabling the Claude planner").
+  env; set `AINDY_CLAUDE_PLANNER_MODEL` (optional); the deploy image already installs `anthropic`.
+- **Status:** ✅ **done — proven end-to-end (2026-07-19).** `docker-compose.prod.yml` makes the
+  flip a turnkey `.env` toggle (`AINDY_AGENT_PLANNER_BACKEND=anthropic_chat` + `ANTHROPIC_API_KEY`),
+  and the full loop was driven to a literal `completed` on a native-Linux Docker stack: Claude
+  authored a 6-step plan → approve → execute → `completed`, with 3 real tasks written to Postgres.
+  Getting there also fixed four latent deploy walls now shipped in the compose: `AINDY_BOOT_MODE`
+  (serve defaulted to `runtime-only` = zero apps), the planner env pass-through, the 30s DB
+  idle-in-transaction reap (→ 120s), and the Nodus per-execution cold-start budget (→ 120s + 60s).
+  Turnkey steps: [../deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md) ("Enabling the Claude
+  planner" + "Tuning for slower / cold-start-heavy hosts").
+- **Caveat (host, not code):** the literal loop needs a native-Linux Docker engine — Docker
+  Desktop's VM (even via WSL integration, which silently substitutes its own engine) has slow pg
+  that exhausts the pool under the memory-embedding fan-out. Use `docker.io` in a WSL2 distro or a
+  cloud Linux box. See `NODUS-WARMPOOL-1` in `TECH_DEBT.md`.
 
 ### Track 3 — Re-tether the pillars to Infinity
 
@@ -145,27 +160,29 @@ is proven — its logic survives; only its packaging dissolves.
 ```
 Track 1 (face MVP) ✅ ──► Track 5 (fold Genesis in) ✅
       │
-      └─ Track 2 (reasoner default) ⏸  — deferred, gated on an egress env
-Track 3 (re-tether) ✅ ── ran in parallel (3b-lite; 3b-full deferred)
+      └─ Track 2 (reasoner default) ✅  — proven end-to-end (literal completed on native-Linux)
+Track 3 (re-tether) ✅ ── ran in parallel (3b-lite; 3b-full soak-gated)
 Track 4 (quick wins) ✅ ── ran in parallel
 ```
 
-**As executed:** Track 1 → Track 4 alongside → Track 3 (3b-lite) in parallel → Track 5 last.
-Track 2 remains the single open build, deferred until an LLM-egress environment exists.
+**As executed:** Track 1 → Track 4 alongside → Track 3 (3b-lite) in parallel → Track 5 last →
+Track 2 proven on a provisioned native-Linux host. **All five tracks are shipped.**
 
 ## Open decisions
 
-- **Egress env for Track 2** *(open)* — self-hosted GitHub runner vs. a cloud Linux box (both give
-  the stable Docker + Anthropic egress the literal Claude loop needs).
-- **3b-full weighting** *(open)* — which pillar signal is promoted to move the canonical Infinity
-  score, and at what weight. A values decision, deferred with Track 3. Framed as the **Worth axis**
-  of the three-axis score model in [INFINITY_SCORE_MODEL.md](./INFINITY_SCORE_MODEL.md) (which unifies
-  this with the learned-recursion work — they resolve to one decision).
-- **Learned recursion (REFLECT calibration)** *(scoped)* — waking the REFLECT→EVOLVE loop from
-  heuristic nudges to a learned model, starting with a shadow-mode expected-score calibrator that
-  does not touch canonical weights. Scoped in
-  [INFINITY_LEARNED_RECURSION_SCOPE.md](./INFINITY_LEARNED_RECURSION_SCOPE.md); Phase 2 (driving the
-  score) re-opens 3b-full.
+- **Egress env for Track 2** *(resolved)* — a native-Linux Docker engine with Anthropic egress
+  (`docker.io` in a WSL2 Ubuntu distro was used to prove the literal loop; a cloud Linux box works
+  equally). Docker Desktop's VM is NOT suitable (slow pg → pool exhaustion).
+- **3b-full weighting** *(open — soak-gated)* — which pillar signal is promoted to move the
+  canonical Infinity score, and at what weight. A values decision, framed as the **Worth axis** of
+  the three-axis model in [INFINITY_SCORE_MODEL.md](./INFINITY_SCORE_MODEL.md). Phases A/B/C
+  (measure → shadow → advisory) are **shipped**; the flip to *drive* the score needs the Phase-B
+  shadow soak's divergence data, not more build. Unifies with the learned-recursion work below —
+  the two resolve to one decision.
+- **Learned recursion (REFLECT calibration)** *(shipped through advisory)* — the learned
+  expected-score calibrator: Phase 0 (shadow) and Phase 1 (advisory) are **merged**; Phase 2
+  (driving the score) re-opens 3b-full and is soak-gated. Scoped in
+  [INFINITY_LEARNED_RECURSION_SCOPE.md](./INFINITY_LEARNED_RECURSION_SCOPE.md).
 - **Face surface shape** *(resolved)* — shipped as a dedicated `/assistant` page in the user nav,
   not a global command bar.
 - **Streaming** *(resolved for now)* — MVP polls the run/steps endpoints (`useEffect` interval);

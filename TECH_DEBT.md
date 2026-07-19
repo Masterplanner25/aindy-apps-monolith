@@ -535,6 +535,46 @@ to `agent_flow` (set the env explicitly, or drop `_select_execution_backend`); o
 nodus_vm validation beyond the two §5 gates to the full agent surface (real multi-step LLM
 plans, completion hooks, infinity orchestration) under nodus_vm-as-default.
 
+**LITERAL CLAUDE-PLANNED RUN → `completed` — PROVEN (2026-07-19).** The one thing the CI gate
+cannot cover (egress) was driven end-to-end on a provisioned host: `docker-compose.prod.yml`
+booted with `AINDY_AGENT_PLANNER_BACKEND=anthropic_chat` on a **native-Linux Docker engine**,
+and the full loop ran `register → create (Claude 6-step plan) → approve → execute →`
+**`completed`** — 6× `AGENT_STEP_COMPLETED`, real side-effects (3 tasks in Postgres). So the
+mechanism is now proven *with the real LLM planner*, not just `runtime_local`. The CI-runner
+egress block itself is unchanged (GitHub-hosted runners still can't reach `api.anthropic.com`);
+the literal loop belongs on a self-hosted/cloud egress host, per `DEPLOYMENT.md`.
+
+---
+
+## NODUS-WARMPOOL-1: per-execution Nodus worker cold-starts the full app stack (runtime warm-pool wanted)
+
+**Status:** App-side **mitigated** (2026-07-19); the real fix is runtime-owned.
+
+`nodus_runtime_adapter` spawns a **fresh `nodus_worker` subprocess per agent execution**, and on
+the app profile that subprocess **cold-starts the whole ~17-app stack (~12s+ of imports)** before
+the script runs. Against the runtime's default budget (`AINDY_NODUS_MAX_EXECUTION_MS=30000` +
+`AINDY_NODUS_BOOT_ALLOWANCE_MS=15000`) a real run on any non-fast host fails with
+`Nodus worker exceeded 45000ms hard limit — worker or plugin cold-start hung`. A second amplifier:
+every `execution.started` fires memory auto-capture → an embedding-enqueue DB write, and the
+fan-out **exhausts the connection pool** (`QueuePool limit … reached`) when each pg round-trip is
+slow (the Docker-Desktop-on-Windows failure mode — its VM pg is slow enough that even 20+40
+connections can't drain).
+
+**App-side mitigation (shipped in `docker-compose.prod.yml`):** widen the budgets + pool for the
+app profile — `AINDY_NODUS_MAX_EXECUTION_MS=120000`, `AINDY_NODUS_BOOT_ALLOWANCE_MS=60000`,
+`DB_POOL_SIZE=20`/`DB_MAX_OVERFLOW=40`, and the DB reap timeouts to 120s (see "Tuning for slower /
+cold-start-heavy hosts" in `DEPLOYMENT.md`). With those + a **native-Linux** pg (fast round-trips),
+the full run reaches `completed`. Bigger pools against a *slow* pg make it worse — a faster
+datastore, not larger limits, is the real lever.
+
+**Runtime-owned fix (the real one):** a **warm `nodus_worker` pool** (or a persistent worker) so
+executions don't each pay the app-stack cold-start, making the tight default budgets adequate and
+removing the per-run import storm. Filed as a runtime feature request. Referenced from
+`BUILD_PLAN.md` (validated foundation).
+
+**Reopen trigger:** runtime ships a warm-pool / persistent worker (then the app-side budget
+inflation can be relaxed back toward the runtime defaults).
+
 ---
 
 ## MASTERPLAN-CONNECTOR-RUNTIME-1: automation connectors registration + capability-enforcement surface (FR-1) — ADOPTED
