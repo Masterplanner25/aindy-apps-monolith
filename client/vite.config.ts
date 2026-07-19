@@ -124,11 +124,18 @@ export default defineConfig(({ mode }) => {
 
     server: {
       proxy: {
+        // Dev proxy: the client (via @aindy/ui-kit) calls the backend's route namespaces
+        // relatively (empty API base), so forward them all to the local API — no /api-base
+        // env needed in dev. /api keeps its strip-rewrite for any /api-prefixed callers.
         "/api": {
           target: "http://localhost:8000",
           changeOrigin: true,
           rewrite: (routePath) => routePath.replace(/^\/api/, ""),
         },
+        "/auth": { target: "http://localhost:8000", changeOrigin: true },
+        "/apps": { target: "http://localhost:8000", changeOrigin: true },
+        "/health": { target: "http://localhost:8000", changeOrigin: true },
+        "/openapi.json": { target: "http://localhost:8000", changeOrigin: true },
       },
     },
 
