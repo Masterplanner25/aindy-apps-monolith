@@ -115,6 +115,29 @@ an opaque create-500. Once it passes, the full loop runs: register → create (*
 plans**) → approve → execute → `completed` — the last mile the no-egress
 `runtime_local` run cannot cover.
 
+## Tuning for slower / cold-start-heavy hosts
+
+The app profile is heavier than a bare runtime — a full agent run cold-starts the ~17-app
+stack in a per-execution Nodus worker, fans out concurrent memory/embedding writes, and
+holds DB transactions across multi-step execution. The runtime's *default* limits are tuned
+for a bare runtime and are too tight for this profile on a slower host, producing failures
+that look unrelated: `register` hangs, executions fail with `Nodus worker exceeded 45000ms
+hard limit`, or `QueuePool limit … reached`. `docker-compose.prod.yml` therefore ships more
+generous, **env-overridable** defaults for the app profile:
+
+| Var | Compose default | Runtime default | Guards against |
+|---|---|---|---|
+| `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` / `DB_STATEMENT_TIMEOUT_MS` | `120000` | `30000` | slow requests getting their connection reaped mid-transaction |
+| `AINDY_NODUS_MAX_EXECUTION_MS` / `AINDY_NODUS_BOOT_ALLOWANCE_MS` | `120000` / `60000` | `30000` / `15000` | the per-run 17-app cold-start blowing the Nodus budget |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | `20` / `40` | `10` / `20` | the embedding fan-out exhausting the pool during execution |
+
+These are floors that let the full run→`completed` loop breathe; raise them further only if a
+genuinely slow host still trips a limit. **Note:** the real fix for a *pathologically* slow
+datastore (e.g. Docker Desktop on Windows, where each pg round-trip is inflated) is a faster
+host, not larger limits — bigger pools against a slow pg make it worse. Use a native-Linux
+Docker engine (a Linux box, or `docker-ce` inside a WSL2 distro — **not** Docker Desktop's
+VM engine, which WSL integration silently substitutes).
+
 ## References
 
 - [BUILD_PLAN.md](../architecture/BUILD_PLAN.md) — Track 2 and the validated foundation.
