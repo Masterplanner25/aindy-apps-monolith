@@ -327,6 +327,7 @@ def _scheduler_recalculate_all_etas() -> None:
     from AINDY.agents.autonomous_controller import evaluate_live_trigger, record_decision
     from AINDY.db.database import SessionLocal
     from apps.masterplan.services.eta_service import recalculate_all_etas
+    from apps.masterplan.services.wcu_service import recalculate_all_wcu
 
     try:
         db = SessionLocal()
@@ -343,6 +344,10 @@ def _scheduler_recalculate_all_etas() -> None:
             return
         updated = recalculate_all_etas(db)
         logger.info("[ETA Scheduler] Recalculated ETAs for %d plans", updated)
+        # WCU (Work Complexity Units) recalc rides the same daily sweep — reconciles any
+        # plan whose per-completion recalc was missed, and keeps the phase gate fresh.
+        wcu_updated = recalculate_all_wcu(db)
+        logger.info("[WCU Scheduler] Recalculated WCU for %d plans", wcu_updated)
     finally:
         db.close()
 

@@ -21,6 +21,7 @@ from apps.tasks.services.masterplan_bridge import (
     assert_masterplan_owned_via_syscall,
     get_active_masterplan_via_syscall,
     get_eta_via_syscall,
+    recalculate_wcu_via_syscall,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,10 @@ def build_task_graph(tasks: list[Task]) -> dict[str, Any]:
             "automation_type": getattr(task, "automation_type", None),
             "masterplan_id": getattr(task, "masterplan_id", None),
             "duration": _as_effort_hours(getattr(task, "duration", 0.0)),
+            # WCU inputs (Work Complexity Units) — additive; consumed by the masterplan
+            # wcu_service via the sys.v1.tasks.get_graph_context syscall (no cross-app import).
+            "task_complexity": int(getattr(task, "task_complexity", 1) or 1),
+            "task_difficulty": int(getattr(task, "task_difficulty", 1) or 1),
         }
         for task in tasks
     }
@@ -684,9 +689,14 @@ def _recalculate_active_masterplan_eta(db: Session, owner_user_id) -> tuple[bool
     """
     try:
         active_plan = get_active_masterplan_via_syscall(str(owner_user_id), db)
-        if active_plan and active_plan.get("anchor_date"):
-            projection = get_eta_via_syscall(active_plan["id"], str(owner_user_id), db)
-            return True, active_plan.get("id"), projection
+        if active_plan:
+            # WCU accrues on every completion regardless of anchor date (it just sums
+            # completed work + re-evaluates the phase gate); ETA needs an anchor date to
+            # project against. Both are best-effort — a WCU hiccup never blocks completion.
+            recalculate_wcu_via_syscall(active_plan["id"], str(owner_user_id), db)
+            if active_plan.get("anchor_date"):
+                projection = get_eta_via_syscall(active_plan["id"], str(owner_user_id), db)
+                return True, active_plan.get("id"), projection
     except Exception as exc:
         logger.warning("Task completion ETA recalculation failed: %s", exc)
     return False, None, None
