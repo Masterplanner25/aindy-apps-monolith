@@ -52,7 +52,7 @@ literal Claude-planned `completed` run on real hardware:**
   Docker stack, verified at every layer: 6× `AGENT_STEP_COMPLETED`, run status `completed`,
   and real side-effects (3 correctly-named tasks written to Postgres). The "last mile" the
   earlier Tier-2 sessions could only reach `executing` on is now closed.
-- **The rails hold** — runtime **1.9.0** adopted; APP-DEPLOY-1 closed (`bootstrap-schema`
+- **The rails hold** — runtime **1.10.0** adopted (RT-MEMTXN-LEAK-1 sign-in fix + NODUS-WARMPOOL-1 warm-pool closed); APP-DEPLOY-1 closed (`bootstrap-schema`
   deploy split + `ensure_pgvector`); the nodus wall-clock budget + boot allowance are tunable
   (`AINDY_NODUS_MAX_EXECUTION_MS` / `AINDY_NODUS_BOOT_ALLOWANCE_MS`); standing CI guards
   (`deploy-bootstrap-guard`, `serve-run-completion`).

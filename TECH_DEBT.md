@@ -546,9 +546,14 @@ the literal loop belongs on a self-hosted/cloud egress host, per `DEPLOYMENT.md`
 
 ---
 
-## NODUS-WARMPOOL-1: per-execution Nodus worker cold-starts the full app stack (runtime warm-pool wanted)
+## NODUS-WARMPOOL-1: per-execution Nodus worker cold-starts the full app stack — RUNTIME FIX SHIPPED (1.10.0)
 
-**Status:** App-side **mitigated** (2026-07-19); the real fix is runtime-owned.
+**Status:** **Runtime fix SHIPPED in aindy-runtime 1.10.0** (warm `nodus_worker` pool, Phases
+1–3) — opt-in via `AINDY_NODUS_WARM_POOL=true` (default off). App-side had already mitigated
+(2026-07-19) by widening the per-execution budget/pool in the prod compose. **Follow-up (ops,
+post-soak):** flip `AINDY_NODUS_WARM_POOL=true` on the deployed stack, then the app-side budget
+inflation (`AINDY_NODUS_MAX_EXECUTION_MS`/`_BOOT_ALLOWANCE_MS`, `DB_POOL_SIZE`) can be relaxed
+back toward the runtime defaults. Original diagnosis + the app-side mitigation retained below.
 
 `nodus_runtime_adapter` spawns a **fresh `nodus_worker` subprocess per agent execution**, and on
 the app profile that subprocess **cold-starts the whole ~17-app stack (~12s+ of imports)** before
