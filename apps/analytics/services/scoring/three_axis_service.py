@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -177,4 +178,98 @@ def compute_three_axes(db: Session, user_id) -> dict[str, Any]:
         "master_score": snapshot.get("master_score"),   # reference, unchanged
         "observability_only": True,
         "note": "Phase A: axes are computed for observation and do NOT drive master_score.",
+    }
+
+
+# ── Phase B: shadow logging (flag-gated, drives nothing) ──────────────────────
+
+THREE_AXIS_SHADOW_FLAG = "AINDY_INFINITY_THREE_AXIS_SHADOW"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def three_axis_shadow_enabled() -> bool:
+    """Whether the three-axis shadow ledger records on each score event (default off)."""
+    return os.environ.get(THREE_AXIS_SHADOW_FLAG, "").strip().lower() in _TRUTHY
+
+
+def shadow_log_three_axes(db: Session, *, user_id, master_score=None, trigger_event=None) -> bool:
+    """Record the three axes next to ``master_score`` in the shadow ledger.
+
+    No-op when the flag is off; non-fatal on any error (must never break scoring). Takes
+    ``master_score`` directly (not a re-read) so it is safe to call mid score-persist.
+    """
+    if not three_axis_shadow_enabled():
+        return False
+    try:
+        from apps.analytics.three_axis_shadow import ThreeAxisShadowRecord
+
+        uid = parse_user_id(user_id)
+        if uid is None:
+            return False
+        volume = compute_volume(db, user_id)
+        worth = compute_worth(db, user_id)
+        trajectory = compute_trajectory(db, user_id)
+        row = ThreeAxisShadowRecord(
+            user_id=uid,
+            master_score=(float(master_score) if master_score is not None else None),
+            volume_score=volume.get("score"),
+            worth_score=worth.get("score"),
+            trajectory_score=trajectory.get("score"),
+            effort_hours=volume.get("effort_hours"),
+            completed_count=volume.get("completed_count"),
+            declared_total=worth.get("declared_total"),
+            realized_revenue=worth.get("realized_revenue"),
+            mean_pace_ratio=trajectory.get("mean_pace_ratio"),
+            trigger_event=trigger_event,
+        )
+        db.add(row)
+        db.flush()
+        return True
+    except Exception as exc:  # pragma: no cover - defensive; scoring must not break
+        logger.warning("[three_axis] shadow log failed (non-fatal): %s", exc)
+        return False
+
+
+def three_axis_shadow_report(db: Session, *, user_id=None, limit: int = 50) -> dict[str, Any]:
+    """Soak report: recent shadow records + mean axis scores next to master (the divergence signal)."""
+    from apps.analytics.three_axis_shadow import ThreeAxisShadowRecord
+
+    q = db.query(ThreeAxisShadowRecord)
+    if user_id is not None:
+        uid = parse_user_id(user_id)
+        if uid is None:
+            return {"records": [], "summary": {}, "count": 0, "shadow_enabled": three_axis_shadow_enabled()}
+        q = q.filter(ThreeAxisShadowRecord.user_id == uid)
+    rows = q.order_by(ThreeAxisShadowRecord.created_at.desc()).limit(max(1, min(int(limit or 50), 500))).all()
+
+    def _mean(vals):
+        vals = [v for v in vals if v is not None]
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    summary = {
+        "master_score": _mean([r.master_score for r in rows]),
+        "volume": _mean([r.volume_score for r in rows]),
+        "worth": _mean([r.worth_score for r in rows]),
+        "trajectory": _mean([r.trajectory_score for r in rows]),
+    }
+    records = [
+        {
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "master_score": r.master_score,
+            "volume_score": r.volume_score,
+            "worth_score": r.worth_score,
+            "trajectory_score": r.trajectory_score,
+            "effort_hours": r.effort_hours,
+            "declared_total": r.declared_total,
+            "realized_revenue": r.realized_revenue,
+            "mean_pace_ratio": r.mean_pace_ratio,
+            "trigger_event": r.trigger_event,
+        }
+        for r in rows
+    ]
+    return {
+        "records": records,
+        "summary": summary,
+        "count": len(rows),
+        "shadow_enabled": three_axis_shadow_enabled(),
     }

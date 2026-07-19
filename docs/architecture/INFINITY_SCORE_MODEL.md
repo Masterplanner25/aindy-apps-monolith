@@ -138,14 +138,23 @@ calibrator (default-off, soak-then-flip):
 PHASE A  measure     Add Worth (declared prior + realized outcomes) and a first-class     ✅ SHIPPED
          (this PR)   Trajectory axis + a consolidated Volume axis as OBSERVABILITY next to
                      the score. Score math unchanged; the snapshot never writes master_score.
-PHASE B  shadow      Compute the three-axis score in parallel; log (three_axis, current,
-                     realized_worth). Drives nothing. (Reuses the learned shadow ledger.)
+PHASE B  shadow      Compute the three-axis score in parallel; log (three_axis, current,   ✅ SHIPPED
+         (this PR)   realized_worth) to a ledger on each score event. Drives nothing.
 PHASE C  advisory    Worth/trajectory blend into the score within the existing weight
                      clamps; behavioral KPIs remain the anchor. Flag-gated.
 PHASE D  drives      The three-axis model IS the canonical score; learned worth-estimation
                      (rung c) drives the worth axis. Requires soak evidence + the 3b-full
                      values flip. == learned-recursion Phase 2.
 ```
+
+**Phase B — shipped (2026-07-18).** On each `calculate_infinity_score` event, when
+`AINDY_INFINITY_THREE_AXIS_SHADOW` is on (default off), the three axes are recorded next to
+`master_score` in the `ThreeAxisShadowRecord` time-series ledger (app-owned table, guarded
+migration `d7e8f9a0b1c2`). The hook is flag-gated and non-fatal — scoring is unchanged
+whether it succeeds or fails (tested end-to-end: a real score computation writes exactly one
+shadow row when on, zero when off). Soak report at `GET /apps/analytics/three-axis/shadow`
+(recent records + mean-per-axis-vs-master, the divergence signal). Flip the flag on in a real
+deployment to accumulate the comparison the Phase-C decision needs.
 
 **Phase A — shipped (2026-07-18).** The three axes are computed for observation only, next to
 the unchanged `master_score`:
