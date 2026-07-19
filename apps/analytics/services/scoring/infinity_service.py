@@ -504,6 +504,7 @@ def calculate_infinity_score(
         _ensure_orchestrated()
         from apps.analytics.models import UserScore, ScoreHistory
         from .kpi_weight_service import get_effective_weights
+        from .three_axis_composition import advisory_enabled, compute_advisory_breakdown
         user_db_id = _db_user_id(user_id)
         for attempt in range(_SCORE_WRITE_RETRY_LIMIT):
             try:
@@ -560,6 +561,34 @@ def calculate_infinity_score(
                         plan_progress * effective_weights["masterplan_progress"],
                         2,
                     )
+                    behavioral_master = master
+
+                    # Phase C: three-axis advisory. When AINDY_INFINITY_THREE_AXIS_ADVISORY is
+                    # on, the persisted master becomes the bounded Worth+Trajectory blend of the
+                    # behavioral anchor (≥80%). Off (default) → byte-identical to behavioral.
+                    # Missing axes return their weight to the anchor, so it never drags a score.
+                    # Non-fatal: any error falls back to the behavioral master; scoring is never
+                    # broken by the blend. The behavioral KPI columns below stay behavioral —
+                    # only master_score reflects the advisory blend.
+                    advisory_breakdown = None
+                    if advisory_enabled():
+                        try:
+                            advisory_breakdown = compute_advisory_breakdown(
+                                db, user_id,
+                                behavioral_master=behavioral_master,
+                                behavioral_kpis={
+                                    "execution_speed": exec_speed,
+                                    "decision_efficiency": decision_eff,
+                                    "ai_productivity_boost": ai_boost,
+                                    "focus_quality": focus_qual,
+                                    "masterplan_progress": plan_progress,
+                                },
+                                effective_weights=effective_weights,
+                            )
+                            master = advisory_breakdown["advisory_master"]
+                        except Exception as _adv_exc:  # pragma: no cover - defensive
+                            logger.warning("[three_axis] advisory blend skipped (non-fatal): %s", _adv_exc)
+                            advisory_breakdown = None
 
                     if total_data_points >= 50:
                         confidence = "high"
@@ -674,6 +703,9 @@ def calculate_infinity_score(
                 "masterplan_progress": plan_progress,
             },
             "weights": effective_weights,
+            # Phase C: present when the advisory flag is on — the blend that produced
+            # master_score (behavioral anchor + Worth + Trajectory). None when off.
+            "three_axis_advisory": advisory_breakdown,
             "metadata": {
                 "confidence": confidence,
                 "data_points_used": total_data_points,

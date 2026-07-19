@@ -136,16 +136,42 @@ calibrator (default-off, soak-then-flip):
 
 ```
 PHASE A  measure     Add Worth (declared prior + realized outcomes) and a first-class     ✅ SHIPPED
-         (this PR)   Trajectory axis + a consolidated Volume axis as OBSERVABILITY next to
+                     Trajectory axis + a consolidated Volume axis as OBSERVABILITY next to
                      the score. Score math unchanged; the snapshot never writes master_score.
 PHASE B  shadow      Compute the three-axis score in parallel; log (three_axis, current,   ✅ SHIPPED
-         (this PR)   realized_worth) to a ledger on each score event. Drives nothing.
-PHASE C  advisory    Worth/trajectory blend into the score within the existing weight
-                     clamps; behavioral KPIs remain the anchor. Flag-gated.
+                     realized_worth) to a ledger on each score event. Drives nothing.
+PHASE C  advisory    Worth/trajectory blend into the score within the existing weight      ✅ SHIPPED
+                     clamps; behavioral KPIs remain the anchor. Flag-gated (default off).
 PHASE D  drives      The three-axis model IS the canonical score; learned worth-estimation
                      (rung c) drives the worth axis. Requires soak evidence + the 3b-full
                      values flip. == learned-recursion Phase 2.
 ```
+
+**Phase C — shipped (structure, 2026-07-18).** When `AINDY_INFINITY_THREE_AXIS_ADVISORY` is
+on (default off), the persisted `master_score` becomes the bounded Worth+Trajectory blend of
+the behavioral anchor; off, it is byte-identical to the behavioral score (tested end-to-end).
+Built to the §8 spec:
+- **Composition engine** `apps/analytics/services/scoring/three_axis_composition.py` —
+  `compose_advisory_master` blends Worth (declared prior) + Trajectory onto the behavioral
+  anchor at conservative reserved weights (default 0.12 / 0.08; env-tunable via
+  `AINDY_INFINITY_WORTH_WEIGHT` / `AINDY_INFINITY_TRAJECTORY_WEIGHT`) with a hard
+  `BEHAVIORAL_MIN_WEIGHT=0.80` floor. **Graceful degradation:** a missing axis (no
+  declarations / no estimated tasks) returns its weight to the anchor, so absent worth or
+  trajectory data never drags a score — the axes can only add signal.
+- **Trajectory padding guard** (§8.3) in `compute_trajectory` — dampens the ahead-of-plan
+  excess when the ahead-signature is both pervasive and strong (chronic estimate padding),
+  leaving genuinely-fast-but-variable users untouched. Surfaced as `raw_score` +
+  `padding_penalty` for interpretability.
+- **Consolidation migration path** (§8.2) — `consolidate_volume` +
+  `consolidated_weight_view` express the 5→{Volume, Focus, AI-leverage}+{Worth, Trajectory}
+  reweighting (sums to 1.0). Surfaced for interpretability; it does **not** yet reshape the
+  persisted schema (that is Phase D) — so this PR adds no migration.
+- **Advisory preview** `GET /apps/analytics/three-axis/advisory` — read-only "advisory vs.
+  behavioral" comparison from current KPIs, works whether or not the flag is on, so operators
+  can compare before flipping.
+- The blend is flag-gated, bounded, reversible, and non-fatal (any error falls back to the
+  behavioral master — scoring never breaks). Structure is in place; the **flip** to actually
+  move scores stays gated on the Phase-B shadow soak supplying the initial worth weight.
 
 **Phase B — shipped (2026-07-18).** On each `calculate_infinity_score` event, when
 `AINDY_INFINITY_THREE_AXIS_SHADOW` is on (default off), the three axes are recorded next to
