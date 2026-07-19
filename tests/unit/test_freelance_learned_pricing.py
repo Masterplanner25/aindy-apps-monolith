@@ -81,7 +81,8 @@ def _seed_orders(db, uid, *, service_type="web", n, accepted, price=100.0, ratin
         o = FreelanceOrder(client_name="C", client_email=f"c{i}@e.com", service_type=service_type,
                            price=price, status="delivered",
                            payment_confirmed_at=now if paid else None, user_id=u)
-        db.add(o); db.flush()
+        db.add(o)
+        db.flush()
         if paid and rating:
             db.add(ClientFeedback(order_id=o.id, rating=rating, user_id=u))
     db.commit()
@@ -100,7 +101,9 @@ def _seed_matured_rec(db, uid, *, service_type, snapshot, prior_price, applied_p
         status="applied", prior_price=prior_price, trigger="manual",
         applied_at=datetime.now(timezone.utc) - timedelta(hours=OBSERVATION_HOURS + 1),
     )
-    db.add(rec); db.commit(); db.refresh(rec)
+    db.add(rec)
+    db.commit()
+    db.refresh(rec)
     return rec
 
 
