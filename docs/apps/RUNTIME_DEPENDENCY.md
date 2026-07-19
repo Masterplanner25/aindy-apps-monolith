@@ -32,12 +32,12 @@ Validated on `2026-07-19`:
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
 - app-profile boot smoke on 1.10.0: `boot_profile=default-apps`, `app_plugins_loaded=True`, `app_plugin_count=17`
 
-Floor raised to `1.10.0` to adopt v1.10.0 (additive/opt-in, no schema change): ships the
-**RT-MEMTXN-LEAK-1** fix (the browser sign-in blocker — memory-node reads no longer leak
-`idle in transaction` connections; app-side repro re-verification tracked in
-`RUNTIME_FEATURE_REQUESTS.md`), **closes NODUS-WARMPOOL-1** (warm `nodus_worker` pool,
-Phases 1–3 — opt-in via `AINDY_NODUS_WARM_POOL=true`, default off), and canonical
-`UI_CONTRACT` platform routes.
+Floor raised to `1.10.0` to adopt v1.10.0 (additive/opt-in, no schema change): a **partial
+RT-MEMTXN-LEAK-1** fix (post-request idle-in-transaction lingering now drains, but a
+within-request memory-recall fan-out follow-up remains — the browser sign-in is still slow;
+verified app-side and handed back in `RUNTIME_FEATURE_REQUESTS.md`), **closes NODUS-WARMPOOL-1**
+(warm `nodus_worker` pool, Phases 1–3 — opt-in via `AINDY_NODUS_WARM_POOL=true`, default off),
+and canonical `UI_CONTRACT` platform routes.
 
 Prior floor `1.9.0` adopted v1.9.0 (additive/opt-in, no schema change): **FR-5** —
 native Nodus workflows can now reach app logic (`run_nodus_workflow` gains a
