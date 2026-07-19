@@ -638,6 +638,15 @@ def calculate_infinity_score(
             "Infinity score for %s: %.1f (delta %+.1f, trigger=%s)",
             user_id, master, score_delta, trigger_event
         )
+        # Phase B: three-axis shadow — record Volume/Worth/Trajectory next to master_score
+        # when AINDY_INFINITY_THREE_AXIS_SHADOW is on. No-op otherwise; non-fatal (scoring
+        # must never break). Drives nothing — observability for the soak.
+        try:
+            from apps.analytics.services.scoring.three_axis_service import shadow_log_three_axes
+
+            shadow_log_three_axes(db, user_id=user_id, master_score=master, trigger_event=trigger_event)
+        except Exception as _shadow_exc:  # pragma: no cover - defensive
+            logger.debug("[three_axis] shadow hook skipped: %s", _shadow_exc)
         emit_event(
             SystemEventTypes.ANALYTICS_SCORE_UPDATED,
             {

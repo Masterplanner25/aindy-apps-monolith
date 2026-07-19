@@ -352,3 +352,28 @@ async def list_worth_declarations(
         user_id=user_id, metadata={"db": db},
     )
     return _with_execution_envelope(result)
+
+
+@router.get("/three-axis/shadow")
+@limiter.limit("60/minute")
+async def get_three_axis_shadow_report(
+    request: Request,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Three-axis shadow soak report (Phase B): recent recorded axes next to master_score
+    + mean-per-axis summary (the divergence signal). Records only accrue while
+    AINDY_INFINITY_THREE_AXIS_SHADOW is on."""
+    user_id = str(current_user["sub"])
+
+    def handler(ctx):
+        from apps.analytics.services.scoring.three_axis_service import three_axis_shadow_report
+
+        return three_axis_shadow_report(db, user_id=user_id, limit=limit)
+
+    result = await execute_with_pipeline(
+        request=request, route_name="analytics.three_axis.shadow", handler=handler,
+        user_id=user_id, metadata={"db": db},
+    )
+    return _with_execution_envelope(result)

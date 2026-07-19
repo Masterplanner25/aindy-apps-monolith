@@ -2114,6 +2114,15 @@ does not drive scoring).
 
 **Response 200:** unspecified
 
+#### GET /apps/analytics/three-axis/shadow
+Get Three Axis Shadow Report — recent shadow-ledger records (the axes logged next to
+`master_score` on each score event) + a mean-per-axis summary (the divergence signal, Phase B).
+Records accrue only while `AINDY_INFINITY_THREE_AXIS_SHADOW` is on.
+
+**Parameters:** limit (query): integer
+
+**Response 200:** unspecified
+
 #### POST /apps/analytics/worth/declare
 Declare Worth — declare what a task / masterplan / project is worth (the Worth axis's prior).
 Upserts per (user, target_type, target_id).
