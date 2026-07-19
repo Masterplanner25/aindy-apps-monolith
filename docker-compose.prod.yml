@@ -45,6 +45,23 @@ services:
       # See docs/deployment/DEPLOYMENT.md "Enabling the Claude planner".
       AINDY_AGENT_PLANNER_BACKEND: "${AINDY_AGENT_PLANNER_BACKEND:-runtime_local}"
       AINDY_CLAUDE_PLANNER_MODEL: "${AINDY_CLAUDE_PLANNER_MODEL:-}"
+      # DB statement / idle-in-transaction reap timeouts (ms). The runtime defaults to 30000,
+      # which is too tight for cold-start + agent-execution workloads on slower hosts: a
+      # request that holds a transaction open across a slow external call (embeddings, an
+      # agent step) gets its connection reaped mid-flight, poisoning the pool. Raised here
+      # and env-overridable. See docs/deployment/DEPLOYMENT.md.
+      DB_STATEMENT_TIMEOUT_MS: "${DB_STATEMENT_TIMEOUT_MS:-120000}"
+      DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: "${DB_IDLE_IN_TRANSACTION_TIMEOUT_MS:-120000}"
+      # Connection-pool headroom — agent execution fans out concurrent memory/embedding
+      # writes; the default 10+20 exhausts under that load on slower hosts.
+      DB_POOL_SIZE: "${DB_POOL_SIZE:-20}"
+      DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-40}"
+      # Nodus per-execution budget. The worker cold-starts the app stack (~17 apps) per run;
+      # the runtime default (30s script + 15s boot allowance) is too tight for an app-profile
+      # cold-start on a slower host, so executions fail with "worker exceeded 45000ms hard
+      # limit". Widened + env-overridable. See docs/deployment/DEPLOYMENT.md.
+      AINDY_NODUS_MAX_EXECUTION_MS: "${AINDY_NODUS_MAX_EXECUTION_MS:-120000}"
+      AINDY_NODUS_BOOT_ALLOWANCE_MS: "${AINDY_NODUS_BOOT_ALLOWANCE_MS:-60000}"
     ports:
       - "8000:8000"
     healthcheck:
