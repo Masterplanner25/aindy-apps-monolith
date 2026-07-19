@@ -155,9 +155,13 @@ single migration head.
 - **Pooled vs per-user model** — recommended pooled first; revisit if it underfits.
 - **Phase 2 flip + 3b-full** — the eventual "learned expectation drives scoring" step is
   still gated on a soak result *and* the parked 3b-full values call. Deferred by design.
+  These are unified in [INFINITY_SCORE_MODEL.md](./INFINITY_SCORE_MODEL.md): this learned
+  model is the mechanism that makes the **Worth axis** honest, and Phase 2 == that model's
+  "drives" rung. The two parked items are one decision seen from two ends.
 
 ## References
 
+- [INFINITY_SCORE_MODEL.md](./INFINITY_SCORE_MODEL.md) — the three-axis (Volume/Worth/Trajectory) score model this loop serves.
 - Reconciled architecture map (artifact v4) — the built-vs-asleep re-audit.
 - [BUILD_PLAN.md](./BUILD_PLAN.md) — forward roadmap (3b-full open decision).
 - `apps/analytics/services/orchestration/infinity_loop.py` — `evaluate_pending_adjustment` (the target).

@@ -158,7 +158,9 @@ Track 2 remains the single open build, deferred until an LLM-egress environment 
 - **Egress env for Track 2** *(open)* — self-hosted GitHub runner vs. a cloud Linux box (both give
   the stable Docker + Anthropic egress the literal Claude loop needs).
 - **3b-full weighting** *(open)* — which pillar signal is promoted to move the canonical Infinity
-  score, and at what weight. A values decision, deferred with Track 3.
+  score, and at what weight. A values decision, deferred with Track 3. Framed as the **Worth axis**
+  of the three-axis score model in [INFINITY_SCORE_MODEL.md](./INFINITY_SCORE_MODEL.md) (which unifies
+  this with the learned-recursion work — they resolve to one decision).
 - **Learned recursion (REFLECT calibration)** *(scoped)* — waking the REFLECT→EVOLVE loop from
   heuristic nudges to a learned model, starting with a shadow-mode expected-score calibrator that
   does not touch canonical weights. Scoped in
