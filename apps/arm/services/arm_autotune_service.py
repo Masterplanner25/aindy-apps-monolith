@@ -67,6 +67,24 @@ MIN_SESSIONS = 5
 MAX_CHANGES_PER_RUN = 3
 COOLDOWN_HOURS = 6
 
+# ── Learning close (Reflect -> Adjust -> LEARN) ────────────────────────────────
+# After OBSERVATION_HOURS, an applied change is judged against its metrics_snapshot:
+# a degraded outcome is auto-reverted and its key enters the gate's penalty box for
+# PENALTY_HOURS, so the tuner stops re-applying changes that historically hurt.
+OBSERVATION_HOURS = 24
+PENALTY_HOURS = 168          # 7 days a degraded key is skipped by the gate
+IMPROVE_DELTA = 3.0          # Δhealth >= this  → improved
+DEGRADE_DELTA = 3.0          # Δhealth <= -this → degraded (auto-reverted)
+
+
+def _health(snapshot: dict) -> float:
+    """A single interpretable health scalar (higher = better): decision efficiency up,
+    waste down. Deltas of this scalar across a change's observation window classify its
+    outcome. Both terms are ~0-100 in the metrics snapshot."""
+    efficiency = float((snapshot or {}).get("decision_efficiency", 0) or 0)
+    waste = float((snapshot or {}).get("waste_percentage", 0) or 0)
+    return efficiency - waste
+
 
 def _clamp(param: str, value):
     lo, hi = AUTO_TUNE_BOUNDS[param]
@@ -82,15 +100,22 @@ def evaluate_autotune_gate(
     current_config: dict,
     metrics: dict,
     recently_changed_keys: set[str] | None = None,
+    degraded_keys: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Decide which of the suggestion engine's ``auto_apply_safe`` changes may be
     applied. Pure: no I/O. Returns ``(applied, skipped)``.
 
+    ``recently_changed_keys`` — cooldown set (anti-oscillation).
+    ``degraded_keys`` — the learning-close penalty box: keys whose recent change was
+    judged to *degrade* metrics; the gate refuses to re-apply to them (this is what
+    closes Reflect -> Adjust -> LEARN back into the decision).
+
     ``applied`` items: {param, old, new, metric, reason, risk}
     ``skipped`` items: {param, suggested, reason}
     """
     recently_changed_keys = recently_changed_keys or set()
+    degraded_keys = degraded_keys or set()
     applied: list[dict] = []
     skipped: list[dict] = []
 
@@ -127,6 +152,12 @@ def evaluate_autotune_gate(
             if param in seen_params:
                 skipped.append(
                     {"param": param, "suggested": new_val, "reason": "duplicate param in this run"}
+                )
+                continue
+            if param in degraded_keys:
+                seen_params.add(param)
+                skipped.append(
+                    {"param": param, "suggested": new_val, "reason": "penalty box: a recent change to this key degraded metrics"}
                 )
                 continue
             if param in recently_changed_keys:
@@ -206,11 +237,20 @@ class ARMAutoTuneService:
             current_config=current_config, metrics=metrics
         ).generate_suggestions()
 
-        since = datetime.now(timezone.utc) - timedelta(hours=COOLDOWN_HOURS)
-        cooldown_keys = arm_autotune_dao.recent_changed_keys(self.db, self.config_key, since)
+        now = datetime.now(timezone.utc)
+        cooldown_keys = arm_autotune_dao.recent_changed_keys(
+            self.db, self.config_key, now - timedelta(hours=COOLDOWN_HOURS)
+        )
+        degraded_keys = arm_autotune_dao.recently_degraded_keys(
+            self.db, self.config_key, now - timedelta(hours=PENALTY_HOURS)
+        )
 
         applied, skipped = evaluate_autotune_gate(
-            bundle, current_config, metrics, recently_changed_keys=cooldown_keys
+            bundle,
+            current_config,
+            metrics,
+            recently_changed_keys=cooldown_keys,
+            degraded_keys=degraded_keys,
         )
         return {
             "applied": applied,
@@ -222,8 +262,60 @@ class ARMAutoTuneService:
 
     # ── writes ────────────────────────────────────────────────────────────────
 
+    def evaluate_outcomes(self, observation_hours: int = OBSERVATION_HOURS, window: int = 30) -> dict:
+        """The LEARN step: judge each matured applied change against its ``metrics_snapshot``,
+        record the verdict, and AUTO-REVERT any change that degraded metrics (its key then
+        enters the gate's penalty box). This is what closes Reflect -> Adjust -> LEARN.
+
+        Attribution is deliberately simple — current health vs the change's apply-time
+        snapshot. The cooldown + max-changes-per-run keep concurrent changes sparse, so a
+        per-change before/after read is a sound first-order signal (not a controlled experiment).
+        """
+        now = datetime.now(timezone.utc)
+        matured = arm_autotune_dao.list_matured_unevaluated(
+            self.db, self.config_key, before=now - timedelta(hours=observation_hours)
+        )
+        empty = {"evaluated": 0, "improved": 0, "degraded": 0, "neutral": 0, "auto_reverted": 0, "results": []}
+        if not matured:
+            return empty
+
+        current_snapshot = self._metrics_snapshot(self._metrics(window))
+        current_health = _health(current_snapshot)
+
+        counts = {"improved": 0, "degraded": 0, "neutral": 0}
+        auto_reverted = 0
+        results: list[dict] = []
+        for log in matured:
+            delta = round(current_health - _health(log.metrics_snapshot or {}), 3)
+            if delta >= IMPROVE_DELTA:
+                outcome = "improved"
+            elif delta <= -DEGRADE_DELTA:
+                outcome = "degraded"
+            else:
+                outcome = "neutral"
+            arm_autotune_dao.set_outcome(
+                self.db, log.id, user_id=self.config_key,
+                outcome=outcome, delta=delta, snapshot=current_snapshot, evaluated_at=now,
+            )
+            counts[outcome] += 1
+            reverted = False
+            if outcome == "degraded":
+                reverted = self.revert(log.id).get("status") == "reverted"
+                if reverted:
+                    auto_reverted += 1
+            results.append({
+                "log_id": str(log.id),
+                "outcome": outcome,
+                "delta": delta,
+                "keys": [c.get("param") for c in (log.applied or []) if c.get("param")],
+                "auto_reverted": reverted,
+            })
+        return {"evaluated": len(matured), **counts, "auto_reverted": auto_reverted, "results": results}
+
     def apply(self, window: int = 30, trigger: str = "manual") -> dict:
-        """Apply the gated changes, persist config + an audit row, propagate."""
+        """Learn, then apply: first judge matured past changes (auto-reverting the ones that
+        degraded metrics and refreshing the penalty box), then apply the gated new changes."""
+        learning = self.evaluate_outcomes(window=window)
         proposal = self.plan(window=window)
         applied = proposal["applied"]
 
@@ -235,6 +327,7 @@ class ARMAutoTuneService:
                 "skipped": proposal["skipped"],
                 "config": proposal["prior_config"],
                 "log_id": None,
+                "learning": learning,
             }
 
         prior_config = proposal["prior_config"]
@@ -266,6 +359,7 @@ class ARMAutoTuneService:
             "skipped": proposal["skipped"],
             "config": resulting_config,
             "log_id": str(log.id),
+            "learning": learning,
         }
 
     def revert(self, log_id) -> dict:
@@ -338,4 +432,7 @@ class ARMAutoTuneService:
             "reverted": bool(row.reverted),
             "reverted_at": row.reverted_at.isoformat() if row.reverted_at else None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
+            "outcome": row.outcome,
+            "outcome_delta": row.outcome_delta,
+            "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
         }

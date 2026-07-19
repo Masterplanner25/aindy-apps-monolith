@@ -82,6 +82,69 @@ def recent_changed_keys(db: Session, user_id: str, since: datetime) -> set[str]:
     return keys
 
 
+def list_matured_unevaluated(db: Session, user_id: str, before: datetime) -> list[ArmAutoTuneLog]:
+    """Applied auto-tune logs ready for the learning close: old enough to judge
+    (``created_at <= before``), not reverted, and outcome not yet evaluated."""
+    return (
+        db.query(ArmAutoTuneLog)
+        .filter(
+            ArmAutoTuneLog.user_id == str(user_id),
+            ArmAutoTuneLog.reverted.is_(False),
+            ArmAutoTuneLog.outcome.is_(None),
+            ArmAutoTuneLog.created_at <= before,
+        )
+        .order_by(ArmAutoTuneLog.created_at.asc())
+        .all()
+    )
+
+
+def set_outcome(
+    db: Session,
+    log_id: Any,
+    *,
+    user_id: str | None = None,
+    outcome: str,
+    delta: float | None,
+    snapshot: dict | None,
+    evaluated_at: datetime | None = None,
+) -> ArmAutoTuneLog | None:
+    """Record the learned verdict (improved | degraded | neutral) on an applied change."""
+    row = get_log(db, log_id, user_id=user_id)
+    if row is None:
+        return None
+    row.outcome = outcome
+    row.outcome_delta = delta
+    row.outcome_snapshot = snapshot
+    row.evaluated_at = evaluated_at or datetime.now(timezone.utc)
+    try:
+        db.commit()
+        db.refresh(row)
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+    return row
+
+
+def recently_degraded_keys(db: Session, user_id: str, since: datetime) -> set[str]:
+    """Params whose recent applied change was judged ``degraded`` — the gate's penalty box."""
+    rows = (
+        db.query(ArmAutoTuneLog)
+        .filter(
+            ArmAutoTuneLog.user_id == str(user_id),
+            ArmAutoTuneLog.outcome == "degraded",
+            ArmAutoTuneLog.evaluated_at >= since,
+        )
+        .all()
+    )
+    keys: set[str] = set()
+    for row in rows:
+        for change in row.applied or []:
+            param = change.get("param")
+            if param:
+                keys.add(param)
+    return keys
+
+
 def mark_reverted(db: Session, log_id: Any, user_id: str | None = None) -> ArmAutoTuneLog | None:
     row = get_log(db, log_id, user_id=user_id)
     if row is None:

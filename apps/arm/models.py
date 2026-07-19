@@ -192,6 +192,15 @@ class ArmAutoTuneLog(Base):
     reverted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
+    # --- Learning close (Reflect -> Adjust -> LEARN) ---
+    # After an observation window, the applied change is judged against its metrics_snapshot:
+    # a degraded outcome is auto-reverted and its key enters the gate's penalty box; the
+    # verdict biases future auto-tune decisions. NULL outcome = not yet evaluated (pending).
+    outcome = Column(String(16), nullable=True, index=True)   # improved | degraded | neutral | NULL(pending)
+    outcome_delta = Column(Float, nullable=True)              # health delta (now - snapshot) at evaluation
+    outcome_snapshot = Column(JSON, nullable=True)            # metrics at evaluation time (audit)
+    evaluated_at = Column(DateTime(timezone=True), nullable=True)
+
 
 def register_models() -> None:
     _ = (AnalysisResult, CodeGeneration, ARMRun, ARMLog, ARMConfig, ArmConfig, ArmAutoTuneLog)
