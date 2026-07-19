@@ -185,19 +185,43 @@ the unchanged `master_score`:
 - **Resolves** the "TWR names a financial metric but measures behavior" inconsistency —
   either the score genuinely reflects worth (this model), or "TWR" is retired as a metaphor.
 
-## 8. Open decisions
+## 8. Decisions (resolved 2026-07-16) — the Phase C spec
 
-1. **Worth prior source** — declared-only to start, or declared + wire the live Freelance
-   realized-revenue pillar as the first outcome label? (Recommend: declared prior first; it
-   unblocks the whole model without waiting on outcome density.)
-2. **Volume consolidation** — collapse 3 completion KPIs into 1, or keep them and add Worth +
-   Trajectory as new KPIs (5 → 7)? (Recommend: consolidate — the triple-count is the bug.)
-3. **Trajectory normalization** — how much does "ahead of plan" count, and is chronic
-   under-estimation (always "ahead") penalized so the signal isn't gameable?
-4. **Initial worth weight** (the literal 3b-full number) — the values call: at what weight
-   does worth move the score relative to Volume and Trajectory?
-5. **Pooled vs per-user** learned worth model — inherited from the learned-recursion scope
-   (recommend pooled with per-user features until it underfits).
+The five open decisions are settled. Phase C builds against these; the values call (#4)
+is deliberately a soak-tunable default, not a frozen constant.
+
+1. **Worth prior source → declared-only, first.** The Worth axis is fed by
+   `IntentValueDeclaration` (the declared prior) alone at the first flip. Realized freelance
+   revenue stays **observability-only** — it is already logged next to the axes in the
+   Phase-B shadow ledger (`realized_revenue`), and is promoted to an outcome *label* only
+   once outcome density justifies it (rung (b), a later phase). This unblocks the model
+   without waiting on sparse revenue events.
+2. **Volume consolidation → consolidate to one Volume KPI.** `execution_speed` +
+   `decision_efficiency` + the completion half of `masterplan_progress` collapse into a
+   single **Volume** KPI (effort-weighted work completed). This ends the triple-count and
+   frees weight for Worth + Trajectory. Phase C must ship a **weight-migration/reset path**
+   for existing per-user `kpi_weight_service` rows keyed to the retired KPIs.
+3. **Trajectory anti-gaming → penalize chronic estimate padding.** Trajectory =
+   `f(estimated, actual)`, on-time neutral, ahead positive, behind negative — **but** the
+   ahead-of-plan reward is **dampened when a user's estimates run chronically far above
+   actuals**. (Correction to the earlier draft: to always finish "ahead" you *over*-estimate
+   duration — pad the estimate — since `trajectory ∝ estimated/actual`. Over-estimation, not
+   under-estimation, is the gaming vector.) The guard keeps the signal honest against
+   estimate inflation.
+4. **Initial worth weight → conservative nudge (~10–15%), soak-tunable.** At the first
+   Phase-C flip Worth carries ~10–15% of the composite; the behavioral KPIs remain the
+   anchor and the flip is reversible. This is a **default, not a constant** — the Phase-B
+   shadow soak (`GET /apps/analytics/three-axis/shadow`) supplies the divergence evidence
+   that justifies raising it. No larger weight ships without soak data.
+5. **Pooled vs per-user learned worth model → deferred to Phase D.** Not a Phase C concern
+   (Phase C uses the declared prior, no learned estimation). When Phase D (learned rung (c))
+   arrives: pooled model with per-user features, revisited only if it underfits — inherited
+   unchanged from the learned-recursion scope.
+
+**Phase C scope, locked by the above:** consolidate the 5 behavioral KPIs → {Volume, Focus,
+AI-leverage} + add {Worth (declared prior), Trajectory (padding-guarded)}; blend Worth +
+Trajectory into `master_score` within the existing weight clamps at a conservative initial
+worth weight; flag-gated (default off) with a per-user weight-migration path; soak-then-flip.
 
 ## 9. References
 
