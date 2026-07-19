@@ -46,9 +46,67 @@ MULT_MAX = 1.20              # never raise more than 20% in one run
 HOLD_DEADBAND = 0.02         # |multiplier - 1| within this => hold (no-op)
 COOLDOWN_HOURS = 24
 
+# ── Learning close: judge on REALIZED revenue, then learn ──────────────────────
+# A price change is judged on expected revenue per lead (price × acceptance) — the
+# objective the static rule ignored. Improved/degraded is a *relative* move so it is
+# scale-invariant across services. A degraded change is auto-reverted; the verdict feeds a
+# learned per-service revenue-direction bias that nudges the (previously static) multiplier.
+OBSERVATION_HOURS = 72       # give a price change time to attract/convert orders before judging
+REL_DELTA = 0.05             # ±5% move in revenue_score classifies improved / degraded
+LEARN_WEIGHT = 0.08          # how much the learned revenue-direction moves the multiplier
+LEARN_MIN_OUTCOMES = 2       # need this many judged outcomes before trusting the learned bias
+
+# (direction, outcome) -> which way the service's price should lean.
+# increase+improved => raising helped => under-priced (+); increase+degraded => over-priced (−);
+# decrease+improved => lowering helped => over-priced (−); decrease+degraded => under-priced (+).
+_DIRECTION_OUTCOME_SIGN: dict[tuple[str, str], int] = {
+    ("increase", "improved"): +1,
+    ("increase", "degraded"): -1,
+    ("decrease", "improved"): -1,
+    ("decrease", "degraded"): +1,
+}
+
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+def _revenue_score(stats: dict) -> float:
+    """Expected revenue per lead = price × acceptance — the objective a price change is judged on.
+
+    Captures the elasticity tradeoff the static rule missed: raising the price lifts the price
+    term but may lower acceptance, so only the *product* says whether revenue actually improved.
+    """
+    price = float((stats or {}).get("baseline_price") or 0.0)
+    acceptance = float((stats or {}).get("acceptance_rate") or 0.0)
+    return round(price * acceptance, 4)
+
+
+def _classify_outcome(prior_score: float, current_score: float) -> tuple[str, float]:
+    """Relative change in revenue_score -> (outcome, relative_delta)."""
+    denom = prior_score if prior_score > 1e-9 else 1e-9
+    rel = round((current_score - prior_score) / denom, 4)
+    if rel >= REL_DELTA:
+        return "improved", rel
+    if rel <= -REL_DELTA:
+        return "degraded", rel
+    return "neutral", rel
+
+
+def learned_revenue_bias(outcomes: list[tuple[str, str]]) -> float:
+    """Per-service revenue-direction bias in [-1, 1] learned from past (direction, outcome) pairs.
+
+    Positive => history says this service is under-priced (lean up); negative => over-priced.
+    Returns 0.0 until at least LEARN_MIN_OUTCOMES judged (improved/degraded) outcomes exist.
+    """
+    signs = [
+        _DIRECTION_OUTCOME_SIGN[(d, o)]
+        for (d, o) in outcomes
+        if (d, o) in _DIRECTION_OUTCOME_SIGN
+    ]
+    if len(signs) < LEARN_MIN_OUTCOMES:
+        return 0.0
+    return round(sum(signs) / len(signs), 3)
 
 
 def get_service_price(db: Session, user_id, service_type: str) -> float | None:
@@ -70,8 +128,13 @@ def get_service_price(db: Session, user_id, service_type: str) -> float | None:
     return row.current_price if row else None
 
 
-def _price_multiplier(stats: dict) -> float:
-    """Deterministic, explainable multiplier from realized outcomes."""
+def _price_multiplier(stats: dict, learned_bias: float = 0.0) -> float:
+    """Explainable multiplier from realized outcomes, nudged by the learned revenue direction.
+
+    The satisfaction terms (rating/refund/acceptance) are the prior; ``learned_bias`` — the
+    per-service revenue-direction learned from how past changes moved realized revenue — is the
+    correction that makes the loop optimize revenue, not just satisfaction.
+    """
     mult = 1.0
     avg_rating = stats.get("avg_rating")            # 1..5 or None
     refund_rate = stats.get("refund_rate") or 0.0
@@ -89,6 +152,9 @@ def _price_multiplier(stats: dict) -> float:
 
     if acceptance_rate is not None and acceptance_rate < 0.4:
         mult -= 0.05                                # price resistance -> lower
+
+    # Learned revenue-direction correction (0 until enough judged outcomes exist).
+    mult += LEARN_WEIGHT * _clamp(learned_bias, -1.0, 1.0)
 
     return round(_clamp(mult, MULT_MIN, MULT_MAX), 3)
 
@@ -111,12 +177,17 @@ def evaluate_pricing_gate(
     recently_changed: set | None = None,
     *,
     min_sample: int = MIN_SAMPLE_SIZE,
+    learned_bias_by_service: dict[str, float] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Decide which service types warrant a price change. Pure: no I/O.
     Returns ``(recommendations, skipped)``.
+
+    ``learned_bias_by_service`` — per-service revenue-direction learned from past outcomes;
+    nudges the multiplier toward what historically improved realized revenue.
     """
     recently_changed = recently_changed or set()
+    learned_bias_by_service = learned_bias_by_service or {}
     recommendations: list[dict] = []
     skipped: list[dict] = []
 
@@ -136,7 +207,8 @@ def evaluate_pricing_gate(
             skipped.append({"service_type": service_type, "reason": "no positive baseline price"})
             continue
 
-        mult = _price_multiplier(stats)
+        learned_bias = float(learned_bias_by_service.get(service_type, 0.0) or 0.0)
+        mult = _price_multiplier(stats, learned_bias)
         if abs(mult - 1.0) <= HOLD_DEADBAND:
             skipped.append({"service_type": service_type, "reason": "signals neutral — hold"})
             continue
@@ -155,6 +227,7 @@ def evaluate_pricing_gate(
                 "recommended_price": recommended,
                 "multiplier": mult,
                 "direction": direction,
+                "learned_bias": learned_bias,
                 "rationale": _rationale(stats, direction),
                 "signals": stats,
             }
@@ -240,17 +313,94 @@ class RevenueIntelligenceService:
         )
         return {row[0] for row in rows}
 
+    def _learned_bias_by_service(self) -> dict[str, float]:
+        """Per-service revenue-direction bias learned from past (direction, outcome) pairs."""
+        rows = (
+            self.db.query(
+                PricingRecommendation.service_type,
+                PricingRecommendation.direction,
+                PricingRecommendation.outcome,
+            )
+            .filter(
+                PricingRecommendation.user_id == self.user_uuid,
+                PricingRecommendation.outcome.isnot(None),
+            )
+            .order_by(PricingRecommendation.created_at.asc())
+            .all()
+        )
+        by_service: dict[str, list[tuple[str, str]]] = {}
+        for service_type, direction, outcome in rows:
+            by_service.setdefault(service_type, []).append((direction or "", outcome or ""))
+        return {svc: learned_revenue_bias(pairs) for svc, pairs in by_service.items()}
+
     def plan(self) -> dict:
         """Dry run: which service prices *would* change, and what's gated."""
         recommendations, skipped = evaluate_pricing_gate(
-            self._stats_by_service(), self._current_prices(), self._recently_changed()
+            self._stats_by_service(),
+            self._current_prices(),
+            self._recently_changed(),
+            learned_bias_by_service=self._learned_bias_by_service(),
         )
         return {"recommendations": recommendations, "skipped": skipped, "would_change": bool(recommendations)}
 
     # ── writes ────────────────────────────────────────────────────────────────
 
+    def evaluate_outcomes(self, observation_hours: int = OBSERVATION_HOURS) -> dict:
+        """LEARN step: score each matured applied change on realized expected-revenue
+        (price × acceptance) vs its apply-time snapshot, record the verdict, and AUTO-REVERT
+        a change that degraded revenue. This is what makes *realized revenue* — not just
+        satisfaction — the thing the loop optimizes, and it feeds the per-service learned bias."""
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=observation_hours)
+        matured = (
+            self.db.query(PricingRecommendation)
+            .filter(
+                PricingRecommendation.user_id == self.user_uuid,
+                PricingRecommendation.status == "applied",
+                PricingRecommendation.outcome.is_(None),
+                PricingRecommendation.applied_at.isnot(None),
+                PricingRecommendation.applied_at <= cutoff,
+            )
+            .order_by(PricingRecommendation.applied_at.asc())
+            .all()
+        )
+        empty = {"evaluated": 0, "improved": 0, "degraded": 0, "neutral": 0, "auto_reverted": 0, "results": []}
+        if not matured:
+            return empty
+
+        current_stats = self._stats_by_service()
+        counts = {"improved": 0, "degraded": 0, "neutral": 0}
+        auto_reverted = 0
+        results: list[dict] = []
+        for rec in matured:
+            prior_score = _revenue_score(rec.signals or {})
+            current_score = _revenue_score(current_stats.get(rec.service_type, {}))
+            outcome, delta = _classify_outcome(prior_score, current_score)
+            rec.outcome = outcome
+            rec.outcome_delta = delta
+            rec.outcome_snapshot = current_stats.get(rec.service_type, {})
+            rec.evaluated_at = now
+            self.db.commit()
+            counts[outcome] += 1
+            reverted = False
+            if outcome == "degraded":
+                reverted = self.revert(rec.id).get("status") == "reverted"
+                if reverted:
+                    auto_reverted += 1
+            results.append({
+                "recommendation_id": rec.id,
+                "service_type": rec.service_type,
+                "outcome": outcome,
+                "delta": delta,
+                "direction": rec.direction,
+                "auto_reverted": reverted,
+            })
+        return {"evaluated": len(matured), **counts, "auto_reverted": auto_reverted, "results": results}
+
     def apply(self, trigger: str = "manual") -> dict:
-        """Write the recommended default prices + a revertible audit row each."""
+        """Learn, then apply: first score matured past changes on realized revenue (auto-reverting
+        the ones that hurt), then write the new gated recommendations (now nudged by what was learned)."""
+        learning = self.evaluate_outcomes()
         proposal = self.plan()
         recommendations = proposal["recommendations"]
 
@@ -261,6 +411,7 @@ class RevenueIntelligenceService:
                 "applied": [],
                 "skipped": proposal["skipped"],
                 "count": 0,
+                "learning": learning,
             }
 
         now = datetime.now(timezone.utc)
@@ -301,6 +452,7 @@ class RevenueIntelligenceService:
             "applied": applied,
             "skipped": proposal["skipped"],
             "count": len(applied),
+            "learning": learning,
         }
 
     def revert(self, recommendation_id) -> dict:
@@ -411,4 +563,7 @@ class RevenueIntelligenceService:
             "applied_at": row.applied_at.isoformat() if row.applied_at else None,
             "reverted_at": row.reverted_at.isoformat() if row.reverted_at else None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
+            "outcome": row.outcome,
+            "outcome_delta": row.outcome_delta,
+            "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
         }

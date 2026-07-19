@@ -85,5 +85,15 @@ class PricingRecommendation(Base):
     reverted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
+    # --- Learning close: judge the change against REALIZED revenue, then learn ---
+    # After an observation window the applied change is scored on expected revenue per lead
+    # (baseline_price × acceptance_rate) vs its signals snapshot; a degraded change is
+    # auto-reverted, and the verdict feeds a learned per-service revenue-direction bias.
+    # NULL outcome = not yet evaluated (pending).
+    outcome = Column(String(16), nullable=True, index=True)   # improved | degraded | neutral | NULL(pending)
+    outcome_delta = Column(Float, nullable=True)              # Δ(revenue_score) now vs apply-time snapshot
+    outcome_snapshot = Column(JSON, nullable=True)            # service stats at evaluation time (audit)
+    evaluated_at = Column(DateTime(timezone=True), nullable=True)
+
     def __repr__(self):
         return f"<PricingRecommendation(service_type='{self.service_type}', status='{self.status}')>"
