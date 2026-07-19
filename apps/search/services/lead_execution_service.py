@@ -17,21 +17,31 @@ The gate (``evaluate_lead_action_gate``) is a pure function, unit-tested without
 
 Gate rules (all must pass for a lead to be actioned):
   * dedup        — a lead already actioned (non-reverted) is left alone
+  * auto-suppress — a leadgen query the learning close judged non-converting is gated out
   * score        — overall_score must clear MIN_OVERALL_SCORE
   * data quality — data_quality_score must clear MIN_DATA_QUALITY
   * max per run  — at most MAX_ACTIONS_PER_RUN, highest-scoring first
+
+Learning close: the static gate never checked whether actioned leads convert. ``execute``
+first runs ``evaluate_outcomes`` — after an observation window each matured, non-reverted
+action is judged on its in-domain conversion signal (a ``convert``/thumbs_up on the lead's
+url in ``SearchResultFeedback``). Since outreach can't be un-sent, a segment (the leadgen
+query) whose actioned leads consistently fail to convert is AUTO-SUPPRESSED forward — its
+future leads are gated out — rather than reverted.
 """
 from __future__ import annotations
 
 import logging
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from AINDY.platform_layer.user_ids import require_user_id
 from apps.search.models.lead_action import LeadAction
 from apps.search.models.leadgen_model import LeadGenResult
+from apps.search.models.result_feedback import SearchResultFeedback
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +51,17 @@ logger = logging.getLogger(__name__)
 MIN_OVERALL_SCORE = 60.0
 MIN_DATA_QUALITY = 50.0
 MAX_ACTIONS_PER_RUN = 5
+
+# ── Learning close ────────────────────────────────────────────────────────────
+# The static gate only trusts overall_score + data_quality — it never checked whether
+# actioned leads actually convert. After OBSERVATION_HOURS each non-reverted action is
+# judged on its in-domain conversion signal (a `convert`/thumbs_up on the lead's url in
+# SearchResultFeedback). Outreach can't be un-sent, so a segment (the leadgen query) whose
+# matured actions consistently fail to convert is AUTO-SUPPRESSED forward — future leads
+# from it are gated out — rather than reverted.
+OBSERVATION_HOURS = 72          # give an actioned lead time to convert before judging
+SUPPRESS_MIN_OUTCOMES = 3       # need this many judged actions in a segment before suppressing
+SUPPRESS_MAX_CONVERSION_RATE = 0.15  # suppress a segment whose judged conversion rate is <= this
 
 _SEND_ENABLED_VALUES = {"1", "true", "yes", "on"}
 
@@ -56,16 +77,21 @@ def evaluate_lead_action_gate(
     min_overall_score: float = MIN_OVERALL_SCORE,
     min_data_quality: float = MIN_DATA_QUALITY,
     max_actions: int = MAX_ACTIONS_PER_RUN,
+    suppressed_segments: set | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Decide which scored leads warrant an outreach action. Pure: no I/O.
     Returns ``(selected, skipped)``.
 
-    ``selected`` items: {lead_id, company, url, context, score, data_quality, reason}
+    ``selected`` items: {lead_id, company, url, context, query, score, data_quality, reason}
     ``skipped`` items:  {lead_id, company, reason}
+
+    ``suppressed_segments`` — leadgen queries the learning close judged as consistently
+    non-converting; their leads are gated out (auto-suppress) regardless of score.
     """
     selected: list[dict] = []
     skipped: list[dict] = []
+    suppressed = suppressed_segments or set()
 
     # Highest-scoring first, so the per-run cap keeps the best leads.
     ranked = sorted(leads, key=lambda lead: (lead.get("overall_score") or 0), reverse=True)
@@ -75,9 +101,16 @@ def evaluate_lead_action_gate(
         company = lead.get("company")
         overall = lead.get("overall_score") or 0
         data_quality = lead.get("data_quality_score")
+        query = lead.get("query")
 
         if lead_id in actioned_lead_ids:
             skipped.append({"lead_id": lead_id, "company": company, "reason": "already actioned"})
+            continue
+        if query is not None and query in suppressed:
+            skipped.append(
+                {"lead_id": lead_id, "company": company,
+                 "reason": "segment auto-suppressed (low conversion)"}
+            )
             continue
         if overall < min_overall_score:
             skipped.append(
@@ -104,6 +137,7 @@ def evaluate_lead_action_gate(
                 "company": company,
                 "url": lead.get("url"),
                 "context": lead.get("context"),
+                "query": query,
                 "score": overall,
                 "data_quality": data_quality,
                 "reason": f"qualified (score {overall})",
@@ -138,6 +172,7 @@ class LeadExecutionService:
                 "company": row.company,
                 "url": row.url,
                 "context": row.context,
+                "query": row.query,
                 "overall_score": row.overall_score,
                 "data_quality_score": row.data_quality_score,
             }
@@ -152,15 +187,72 @@ class LeadExecutionService:
         )
         return {row[0] for row in rows if row[0] is not None}
 
+    def _conversion_signal(self, url: str | None, company: str | None) -> float:
+        """In-domain conversion signal for an actioned lead: net feedback weight on its
+        result_ref (url/company). A `convert` (+1.0) or `thumbs_up` reads as converted."""
+        refs = [r for r in (url, company) if r]
+        if not refs:
+            return 0.0
+        rows = (
+            self.db.query(SearchResultFeedback.weight)
+            .filter(
+                SearchResultFeedback.user_id == self.user_uuid,
+                SearchResultFeedback.result_ref.in_(refs),
+            )
+            .all()
+        )
+        return round(sum(float(w or 0.0) for (w,) in rows), 3)
+
+    def _suppressed_segments(self) -> set:
+        """Leadgen queries whose judged actions consistently fail to convert.
+
+        Recomputed from recorded outcomes each run (no separate state) — a segment is
+        suppressed once it has >= SUPPRESS_MIN_OUTCOMES judged actions and a conversion
+        rate <= SUPPRESS_MAX_CONVERSION_RATE.
+        """
+        rows = (
+            self.db.query(LeadAction.lead_query, LeadAction.outcome)
+            .filter(
+                LeadAction.user_id == self.user_uuid,
+                LeadAction.outcome.isnot(None),
+                LeadAction.lead_query.isnot(None),
+            )
+            .all()
+        )
+        totals: dict[str, list[int]] = {}  # segment -> [converted, total]
+        for segment, outcome in rows:
+            counts = totals.setdefault(segment, [0, 0])
+            counts[1] += 1
+            if outcome == "converted":
+                counts[0] += 1
+        suppressed = set()
+        for segment, (converted, total) in totals.items():
+            if total >= SUPPRESS_MIN_OUTCOMES and (converted / total) <= SUPPRESS_MAX_CONVERSION_RATE:
+                suppressed.add(segment)
+        return suppressed
+
     def plan(self) -> dict:
         """Dry run: which leads *would* be actioned, and what's gated."""
-        selected, skipped = evaluate_lead_action_gate(self._leads(), self._actioned_lead_ids())
-        return {"selected": selected, "skipped": skipped, "would_act": bool(selected)}
+        suppressed = self._suppressed_segments()
+        selected, skipped = evaluate_lead_action_gate(
+            self._leads(), self._actioned_lead_ids(), suppressed_segments=suppressed
+        )
+        return {
+            "selected": selected,
+            "skipped": skipped,
+            "would_act": bool(selected),
+            "suppressed_segments": sorted(suppressed),
+        }
 
     # ── writes ────────────────────────────────────────────────────────────────
 
     def execute(self, channel: str = "draft", trigger: str = "manual") -> dict:
-        """Draft + record an action for each gated lead. Never sends in this cut."""
+        """Draft + record an action for each gated lead. Never sends in this cut.
+
+        LEARN first: judge matured actions and refresh the auto-suppress set, so this run's
+        gate already excludes segments that have proven non-converting.
+        """
+        learning = self.evaluate_outcomes()
         proposal = self.plan()
         selected = proposal["selected"]
 
@@ -170,6 +262,8 @@ class LeadExecutionService:
                 "dry_run": False,
                 "actions": [],
                 "skipped": proposal["skipped"],
+                "suppressed_segments": proposal["suppressed_segments"],
+                "learning": learning,
                 "count": 0,
             }
 
@@ -182,6 +276,7 @@ class LeadExecutionService:
                 lead_id=item["lead_id"],
                 company=item["company"],
                 url=item.get("url"),
+                lead_query=item.get("query"),
                 channel=channel,
                 status=status,
                 draft_subject=draft["subject"],
@@ -209,8 +304,49 @@ class LeadExecutionService:
             "dry_run": False,
             "actions": actions,
             "skipped": proposal["skipped"],
+            "suppressed_segments": proposal["suppressed_segments"],
+            "learning": learning,
             "count": len(actions),
         }
+
+    def evaluate_outcomes(self, observation_hours: int = OBSERVATION_HOURS) -> dict:
+        """LEARN step: judge each matured, non-reverted action on whether its lead converted
+        (in-domain feedback signal), record the verdict, and report the segments the refreshed
+        outcomes now auto-suppress. Idempotent — only actions past the window with no verdict yet.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=observation_hours)
+        matured = (
+            self.db.query(LeadAction)
+            .filter(
+                LeadAction.user_id == self.user_uuid,
+                LeadAction.status != "reverted",
+                LeadAction.outcome.is_(None),
+                LeadAction.created_at <= cutoff,
+            )
+            .all()
+        )
+        summary = {"evaluated": 0, "converted": 0, "no_response": 0, "suppressed_segments": []}
+        if not matured:
+            summary["suppressed_segments"] = sorted(self._suppressed_segments())
+            return summary
+
+        now = datetime.now(timezone.utc)
+        converted = 0
+        for row in matured:
+            signal = self._conversion_signal(row.url, row.company)
+            outcome = "converted" if signal > 0 else "no_response"
+            row.outcome = outcome
+            row.outcome_signal = signal
+            row.evaluated_at = now
+            if outcome == "converted":
+                converted += 1
+        self.db.commit()
+
+        summary["evaluated"] = len(matured)
+        summary["converted"] = converted
+        summary["no_response"] = len(matured) - converted
+        summary["suppressed_segments"] = sorted(self._suppressed_segments())
+        return summary
 
     def revert(self, action_id) -> dict:
         """Mark an action reverted so its lead is eligible again."""
@@ -340,12 +476,16 @@ class LeadExecutionService:
             "url": row.url,
             "channel": row.channel,
             "status": row.status,
+            "lead_query": row.lead_query,
             "draft_subject": row.draft_subject,
             "draft_body": row.draft_body,
             "decision_score": row.decision_score,
             "decision_reason": row.decision_reason,
             "trigger": row.trigger,
             "note": row.note,
+            "outcome": row.outcome,
+            "outcome_signal": row.outcome_signal,
+            "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "reverted_at": row.reverted_at.isoformat() if row.reverted_at else None,
         }
