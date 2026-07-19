@@ -68,6 +68,11 @@ commit real values):
 `DATABASE_URL` and `REDIS_URL` are wired for you inside `docker-compose.prod.yml`;
 override them only for an external/managed datastore.
 
+`AINDY_BOOT_MODE` is defaulted to `app-profile` inside `docker-compose.prod.yml` — this
+is what makes the 17 domain apps load. (`aindy-runtime serve` setdefaults it to
+`runtime-only`, a platform-only profile with **no** apps, so a bare `serve` outside compose
+must set `AINDY_BOOT_MODE=app-profile` explicitly.)
+
 ## Enabling the Claude planner (BUILD_PLAN Track 2)
 
 By default the agent planner is `runtime_local` — a deterministic, no-egress engine.

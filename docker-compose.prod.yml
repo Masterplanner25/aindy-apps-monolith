@@ -27,12 +27,24 @@ services:
       MONGO_URL: "${MONGO_URL:-}"
       AINDY_HOST: "0.0.0.0"
       AINDY_PORT: "8000"
+      # REQUIRED for the 17 domain apps to load. `aindy-runtime serve` setdefaults
+      # AINDY_BOOT_MODE=runtime-only (platform-only profile = ZERO apps), so without
+      # this the image would boot the runtime with no domains, no /apps/* routes, and
+      # no agent planner. app-profile selects ./aindy_plugins.json -> apps.bootstrap.
+      AINDY_BOOT_MODE: "${AINDY_BOOT_MODE:-app-profile}"
+      AINDY_APP_PLUGIN_MANIFEST: "${AINDY_APP_PLUGIN_MANIFEST:-./aindy_plugins.json}"
       SECRET_KEY: "${SECRET_KEY:?set SECRET_KEY}"
       AINDY_API_KEY: "${AINDY_API_KEY:?set AINDY_API_KEY}"
       PERMISSION_SECRET: "${PERMISSION_SECRET:?set PERMISSION_SECRET}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Agent PLANNER backend (BUILD_PLAN Track 2). Default runtime_local (deterministic,
+      # no egress). Flip to anthropic_chat in your .env to have Claude author real plans —
+      # that path needs ANTHROPIC_API_KEY (above) + outbound HTTPS to api.anthropic.com.
+      # See docs/deployment/DEPLOYMENT.md "Enabling the Claude planner".
+      AINDY_AGENT_PLANNER_BACKEND: "${AINDY_AGENT_PLANNER_BACKEND:-runtime_local}"
+      AINDY_CLAUDE_PLANNER_MODEL: "${AINDY_CLAUDE_PLANNER_MODEL:-}"
     ports:
       - "8000:8000"
     healthcheck:
