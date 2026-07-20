@@ -27,23 +27,30 @@ upgrades.
 
 Validated on `2026-07-19`:
 
-- installed runtime version: `1.10.1`
-- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.10.1,<2.0`
+- installed runtime version: `1.10.2`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.10.2,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
-- app-profile boot smoke on 1.10.1: `boot_profile=default-apps`, `app_plugins_loaded=True`, `app_plugin_count=17`
+- app-profile boot smoke on 1.10.2: `boot_profile=default-apps`, `app_plugins_loaded=True`, `app_plugin_count=17`
 
-Floor raised to `1.10.1` to adopt v1.10.1 (additive/opt-in, no schema change): the
-**RT-MEMTXN-LEAK-1 follow-up fix**. 1.10.0 drained the post-request lingering; 1.10.1 fixes
-the remaining within-request site — both fixes so far were distinct "slow external call inside
-an open transaction" sites (memory recall's embedding, then the embedding job's post-commit
-refresh). **Fixed in code, not yet confirmed in the wild** — the live login repro
-(`pg_stat_activity` mid-request, `xact_age_s == idle_s` fingerprint) still has to be re-run
-app-side to confirm; see `RUNTIME_FEATURE_REQUESTS.md`.
+Floor raised to `1.10.2` to adopt v1.10.2 (additive/opt-in, no schema change): the **third and
+final RT-MEMTXN-LEAK-1 fix**, closing the issue across all three parts. See
+`RUNTIME_FEATURE_REQUESTS.md` for the live verification numbers.
 
-Prior floor `1.10.0` adopted v1.10.0: the **partial RT-MEMTXN-LEAK-1** fix (post-request
-idle-in-transaction lingering drains), **closes NODUS-WARMPOOL-1** (warm `nodus_worker` pool,
-Phases 1–3 — opt-in via `AINDY_NODUS_WARM_POOL=true`, default off), and canonical
-`UI_CONTRACT` platform routes.
+RT-MEMTXN-LEAK-1 took three releases because it was three distinct "slow external call inside an
+open transaction" sites, each masked by the previous fix:
+- `1.10.0` — memory recall's embedding. Fixed the *post-request lingering* (connections now
+  drain at request end). Partial: the within-request fan-out remained.
+- `1.10.1` — the embedding job's post-commit refresh. Verified app-side as **still broken**:
+  login 41.9s with 60/60 connections idle-in-transaction on `memory_nodes`.
+- `1.10.2` — the third site in the recall read path itself.
+
+**Verification lesson:** sample `pg_stat_activity` *mid-request*. A post-request sample looks
+clean from 1.10.0 onward even while the leak is present — that is what made 1.10.0 look fully
+fixed. Repro scripts live in `scratchpad/memtxn_*.sh`.
+
+Prior floor `1.10.0` also **closed NODUS-WARMPOOL-1** (warm `nodus_worker` pool, Phases 1–3 —
+opt-in via `AINDY_NODUS_WARM_POOL=true`, default off) and added canonical `UI_CONTRACT`
+platform routes.
 
 Prior floor `1.9.0` adopted v1.9.0 (additive/opt-in, no schema change): **FR-5** —
 native Nodus workflows can now reach app logic (`run_nodus_workflow` gains a

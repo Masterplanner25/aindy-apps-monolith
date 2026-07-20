@@ -8,14 +8,54 @@ owner: "app-team"
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
 
-## ❌ STILL OPEN on aindy-runtime 1.10.1 — RT-MEMTXN-LEAK-1: THIRD SITE CONFIRMED
+## ✅ CLOSED in aindy-runtime 1.10.2 — RT-MEMTXN-LEAK-1 (verified app-side on the real wheel)
 
-**Filed 2026-07-19. 1.10.0 = partial fix. 1.10.1 = second site fixed, problem PERSISTS.
-Verified app-side on 1.10.1, 2026-07-19.** Severity HIGH — still blocks real-user sign-in.
+**Filed 2026-07-19; closed 2026-07-19 on `aindy-runtime==1.10.2`.** Verified against the
+published wheel (api image rebuilt `--no-cache`, not a hot-patch), native-Linux stack.
 
-**Verdict: a third leak site exists.** Measured on `aindy-runtime==1.10.1` (native-Linux stack,
-native `docker.io` in WSL2, pgvector/pg16): **`POST /auth/login` = 41.9s**, `/auth/register` =
-45.4s. Both still over the 30s browser timeout, so **a real user still cannot sign in.**
+| Measure | 1.10.1 | **1.10.2** |
+|---|---|---|
+| `POST /auth/login` | 41.9s | **0.45s** |
+| `POST /auth/register` | 45.4s | **0.56s** |
+| Peak idle-in-transaction on `memory_nodes` | 60 | **1** |
+| `MemoryNodeDAO.recall()` reads the table | — | **yes — 18 scans, 1 held conn** |
+
+**Sign-in is now ~93× faster and far under the 30s browser timeout. The dynamic frontend
+walkthrough is UNBLOCKED.**
+
+**How "fixed" was distinguished from "recall silently stopped running":** a fast login alone is
+NOT evidence — "too fast to sample" and "never ran" look identical to a sampler. Resolved with a
+sampling-independent counter: `pg_stat_user_tables` cumulative scans on `memory_nodes`, measured
+before/after, plus a direct `MemoryNodeDAO.recall()` invocation. recall() executed the real path
+(observable OpenAI embedding round-trip), scanned the table, and held **1** connection instead of
+60. Read path is functional; it simply no longer holds transactions open.
+
+**Observation for the runtime team (FYI, not a defect):** on 1.10.2 a login now performs
+**~0 `memory_nodes` scans**, down from 60. Consistent with the fix having eliminated an N+1
+per-node re-read rather than merely batching it. Flagging only so the change in read volume is
+intentional and not a surprise.
+
+### Historical record — why this took three releases
+
+Each fix removed one "slow external call inside an open transaction" site and unmasked the next:
+
+- **1.10.0** — memory recall's embedding. Fixed post-request *lingering* (connections drain at
+  request end). Partial; within-request fan-out remained.
+- **1.10.1** — the embedding job's post-commit refresh. Verified app-side as **still broken**:
+  login 41.9s, 60/60 connections `idle in transaction` on `memory_nodes`, every one with
+  `xact_age_s == idle_s`.
+- **1.10.2** — the third site, in the recall read path itself. **Closed.**
+
+**Verification lesson worth keeping:** sample `pg_stat_activity` **mid-request**. From 1.10.0
+onward a post-request sample looks clean even while the leak is present — that is exactly what
+made 1.10.0 look fully fixed. Repro/verify scripts: `scratchpad/memtxn_*.sh`.
+
+<details>
+<summary>Prior diagnosis retained (1.10.1, third site confirmed)</summary>
+
+**Verdict at the time: a third leak site exists.** Measured on `aindy-runtime==1.10.1`
+(native-Linux stack, native `docker.io` in WSL2, pgvector/pg16): **`POST /auth/login` = 41.9s**,
+`/auth/register` = 45.4s. Both over the 30s browser timeout, so a real user could not sign in.
 
 ### Fresh mid-request snapshot (t+18s into `/auth/login`, on 1.10.1)
 
@@ -65,8 +105,6 @@ account, fires login, samples every 1s) and `scratchpad/memtxn_snapshot.sh` (cap
 mid-request fingerprint table above). Note the sampling must happen **mid-request** — a
 post-request sample looks clean even while the leak is present, which is the trap that made
 1.10.0 look fully fixed.
-
-**The dynamic frontend walkthrough stays blocked.**
 
 **What 1.10.0 fixed (confirmed app-side):** the post-request *lingering*. Leaked
 idle-in-transaction connections now **drain when the request completes** — after a login,
@@ -155,6 +193,8 @@ exhausting it on auth. Same memory/DB-session-management surface — likely wort
 3. Mid-request: `SELECT count(*), state, wait_event_type FROM pg_stat_activity WHERE
    datname='aindy' AND state='idle in transaction' GROUP BY 2,3;` → ~60–85 rows on the
    `memory_nodes` SELECT with `wait_event_type=Client`.
+
+</details>
 
 ---
 
