@@ -8,26 +8,65 @@ owner: "app-team"
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
 
-## 🔬 FIX SHIPPED in aindy-runtime 1.10.1 — RT-MEMTXN-LEAK-1: AWAITING LIVE CONFIRMATION
+## ❌ STILL OPEN on aindy-runtime 1.10.1 — RT-MEMTXN-LEAK-1: THIRD SITE CONFIRMED
 
-**Filed 2026-07-19. 1.10.0 = partial fix; 1.10.1 ships the follow-up fix. Floor now
-`>=1.10.1`.** Severity was HIGH — blocked real-user sign-in.
+**Filed 2026-07-19. 1.10.0 = partial fix. 1.10.1 = second site fixed, problem PERSISTS.
+Verified app-side on 1.10.1, 2026-07-19.** Severity HIGH — still blocks real-user sign-in.
 
-**Status: fixed in code, NOT yet confirmed in the wild.** The runtime team found two distinct
-"slow external call inside an open transaction" sites — memory recall's embedding (1.10.0),
-then the embedding job's post-commit refresh (1.10.1). A third site is plausible until the
-numbers say otherwise.
+**Verdict: a third leak site exists.** Measured on `aindy-runtime==1.10.1` (native-Linux stack,
+native `docker.io` in WSL2, pgvector/pg16): **`POST /auth/login` = 41.9s**, `/auth/register` =
+45.4s. Both still over the 30s browser timeout, so **a real user still cannot sign in.**
 
-**⏭️ App-side action required — re-run the live repro:**
-1. Boot the native-Linux stack on `aindy-runtime==1.10.1`.
-2. Sign in through the **browser** (not curl — curl masks it by waiting).
-3. Capture `pg_stat_activity` mid-request using the same query that produced the snapshot below.
+### Fresh mid-request snapshot (t+18s into `/auth/login`, on 1.10.1)
 
-**Success looks like:** concurrent `idle in transaction` on `SELECT memory_nodes` stays low, and
-sign-in lands well under 30s. If it doesn't, send a fresh snapshot — the **`xact_age_s == idle_s`
-fingerprint** is what made the second site findable, so that is the query to re-run.
+```
+ count |        state        | wait_event_type | xact_age_s | idle_s | query
+-------+---------------------+-----------------+------------+--------+---------------------------------
+     1 | idle in transaction | Client          |       17.9 |   17.9 | SELECT memory_nodes.id, memory_nodes.content, …
+     1 | idle in transaction | Client          |       17.8 |   17.8 | SELECT memory_nodes.id, memory_nodes.content, …
+     1 | idle in transaction | Client          |       17.6 |   17.6 | SELECT memory_nodes.id, memory_nodes.content, …
+     …  (60 rows, ages fanned 10.8s → 18.1s, none closing)
+```
 
-**The dynamic frontend walkthrough stays blocked until this is confirmed live.**
+**Rollup — the fingerprint is 100% present:**
+```
+        state        | conns | xact_age_eq_idle | min_xact_s | max_xact_s
+---------------------+-------+------------------+------------+------------
+ idle in transaction |    60 |               60 |       10.8 |       18.1
+```
+**60 of 60** connections have `xact_age_s == idle_s`, all `wait_event_type=Client`, and all 60
+are running the **same single query**:
+```
+SELECT memory_nodes.id, memory_nodes.content, memory_nodes.tags, memory_nodes.node_type,
+       memory_nodes.source, memory_nodes.source_agent, memory_nodes.is_shared,
+       memory_nodes.visibility, memory_nodes.u…
+```
+
+### Concurrency profile over the request
+`idle in transaction` climbs 0 → 60 in ~7s, **plateaus at exactly 60 for ~33s** (t+7s→t+39s —
+that flat ceiling is pool exhaustion), then drains 60 → 0 in ~6s once the request ends. The
+drain is 1.10.0's fix working correctly; the plateau is the unfixed part.
+
+### What this rules in / out
+- **Not the post-request lingering** — that drains correctly (1.10.0 holds).
+- **Not the embedding-job post-commit refresh** — 1.10.1 is installed and the shape is unchanged.
+- **It is the recall read path itself.** Each connection opens a transaction, runs exactly one
+  `memory_nodes` SELECT, then sits idle-in-transaction for that transaction's whole life. 60
+  concurrent such transactions are held open across the request instead of being committed and
+  returned per read.
+
+**Corpus note (may matter for repro):** this DB has 1246 `memory_nodes`, of which **1239 have
+`user_id IS NULL`** (global) and 7 are user-owned. The fan-out reproduces on a brand-new account
+with **zero owned nodes**, so the recall is reading the global corpus — a fresh-account repro is
+sufficient, no seeded user memory required.
+
+**Repro (self-contained, in this repo):** `scratchpad/memtxn_probe.sh` (registers a throwaway
+account, fires login, samples every 1s) and `scratchpad/memtxn_snapshot.sh` (captures the
+mid-request fingerprint table above). Note the sampling must happen **mid-request** — a
+post-request sample looks clean even while the leak is present, which is the trap that made
+1.10.0 look fully fixed.
+
+**The dynamic frontend walkthrough stays blocked.**
 
 **What 1.10.0 fixed (confirmed app-side):** the post-request *lingering*. Leaked
 idle-in-transaction connections now **drain when the request completes** — after a login,
