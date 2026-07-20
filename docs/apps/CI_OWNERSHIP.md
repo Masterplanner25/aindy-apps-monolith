@@ -36,7 +36,7 @@ No runtime-repo checkout or source install is involved.
 
 The dependency contract is:
 
-- `aindy-runtime>=1.10.0,<2.0`
+- `aindy-runtime>=1.10.1,<2.0`
 
 (The earlier source-checkout CI strategy was a pre-publication staging step and is
 no longer used; `PYPI-PUBLISH-1` is closed.)
