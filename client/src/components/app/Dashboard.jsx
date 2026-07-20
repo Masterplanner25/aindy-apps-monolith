@@ -240,7 +240,15 @@ function IdentityBootSummary() {
 
 }
 
-function OverviewTab({ data }) {
+function OverviewTab({ data, error }) {
+  // Distinguish "still loading" from "failed" — an indefinite spinner reads as a hang.
+  if (error) {
+    return (
+      <p style={{ color: "#f97583" }}>
+        Could not load the dashboard overview. {error}
+      </p>
+    );
+  }
   if (!data) return <p>Loading dashboard...</p>;
 
   return (
@@ -322,6 +330,7 @@ const TABS = [
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [overviewError, setOverviewError] = useState(null);
   const [localTab, setLocalTab] = useState("overview");
   const location = useLocation();
   const navigate = useNavigate();
@@ -329,11 +338,27 @@ export default function Dashboard() {
   const activeTab = isGraphRoute ? "graph" : localTab;
 
   useEffect(() => {
+    let mounted = true;
     const fetchData = async () => {
-      const json = await getDashboardOverview();
-      setData(json.overview);
+      try {
+        const json = await getDashboardOverview();
+        if (!mounted) return;
+        // The endpoint wraps its result: {status, data: {status, overview}}. Reading
+        // `json.overview` off the top level silently yielded undefined, which pinned
+        // OverviewTab on "Loading dashboard..." forever. Accept either shape so this
+        // keeps working if the envelope is ever unwrapped upstream.
+        setData(json?.data?.overview ?? json?.overview ?? null);
+      } catch (err) {
+        // Previously uncaught — a failing request became an unhandled promise rejection
+        // and the tab sat on "Loading..." with no indication anything had gone wrong.
+        console.error("Failed to load dashboard overview:", err);
+        if (mounted) setOverviewError(err?.message || "Failed to load dashboard overview.");
+      }
     };
     fetchData();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleTabClick = (tabId) => {
@@ -385,7 +410,7 @@ export default function Dashboard() {
       <>
           <IdentityBootSummary />
           <InfinityScorePanel />
-          <OverviewTab data={data} />
+          <OverviewTab data={data} error={overviewError} />
         </>
       }
       {activeTab === "execution" && <ExecutionTab />}
