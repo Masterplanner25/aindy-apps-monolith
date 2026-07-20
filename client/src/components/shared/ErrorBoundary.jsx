@@ -20,6 +20,17 @@ export default class ErrorBoundary extends Component {
     return { hasError: true, error };
   }
 
+  componentDidUpdate(prevProps) {
+    // Clear the error when the caller signals new context (RouteErrorBoundary passes the
+    // current pathname). Without this, a boundary that trips stays tripped: every route
+    // renders the same RouteErrorBoundary type at the same position, so React reuses the
+    // instance across navigation and the NEXT page rendered the error fallback too — which
+    // is why one broken page appeared to break the rest of the app until a full reload.
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   componentDidCatch(error, info) {
     console.error("[ErrorBoundary]", error, info.componentStack);
     try {
@@ -71,8 +82,14 @@ export default class ErrorBoundary extends Component {
 }
 
 export function RouteErrorBoundary({ children, name, layer, domain }) {
+  // Reset on navigation so a failure on one route doesn't follow the user to the next.
+  // Read location off window rather than useLocation(): this component is also rendered
+  // outside a <Router> (e.g. in tests), and the hook throws there. On navigation the router
+  // re-renders this subtree, so the fresh pathname arrives as a changed resetKey either way.
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
   return (
     <ErrorBoundary
+      resetKey={pathname}
       layer={layer}
       domain={domain}
       fallback={

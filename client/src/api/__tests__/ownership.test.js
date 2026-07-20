@@ -52,9 +52,11 @@ describe("client API ownership boundaries", () => {
     platformApi.getHealthDetails();
     platformApi.getNarrative("drop-1");
 
-    expect(authRequest).toHaveBeenNthCalledWith(1, "/dashboard/overview", { method: "GET" });
+    // PLATFORM is a mixed domain map: /dashboard/overview and /narrative/* are app-domain
+    // (so they carry the /apps mount), while /health/details is runtime-owned and does not.
+    expect(authRequest).toHaveBeenNthCalledWith(1, "/apps/dashboard/overview", { method: "GET" });
     expect(authRequest).toHaveBeenNthCalledWith(2, "/health/details", { method: "GET" });
-    expect(authRequest).toHaveBeenNthCalledWith(3, "/narrative/drop-1", { method: "GET" });
+    expect(authRequest).toHaveBeenNthCalledWith(3, "/apps/narrative/drop-1", { method: "GET" });
   });
 
   it("exposes platform UI calls from platform.js alongside operator re-exports", () => {

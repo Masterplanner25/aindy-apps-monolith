@@ -31,7 +31,12 @@ export default function FreelanceDashboard() {
     try {
       return await getFreelanceMetricsLatest();
     } catch (err) {
-      if (String(err.message || "").includes("404")) return null;
+      // "No revenue metrics yet" is an empty state, not a failure: the endpoint 404s until
+      // the user has revenue data, so EVERY new user hits it. Match on the status code —
+      // the previous check looked for the substring "404" in err.message, but ApiError's
+      // message is the API's human text ("No revenue metrics found"), so it never matched
+      // and the dashboard rendered its error fallback for every account with no revenue.
+      if (err?.status === 404) return null;
       throw err;
     }
   }
