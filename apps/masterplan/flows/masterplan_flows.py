@@ -28,12 +28,45 @@ def goals_state_node(state, context):
 
 
 def genesis_session_create_node(state, context):
+    """Start Genesis, or resume the session already in progress.
+
+    Idempotent per user: if an `active` session exists it is returned instead of creating a
+    new one. Previously every call created a fresh row, so navigating away from Genesis and
+    back abandoned the in-progress session (its extracted `summarized_state` survived in the
+    DB but became unreachable) and left duplicate `active` rows accumulating per user.
+
+    Only `active` sessions resume. A session that reached `synthesized`, `locked`, or
+    `abandoned` is finished, so a new one is created — starting a second plan must still work.
+    """
     try:
         import uuid
         from apps.masterplan.models import GenesisSessionDB
 
         db = context.get("db")
         user_id = uuid.UUID(str(context.get("user_id")))
+
+        existing = (
+            db.query(GenesisSessionDB)
+            .filter(
+                GenesisSessionDB.user_id == user_id,
+                GenesisSessionDB.status == "active",
+            )
+            .order_by(GenesisSessionDB.id.desc())
+            .first()
+        )
+        if existing is not None:
+            return {
+                "status": "SUCCESS",
+                "output_patch": {
+                    "genesis_session_create_result": {
+                        "session_id": existing.id,
+                        "resumed": True,
+                        "summarized_state": existing.summarized_state,
+                        "synthesis_ready": bool(existing.synthesis_ready),
+                    }
+                },
+            }
+
         session = GenesisSessionDB(
             user_id=user_id,
             synthesis_ready=False,
@@ -45,7 +78,17 @@ def genesis_session_create_node(state, context):
         db.add(session)
         db.commit()
         db.refresh(session)
-        return {"status": "SUCCESS", "output_patch": {"genesis_session_create_result": {"session_id": session.id}}}
+        return {
+            "status": "SUCCESS",
+            "output_patch": {
+                "genesis_session_create_result": {
+                    "session_id": session.id,
+                    "resumed": False,
+                    "summarized_state": session.summarized_state,
+                    "synthesis_ready": False,
+                }
+            },
+        }
     except Exception as e:
         return {"status": "FAILURE", "error": str(e)}
 
