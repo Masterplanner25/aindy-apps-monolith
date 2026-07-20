@@ -4,17 +4,59 @@ import {
   sendGenesisMessage,
   synthesizeGenesisDraft,
   lockMasterPlan,
+  getGenesisSession,
 } from "../../api/masterplan.js";
 import { Toast } from "../shared/Toast";
 import { safeMap } from "../../utils/safe";
 import { useToast } from "../../utils/useToast";
 import GenesisDraftPreview from "./GenesisDraftPreview";
 
+// Genesis progress lives server-side, but the session id is what lets us find it again after
+// a navigation. Persist it so returning to the page resumes instead of starting over.
+const SESSION_STORAGE_KEY = "aindy.genesis.session_id";
+
+function readStoredSessionId() {
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? Number(raw) || null : null;
+  } catch {
+    return null; // storage blocked (private mode / embedded) — resume simply won't apply
+  }
+}
+
+function writeStoredSessionId(sessionId) {
+  try {
+    if (sessionId == null) window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    else window.localStorage.setItem(SESSION_STORAGE_KEY, String(sessionId));
+  } catch {
+    /* non-fatal: resume is a convenience, not a requirement */
+  }
+}
+
+// The transcript is not persisted server-side (genesis_sessions stores only the distilled
+// state), so a resumed session cannot replay the conversation. Say what IS known rather than
+// pretending the chat is still there.
+function buildResumeMessage(state) {
+  const known = [
+    ["Vision", state?.vision_summary],
+    ["Horizon", state?.time_horizon],
+    ["Mechanism", state?.mechanism_summary],
+    ["Assets", state?.assets_summary],
+  ].filter(([, value]) => value);
+
+  if (!known.length) {
+    return "Session resumed. Nothing captured yet — what do you want your life to look like in 5–10 years?";
+  }
+  const lines = safeMap(known, ([label, value]) => `${label}: ${value}`).join("\n");
+  return `Session resumed. Here is what I have so far:\n\n${lines}\n\nPick up where we left off — or refine any of the above.`;
+}
+
 export default function Genesis() {
   const [started, setStarted] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resuming, setResuming] = useState(true);
   const [sessionId, setSessionId] = useState(null);
   const [synthesisReady, setSynthesisReady] = useState(false);
   const [synthesizing, setSynthesizing] = useState(false);
@@ -25,16 +67,49 @@ export default function Genesis() {
 
   const bottomRef = useRef(null);
 
+  // Resume an in-progress session on mount. Uses a GET, so simply visiting Genesis never
+  // creates a session — only the explicit Initialize action does.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const storedId = readStoredSessionId();
+      try {
+        if (!storedId) return;
+        const data = await getGenesisSession(storedId);
+        if (!mounted) return;
+        if (data?.status !== "active") {
+          writeStoredSessionId(null); // finished or abandoned — start fresh next time
+          return;
+        }
+        setSessionId(data.session_id);
+        setSynthesisReady(Boolean(data.synthesis_ready));
+        setStarted(true);
+        setMessages([{ role: "ai", content: buildResumeMessage(data.summarized_state) }]);
+      } catch {
+        writeStoredSessionId(null); // stale/foreign id — fall back to the start screen
+      } finally {
+        if (mounted) setResuming(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const startGenesis = async () => {
     setLoading(true);
     try {
+      // Idempotent server-side: returns the active session if one is already in progress.
       const data = await startGenesisSession();
       setSessionId(data.session_id);
+      writeStoredSessionId(data.session_id);
+      setSynthesisReady(Boolean(data.synthesis_ready));
       setStarted(true);
       setMessages([
       {
         role: "ai",
-        content:
+        content: data.resumed ?
+        buildResumeMessage(data.summarized_state) :
         "Initialization sequence active. I have established a secure session. What do you want your life to look like in 5–10 years?"
       }]
       );
@@ -112,6 +187,8 @@ export default function Genesis() {
     try {
       const data = await lockMasterPlan(sessionId, draft);
       setLockedPlan(data);
+      // Session is finished — don't offer to resume it on the next visit.
+      writeStoredSessionId(null);
       setMessages((prev) => [
       ...prev,
       {
@@ -142,10 +219,10 @@ export default function Genesis() {
             </div>
             <button
             onClick={startGenesis}
-            disabled={loading}
+            disabled={loading || resuming}
             className="px-8 py-4 bg-white text-black font-bold rounded-lg hover:bg-[#00ffaa] transition-colors shadow-[0_0_20px_rgba(255,255,255,0.1)] disabled:opacity-50">
-            
-              {loading ? "ESTABLISHING LINK..." : "INITIALIZE"}
+
+              {resuming ? "RESTORING SESSION..." : loading ? "ESTABLISHING LINK..." : "INITIALIZE"}
             </button>
           </div> :
 
