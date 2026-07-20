@@ -42,9 +42,10 @@ class LeadAction(Base):
         index=True,
     )
 
-    # Denormalized lead context (survives lead deletion; drives display).
+    # Denormalized lead context (survives lead deletion; drives display + segmenting).
     company = Column(String)
     url = Column(String)
+    lead_query = Column(String, nullable=True, index=True)  # leadgen query that produced the lead — the learning segment
 
     channel = Column(String(16), default="draft")     # draft | email | handoff
     status = Column(String(16), default="drafted", index=True)  # drafted | queued | sent | skipped | reverted
@@ -63,6 +64,16 @@ class LeadAction(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     reverted_at = Column(DateTime(timezone=True), nullable=True)
+
+    # --- Learning close: judge the action against whether the lead actually converted ---
+    # After an observation window each non-reverted action is judged on its in-domain
+    # conversion signal (SearchResultFeedback: a `convert`/thumbs_up on the lead's url).
+    # Outreach isn't reversible, so a segment (lead_query) that consistently fails to convert
+    # is AUTO-SUPPRESSED forward — future leads from it are gated out — rather than reverted.
+    # NULL outcome = not yet evaluated (pending).
+    outcome = Column(String(16), nullable=True, index=True)   # converted | no_response | NULL(pending)
+    outcome_signal = Column(Float, nullable=True)             # net conversion feedback weight at eval time
+    evaluated_at = Column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self):
         return f"<LeadAction(company='{self.company}', status='{self.status}')>"
