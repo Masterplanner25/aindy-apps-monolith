@@ -27,17 +27,23 @@ upgrades.
 
 Validated on `2026-07-19`:
 
-- installed runtime version: `1.10.0`
-- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.10.0,<2.0`
+- installed runtime version: `1.10.1`
+- apps repo dependency (pinned in `pyproject.toml`): `aindy-runtime>=1.10.1,<2.0`
 - runtime `/api/version` recommendation: `>=1.0,<2.0`
-- app-profile boot smoke on 1.10.0: `boot_profile=default-apps`, `app_plugins_loaded=True`, `app_plugin_count=17`
+- app-profile boot smoke on 1.10.1: `boot_profile=default-apps`, `app_plugins_loaded=True`, `app_plugin_count=17`
 
-Floor raised to `1.10.0` to adopt v1.10.0 (additive/opt-in, no schema change): a **partial
-RT-MEMTXN-LEAK-1** fix (post-request idle-in-transaction lingering now drains, but a
-within-request memory-recall fan-out follow-up remains — the browser sign-in is still slow;
-verified app-side and handed back in `RUNTIME_FEATURE_REQUESTS.md`), **closes NODUS-WARMPOOL-1**
-(warm `nodus_worker` pool, Phases 1–3 — opt-in via `AINDY_NODUS_WARM_POOL=true`, default off),
-and canonical `UI_CONTRACT` platform routes.
+Floor raised to `1.10.1` to adopt v1.10.1 (additive/opt-in, no schema change): the
+**RT-MEMTXN-LEAK-1 follow-up fix**. 1.10.0 drained the post-request lingering; 1.10.1 fixes
+the remaining within-request site — both fixes so far were distinct "slow external call inside
+an open transaction" sites (memory recall's embedding, then the embedding job's post-commit
+refresh). **Fixed in code, not yet confirmed in the wild** — the live login repro
+(`pg_stat_activity` mid-request, `xact_age_s == idle_s` fingerprint) still has to be re-run
+app-side to confirm; see `RUNTIME_FEATURE_REQUESTS.md`.
+
+Prior floor `1.10.0` adopted v1.10.0: the **partial RT-MEMTXN-LEAK-1** fix (post-request
+idle-in-transaction lingering drains), **closes NODUS-WARMPOOL-1** (warm `nodus_worker` pool,
+Phases 1–3 — opt-in via `AINDY_NODUS_WARM_POOL=true`, default off), and canonical
+`UI_CONTRACT` platform routes.
 
 Prior floor `1.9.0` adopted v1.9.0 (additive/opt-in, no schema change): **FR-5** —
 native Nodus workflows can now reach app logic (`run_nodus_workflow` gains a

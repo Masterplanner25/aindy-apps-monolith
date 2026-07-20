@@ -8,22 +8,37 @@ owner: "app-team"
 
 # Runtime Feature Requests — handoff to `aindy-runtime`
 
-## ⚠️ PARTIAL FIX in aindy-runtime 1.10.0 — RT-MEMTXN-LEAK-1 (+ follow-up): memory-node reads leak connections (idle-in-transaction)
+## 🔬 FIX SHIPPED in aindy-runtime 1.10.1 — RT-MEMTXN-LEAK-1: AWAITING LIVE CONFIRMATION
 
-**Filed 2026-07-19; 1.10.0 PARTIALLY fixes it; a follow-up remains (verified app-side on 1.10.0,
-2026-07-19).** Severity was HIGH — blocked real-user sign-in.
+**Filed 2026-07-19. 1.10.0 = partial fix; 1.10.1 ships the follow-up fix. Floor now
+`>=1.10.1`.** Severity was HIGH — blocked real-user sign-in.
 
-**What 1.10.0 fixed (confirmed):** the post-request *lingering*. Leaked idle-in-transaction
-connections now **drain when the request completes** — after a login, `idle in transaction`
-drops back to ~2 (was lingering until the 120s idle-timeout reaped them).
+**Status: fixed in code, NOT yet confirmed in the wild.** The runtime team found two distinct
+"slow external call inside an open transaction" sites — memory recall's embedding (1.10.0),
+then the embedding job's post-commit refresh (1.10.1). A third site is plausible until the
+numbers say otherwise.
 
-**Follow-up STILL OPEN (this is the suspect the runtime note called out):** the **within-request
-fan-out**. A single `POST /auth/login` still opens **30+ concurrent** `SELECT memory_nodes …`
-transactions that each sit **`idle in transaction`** (`wait_event_type=Client`) held open until
-the request ends → pool exhaustion → **login still ~45s**, over the 30s client timeout. So the
-reorder helped the tail, not the concurrent fan-out.
+**⏭️ App-side action required — re-run the live repro:**
+1. Boot the native-Linux stack on `aindy-runtime==1.10.1`.
+2. Sign in through the **browser** (not curl — curl masks it by waiting).
+3. Capture `pg_stat_activity` mid-request using the same query that produced the snapshot below.
 
-**Fresh `pg_stat_activity` snapshot (mid-login, 1.10.0) for the follow-up:**
+**Success looks like:** concurrent `idle in transaction` on `SELECT memory_nodes` stays low, and
+sign-in lands well under 30s. If it doesn't, send a fresh snapshot — the **`xact_age_s == idle_s`
+fingerprint** is what made the second site findable, so that is the query to re-run.
+
+**The dynamic frontend walkthrough stays blocked until this is confirmed live.**
+
+**What 1.10.0 fixed (confirmed app-side):** the post-request *lingering*. Leaked
+idle-in-transaction connections now **drain when the request completes** — after a login,
+`idle in transaction` drops back to ~2 (was lingering until the 120s idle-timeout reaped them).
+
+**What 1.10.1 targets:** the **within-request fan-out** measured on 1.10.0 — a single
+`POST /auth/login` opened **30+ concurrent** `SELECT memory_nodes …` transactions each sitting
+`idle in transaction` (`wait_event_type=Client`) until the request ended → pool exhaustion →
+login ~45s, over the 30s client timeout.
+
+**Snapshot that drove the 1.10.1 fix (mid-login, on 1.10.0):**
 ```
 count | wait_event_type | xact_age_s | idle_s | query
 ------+-----------------+------------+--------+--------------------------------
@@ -36,8 +51,7 @@ ran exactly one `memory_nodes` SELECT, then went idle-in-transaction for the *wh
 The recall fans out per-node (or per-batch) reads onto separate connections and holds each
 transaction open across the whole recall/request instead of committing/closing per read. Fix
 direction: commit/close (or use a single connection / read-only autocommit) per memory read so a
-recall doesn't hold N concurrent open transactions. **The dynamic frontend walkthrough stays
-blocked on this follow-up.** Original diagnosis retained below.
+recall doesn't hold N concurrent open transactions. Original diagnosis retained below.
 
 ### Impact (user-facing)
 A single `POST /auth/login` (also `/auth/register`, and any memory-touching request) takes
