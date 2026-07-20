@@ -126,12 +126,14 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Dev proxy: the client (via @aindy/ui-kit) calls the backend's route namespaces
         // relatively (empty API base), so forward them all to the local API — no /api-base
-        // env needed in dev. /api keeps its strip-rewrite for any /api-prefixed callers.
-        "/api": {
-          target: "http://localhost:8000",
-          changeOrigin: true,
-          rewrite: (routePath) => routePath.replace(/^\/api/, ""),
-        },
+        // env needed in dev.
+        //
+        // /api is forwarded VERBATIM. It previously stripped the prefix, which broke the only
+        // route it applies to: the backend serves `/api/version` at that literal path and has
+        // no `/version`, so `/api/version` (ui-kit's ROUTES.PLATFORM.VERSION) 404'd in dev
+        // while working in prod. No backend route lives at a stripped `/api/*` path, so there
+        // is nothing for the rewrite to serve.
+        "/api": { target: "http://localhost:8000", changeOrigin: true },
         "/auth": { target: "http://localhost:8000", changeOrigin: true },
         "/apps": { target: "http://localhost:8000", changeOrigin: true },
         "/health": { target: "http://localhost:8000", changeOrigin: true },

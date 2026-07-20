@@ -1,52 +1,26 @@
+/* App-level global styles.
+ *
+ * This file was the stock Vite React template stylesheet with an "AppShell overrides" block
+ * appended. The template leftovers were actively harmful:
+ *   - #root { max-width: 1280px; padding: 2rem; text-align: center } capped the entire app at
+ *     1280px, inset it by 2rem, and centre-aligned all text.
+ *   - body { overflow: hidden } removed the page scrollbar everywhere. AppShell scrolls its own
+ *     <main>, but non-shell pages (login / signup) have no inner scroller and were simply
+ *     clipped, with no way to reach anything below the fold.
+ *   - .logo / logo-spin / .card / .read-the-docs were unused template demo styles.
+ *
+ * Scrolling model: the page scrolls normally by default. AppShell opts into a fixed-viewport
+ * layout itself (h-screen + overflow-hidden) so its sidebar and <main> scroll independently.
+ */
+
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  min-height: 100vh;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
-
-/* AppShell global overrides */
 body {
   margin: 0;
   padding: 0;
   background: #09090b;
-  overflow: hidden;
 }
 
 * {
@@ -57,9 +31,19 @@ body {
   width: 4px;
 }
 
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #27272a;
   border-radius: 10px;
+}
+
+/* Firefox ignores the ::-webkit- rules above, so custom scrollers rendered unstyled there. */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a transparent;
 }
 
 .main-content-gradient {

@@ -140,7 +140,10 @@ export default function AppShell() {
   );
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-[#fafafa] selection:bg-[#00ffaa]/30 lg:flex">
+    // h-screen (not min-h-screen): <main> below scrolls itself via overflow-y-auto, which only
+    // engages inside a BOUNDED height. With min-h-screen the shell grew to fit its content
+    // instead, so nothing ever overflowed and the page had no scrollbar at all.
+    <div className="h-screen overflow-hidden bg-[#09090b] text-[#fafafa] selection:bg-[#00ffaa]/30 lg:flex">
       <aside
         className={[
           "fixed inset-y-0 left-0 z-40 w-80 border-r border-zinc-800/60 bg-zinc-950/95 backdrop-blur transition-transform lg:static lg:translate-x-0",
@@ -209,7 +212,7 @@ export default function AppShell() {
         />
       ) : null}
 
-      <div className="flex min-h-screen flex-1 flex-col lg:ml-0">
+      <div className="flex h-full min-h-0 flex-1 flex-col lg:ml-0">
         <header className="sticky top-0 z-20 border-b border-zinc-800/60 bg-[#09090b]/95 backdrop-blur">
           <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -248,7 +251,7 @@ export default function AppShell() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
           <div className="min-h-full rounded-[28px] border border-zinc-800/60 bg-zinc-950/40 p-4 shadow-2xl shadow-black/20 sm:p-6 lg:p-8">
             <Outlet />
           </div>
