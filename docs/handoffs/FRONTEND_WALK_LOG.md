@@ -32,6 +32,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 2 | Papercut | Genesis chat | Enter inserts a newline instead of sending | ready to fix |
 | 3 | Defect | masterplan / memory | A 404 surfaces to the user as "Internal Server Error" | diagnosed, unfixed |
 | 4 | Defect | network | `InfiniteNetwork` calls `/api/users`, which no route serves | diagnosed, unfixed |
+| 5 | Defect | Genesis | Leaving the page abandons the session; transcript is never stored | diagnosed, decision needed |
 
 ---
 
@@ -144,6 +145,65 @@ prefix handling; it 404s either way.
 
 **Status:** diagnosed, unfixed. Needs a decision: point at a real route, gate the surface, or
 require the env var.
+
+---
+
+### 5. Genesis doesn't survive leaving the page — `Defect`
+
+**Observed:** navigated away from Genesis and back. It asked to initialize again, the whole
+chat was gone, and no plan had been created.
+
+Three separate problems sit underneath that, and they need separate answers.
+
+**a) `POST /genesis/session` always creates a new session — it never resumes.**
+Verified: two POSTs for the same user returned `session_id=7` then `session_id=8`, and the DB
+now holds *two rows both `status=active`* for that user. So returning to the page orphans the
+previous session and starts over. Duplicate active sessions also accumulate silently, which is
+a data-integrity problem independent of the UX.
+
+```
+ id | status | synthesis_ready | has_state
+----+--------+-----------------+-----------
+  7 | active | f               | t
+  8 | active | f               | t
+```
+
+**b) The progress itself was NOT lost — only orphaned.** Session 7 still holds its extraction:
+
+```json
+{"vision_summary": "Run an AI consulting studio", "time_horizon": "5 years", ...}
+```
+
+`GET /apps/genesis/session/7` returns it intact (`status`, `summarized_state`,
+`synthesis_ready`, `draft_json`). So the plan state survives a page change today — it is simply
+unreachable, because nothing resumes it.
+
+**c) The transcript is genuinely unrecoverable.** `genesis_sessions` has no message column at
+all — `id, user_id, status, summarized_state, synthesis_ready, draft_json, locked_at,
+created_at, updated_at`. Only the *distilled* state is persisted, never the conversation. No
+client fix can restore the messages; that needs a schema change.
+
+**Client side:** `getGenesisSession()` exists in `client/src/api/masterplan.js` but is **never
+called anywhere**. The client also never persists `session_id`, and there is no
+"get my active session" route — so resuming needs either client-side id storage or a new
+backend lookup.
+
+**Fix options, cheapest first:**
+
+1. **Make session creation idempotent** — return the user's existing `active` session instead
+   of creating another. Restores progress on return, stops orphan accumulation, and needs no
+   schema change or client state. Highest value per unit of risk.
+2. **Resume on mount client-side** — call `getGenesisSession()` and rehydrate the extracted
+   state, so the user sees what Genesis already knows rather than a blank slate.
+3. **Persist the transcript** — a `messages` JSON column or a child table. Only this restores
+   the chat itself. It is a real decision, not just plumbing: it means storing verbatim
+   personal life-planning conversation, with the retention and privacy implications that
+   carries, where today the design deliberately keeps only the distillation.
+
+**Recommendation:** do (1) and (2) — they recover the plan, which is the part that matters —
+and treat (3) as a deliberate product/privacy decision rather than an implied bug fix.
+
+**Status:** diagnosed. (1) and (2) ready to build on approval; (3) needs a decision.
 
 ---
 
