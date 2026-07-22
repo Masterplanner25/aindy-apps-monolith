@@ -276,6 +276,15 @@ So Perplexity rejects the unauthenticated request with "invalid API key", and gp
 summarises that error. Present keys on the stack: `OPENAI`, `ANTHROPIC`, `DEEPSEEK` — none of
 which is a web-search provider.
 
+**Same gap surfaces in Lead Generation (same root cause).** `search_leads` → the same
+`research_engine.web_search` → Perplexity error. Nothing parses out, so it falls back to a
+single placeholder lead `{company: "External Search", context: <the raw error text>}`
+(`search_service.py:343`), and then OpenAI *scores that placeholder* — producing a lead whose
+summary literally reads "intent score is low due to the current API key issue" (observed:
+Match Score 26, company "External Search"). So leadgen can't find real leads until the search
+provider is wired. The honest-degrade fallback (below) must cover leadgen too: when the search
+returns nothing real, return an empty/"no leads found" state rather than scoring an error string.
+
 **Fix options (a decision, not just a key):**
 
 1. **Wire Perplexity properly** — add a `PERPLEXITY_API_KEY` config field, send it as a Bearer

@@ -9,6 +9,9 @@ export default function LeadGen() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
+  // Bumped after a successful search so the recent-searches panel refetches — a lead search is
+  // saved server-side, but the panel only loaded on mount, so a fresh run didn't appear.
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const { toast, showToast, clearToast } = useToast();
 
   function handleHistorySelect(item) {
@@ -23,6 +26,7 @@ export default function LeadGen() {
     try {
       const response = await runLeadGen(query);
       setResults(response.results || []);
+      setHistoryRefresh((n) => n + 1); // the search was just saved — refresh the recent list
     } catch (err) {
       console.error("LeadGen error:", err);
       showToast(err?.message || "Lead generation failed. Please try again.");
@@ -103,6 +107,7 @@ export default function LeadGen() {
       <SearchHistory
         searchType="leadgen"
         title="Recent Lead Searches"
+        refreshToken={historyRefresh}
         onSelect={handleHistorySelect} />
 
       <div className="results-section">
