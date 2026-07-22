@@ -87,7 +87,11 @@ describe("client API ownership boundaries", () => {
 
     expect(dashboardSource).toContain('from "../../api/platform.js"');
     expect(dashboardSource).toContain('from "../../api/product.js"');
-    expect(graphViewSource).toContain('from "../../api/platform.js"');
+    // GraphView pulls graph data from the canonical, user-authable rippletrace routes — NOT
+    // platform.js's legacy api-key-gated getInfluenceGraph/getCausalGraph, which 401 a normal
+    // user and trip the global session-expired logout.
+    expect(graphViewSource).toContain('from "../../api/rippletrace.js"');
+    expect(graphViewSource).not.toContain('getInfluenceGraph } from "../../api/platform.js"');
     expect(flowConsoleSource).toContain('from "../../api/operator.js"');
     expect(observabilitySource).toContain('from "../../api/operator.js"');
     expect(healthSource).toContain('from "../../api/platform.js"');

@@ -18,17 +18,24 @@ const { mockGetDashboardOverview, mockGetMyScore, mockRecalculateScore, mockGetS
     mockGetScoreHistory: vi.fn(),
   }));
 
-const { mockGetCausalGraph, mockGetInfluenceGraph, mockGetNarrative } = vi.hoisted(() => ({
+const { mockGetCausalGraph, mockGetInfluenceGraph, mockGetDropPointNarrative } = vi.hoisted(() => ({
   mockGetCausalGraph: vi.fn(),
   mockGetInfluenceGraph: vi.fn(),
-  mockGetNarrative: vi.fn(),
+  mockGetDropPointNarrative: vi.fn(),
 }));
 
 vi.mock("../api/platform.js", () => ({
   getDashboardOverview: mockGetDashboardOverview,
+}));
+
+// GraphView pulls its graph data from the CANONICAL, user-authable rippletrace routes — not
+// platform.js's legacy api-key-gated getInfluenceGraph/getCausalGraph, which 401 a normal user
+// and trip the global session-expired logout. Mocking rippletrace.js here also guards that
+// GraphView keeps importing from the canonical module.
+vi.mock("../api/rippletrace.js", () => ({
   getCausalGraph: mockGetCausalGraph,
   getInfluenceGraph: mockGetInfluenceGraph,
-  getNarrative: mockGetNarrative,
+  getDropPointNarrative: mockGetDropPointNarrative,
 }));
 
 vi.mock("../api/product.js", () => ({
@@ -75,6 +82,14 @@ describe("Dashboard Graph tab routing", () => {
     await waitFor(() => expect(screen.getByText(/Influence View/i)).toBeInTheDocument());
     // The overview payload must NOT be showing — that would be the reported bounce.
     expect(screen.queryByText(/Total Authors/i)).not.toBeInTheDocument();
+  });
+
+  it("loads graph data from the canonical user-authable routes, not the 401 legacy ones", async () => {
+    renderAt("/dashboard/graph");
+    // Both must be the rippletrace.js (canonical) mocks — if GraphView regressed to platform.js
+    // these would never be called and the real 401-then-logout path would run in the browser.
+    await waitFor(() => expect(mockGetInfluenceGraph).toHaveBeenCalled());
+    expect(mockGetCausalGraph).toHaveBeenCalled();
   });
 
   it("renders Overview at /dashboard", async () => {
