@@ -13,6 +13,10 @@ export default function AiSeoTool() {
   const [metaDescription, setMetaDescription] = useState("");
   const [seoSuggestions, setSeoSuggestions] = useState("");
   const [loading, setLoading] = useState(false);
+  // Bumped after a successful analyze so the "Recent SEO Analyses" panel refetches — the
+  // analysis is saved server-side, but the panel only loaded once on mount, so a freshly-run
+  // analysis never appeared until a page reload ("No saved searches yet").
+  const [historyRefresh, setHistoryRefresh] = useState(0);
 
   const handleHistorySelect = (item) => {
     const stored = item.result || {};
@@ -27,6 +31,7 @@ export default function AiSeoTool() {
     try {
       const data = await apiAnalyzeSeo(content);
       setSeoData(data);
+      setHistoryRefresh((n) => n + 1); // the analysis was just saved — refresh the recent list
     } catch (error) {
       console.error("SEO Analysis Error: ", error);
     }
@@ -161,6 +166,7 @@ export default function AiSeoTool() {
             <SearchHistory
         searchType="seo_analysis"
         title="Recent SEO Analyses"
+        refreshToken={historyRefresh}
         onSelect={handleHistorySelect} />
         </div>);
 

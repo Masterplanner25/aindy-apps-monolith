@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { deleteSearchHistoryItem, getSearchHistory } from "../../api/search.js";
 import { safeMap } from "../../utils/safe";
 
-export default function SearchHistory({ searchType = null, title = "Search History", onSelect }) {
+export default function SearchHistory({
+  searchType = null,
+  title = "Search History",
+  onSelect,
+  refreshToken = 0,
+}) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -29,9 +34,12 @@ export default function SearchHistory({ searchType = null, title = "Search Histo
     }
   }
 
+  // Refetch on searchType change AND when the parent bumps refreshToken (e.g. after a new
+  // analysis is saved) — otherwise a freshly-created entry doesn't appear until a page reload.
   useEffect(() => {
     loadHistory();
-  }, [searchType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchType, refreshToken]);
 
   return (
     <div className="border border-zinc-800 rounded-lg bg-zinc-950/70 p-4 mt-6">
