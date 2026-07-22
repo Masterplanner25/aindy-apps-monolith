@@ -33,6 +33,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 3 | Defect | masterplan / memory | A 404 surfaces to the user as "Internal Server Error" | diagnosed, unfixed |
 | 4 | Defect | network | `InfiniteNetwork` calls `/api/users`, which no route serves | diagnosed, unfixed |
 | 5 | Defect | Genesis | Leaving the page abandons the session; transcript is never stored | diagnosed, decision needed |
+| 6 | Gap | auth | No password recovery — a forgotten password locks the account out permanently | runtime feature request |
 
 ---
 
@@ -204,6 +205,40 @@ backend lookup.
 and treat (3) as a deliberate product/privacy decision rather than an implied bug fix.
 
 **Status:** diagnosed. (1) and (2) ready to build on approval; (3) needs a decision.
+
+---
+
+### 6. No password recovery — `Gap`
+
+**Observed:** an internet drop ended the session (logged out), and the account could not be
+signed back into. There is no "forgot password" path anywhere in the UI or the API — a
+forgotten or mistyped-then-forgotten password locks a real user out permanently, with no
+self-service way back in.
+
+**Confirmed:** the entire auth surface is `POST /auth/register`, `POST /auth/login`,
+`POST /auth/logout`, `POST /auth/admin/invalidate-sessions/{user_id}`. No reset-request, no
+reset-confirm, no email verification, no change-password. Login itself is healthy — verified a
+fresh register+login returns 200, a wrong password returns 401 — so this is purely a missing
+recovery flow, not a broken one.
+
+**Ownership:** auth lives in the runtime (`AINDY/routes/auth_router.py`,
+`AINDY/services/auth_service.py`), not in `apps/`. This is therefore a **runtime feature
+request**, not an app-repo change. A minimal version needs:
+
+- `POST /auth/password/reset-request` (email → tokenised link; must not leak whether an
+  address exists)
+- `POST /auth/password/reset-confirm` (token + new password → `hash_password`, then invalidate
+  existing sessions — the `admin/invalidate-sessions` primitive already exists to build on)
+- an email-sending capability (a connector), which the runtime does not currently ship
+- optionally `POST /auth/password/change` for a signed-in user
+
+**Immediate workaround used during this walk:** the walkthrough account
+(`shawnknight@the-master-plan.com`) was reset directly against the local stack using the
+runtime's own `hash_password`, verified with a real login. This is a dev-stack unblock only —
+it required shell access to the database and is not a substitute for a recovery flow. A real
+deployment has no such door.
+
+**Status:** logged for the runtime team. Not an app-repo fix.
 
 ---
 
