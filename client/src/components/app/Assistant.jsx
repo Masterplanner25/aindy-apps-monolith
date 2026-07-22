@@ -73,11 +73,17 @@ export default function Assistant() {
   const [approving, setApproving] = useState(false);
   const { toast, showToast, clearToast } = useToast();
 
-  const runId = run?.run_id;
+  // The agent surface returns three different shapes: the create/approve responses wrap the
+  // run in an execution envelope (run_id under execution_record, plan under result.plan,
+  // UPPERCASE status), while GET /runs/{id} returns a flat detail row (run_id + plan at the
+  // top level, lowercase status). Reading only the flat shape left runId undefined after a
+  // create, so the poll never started, the plan never showed, and Approve did nothing — the
+  // run looked stuck at "planning". Derive robustly from whichever shape we're holding.
+  const runId = run?.run_id ?? run?.execution_record?.run_id ?? null;
   const status = (run?.status || "").toLowerCase();
   const awaiting = AWAITING.has(status);
   const terminal = TERMINAL.has(status);
-  const planSteps = run?.plan?.steps || [];
+  const planSteps = (run?.plan?.steps ?? run?.result?.plan?.steps) || [];
   const liveSteps = steps.length ? steps : planSteps;
 
   // Poll the run + its steps every 2s while it is non-terminal. When the status flips
@@ -90,8 +96,11 @@ export default function Assistant() {
         const r = await getAgentRun(runId);
         if (cancelled) return;
         setRun(r);
+        // /runs/{id}/steps returns { data: [...] }, not a bare array — unwrap it, else
+        // steps never populated and the run showed the static plan the whole time.
         const s = await getAgentRunSteps(runId).catch(() => []);
-        if (!cancelled && Array.isArray(s) && s.length) setSteps(s);
+        const stepList = Array.isArray(s) ? s : Array.isArray(s?.data) ? s.data : [];
+        if (!cancelled && stepList.length) setSteps(stepList);
       } catch (e) {
         if (!cancelled) showToast(e?.message || "Lost the run — check your connection.");
       }
