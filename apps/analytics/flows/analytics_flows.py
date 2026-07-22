@@ -93,6 +93,11 @@ def score_history_node(state, context):
             "history": [
                 {
                     "master_score": h.master_score,
+                    # The dashboard sparkline colours each bar by score_delta (up=green,
+                    # down=red). It was never included in this payload, so the client read
+                    # undefined and crashed on delta.toFixed(). Send it (nullable — the first
+                    # sample has no prior to diff against).
+                    "score_delta": h.score_delta,
                     "calculated_at": h.calculated_at.isoformat() if h.calculated_at else None,
                 }
                 for h in history
