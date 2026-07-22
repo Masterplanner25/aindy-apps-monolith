@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
-import { getCausalGraph, getInfluenceGraph, getNarrative } from "../../api/platform.js";import { safeMap } from "../../utils/safe";
+// Use the canonical, user-authable rippletrace routes — NOT platform.js's getInfluenceGraph/
+// getCausalGraph/getNarrative, which hit the deprecated legacy surface behind an admin API key.
+// Those 401 for a normal user, and a 401 trips the client's global session-expired logout, so
+// simply opening the Graph tab bounced the user back to sign-in.
+import {
+  getCausalGraph,
+  getInfluenceGraph,
+  getDropPointNarrative as getNarrative,
+} from "../../api/rippletrace.js";
+import { safeMap } from "../../utils/safe";
 
 const COLORS = {
   canvas: "#06070b",

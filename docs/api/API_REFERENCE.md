@@ -1702,6 +1702,11 @@ Get Causal Graph
 
 **Response 200:** unspecified
 
+#### GET /apps/rippletrace/influence/graph
+Get Influence Graph
+
+**Response 200:** unspecified
+
 #### POST /apps/rippletrace/drop_point
 Create Drop Point
 

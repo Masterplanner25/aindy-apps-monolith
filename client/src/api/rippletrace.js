@@ -25,6 +25,14 @@ export function getCausalGraph() {
   return authRequest(ROUTES.RIPPLETRACE.CAUSAL_GRAPH);
 }
 
+// Canonical, user-authable influence graph. App-owned route not (yet) in ui-kit ROUTES, so the
+// full /apps path is written directly rather than via the _routes.js mount correction. The only
+// other influence_graph route is the deprecated legacy one behind an admin API key, which 401s a
+// normal user — and a 401 trips the global session-expired logout. GraphView must use this one.
+export function getInfluenceGraph() {
+  return authRequest("/apps/rippletrace/influence/graph", { method: "GET" });
+}
+
 export function getCausalChain(dropPointId, depth = 3) {
   return authRequest(`${ROUTES.RIPPLETRACE.CAUSAL_CHAIN(dropPointId)}?depth=${depth}`);
 }

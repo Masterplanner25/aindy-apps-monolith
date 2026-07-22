@@ -231,6 +231,26 @@ async def get_causal_graph(
     return _with_execution_envelope(result)
 
 
+@router.get("/influence/graph")
+@limiter.limit("30/minute")
+async def get_influence_graph(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    # Canonical, user-authable influence graph. The only prior influence_graph route lived in
+    # the deprecated legacy surface router behind verify_api_key, so the user-facing GraphView
+    # got 401 — and a 401 trips the client's global session-expired logout, bouncing the user
+    # back to sign-in. This mirrors /causal/graph so GraphView can read it with a user token.
+    from apps.rippletrace.services import influence_graph as influence_engine
+
+    def handler(ctx):
+        return influence_engine.build_influence_graph(db)
+
+    result = await execute_with_pipeline(request, "rippletrace_influence_graph", handler)
+    return _with_execution_envelope(result)
+
+
 @router.get("/causal/chain/{drop_point_id}")
 @limiter.limit("60/minute")
 async def get_causal_chain_view(
