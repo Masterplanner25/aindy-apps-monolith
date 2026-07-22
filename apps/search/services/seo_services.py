@@ -7,7 +7,7 @@ import re
 import nltk
 import textstat
 
-from AINDY.utils import enforce_word_limit, prepare_input_text
+from AINDY.utils import prepare_input_text
 
 logger = logging.getLogger(__name__)
 _TOKENIZER_AVAILABLE: bool | None = None
@@ -154,7 +154,26 @@ def seo_analysis(text: str, top_n: int = 10):
 
 
 def generate_meta_description(text: str, limit: int = 160):
-    """Generate a concise meta description using text constraints and sentence-safe trimming."""
-    description = enforce_word_limit(text, limit, mode="soft", sentence_safe=True)
-    return description.strip()
+    """Generate a concise meta description trimmed to a CHARACTER budget.
+
+    SERP meta descriptions are measured in characters (~155–160 before Google truncates), not
+    words. This previously used ``enforce_word_limit``, which is a WORD limit — so ``limit=160``
+    produced ~160 words (~900+ characters), far past the SERP cutoff. Trim to ``limit``
+    characters instead, preferring a sentence boundary and falling back to a word boundary.
+    """
+    cleaned = " ".join((text or "").split())  # collapse whitespace/newlines
+    if len(cleaned) <= limit:
+        return cleaned
+
+    window = cleaned[:limit]
+    # Prefer ending on a sentence boundary, but only if it keeps a usable length (>= 60% budget).
+    best_end = -1
+    for match in re.finditer(r"[.!?](?:\s|$)", window):
+        best_end = match.end()
+    if best_end >= int(limit * 0.6):
+        return window[:best_end].strip()
+
+    # Otherwise cut at the last word boundary and mark the truncation.
+    cut = window.rsplit(" ", 1)[0] if " " in window else window
+    return f"{cut.rstrip()}…"
 

@@ -36,6 +36,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 6 | Gap | auth | No password recovery — a forgotten password locks the account out permanently | runtime feature request |
 | 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | decided: wire Perplexity (opt 1), not built |
 | 8 | Design | auth / client | A 401 on ANY request logs the whole session out — a stray widget 401 bounces the user to sign-in | decision needed |
+| 9 | Question | search / SEO | Who saves an SEO analysis? (answered: the system, automatically) | answered |
 
 ---
 
@@ -351,6 +352,41 @@ against another #145.
 
 **Status:** logged for a decision. Primarily a `@aindy/ui-kit` concern; app-side stopgap
 possible in `AuthContext`.
+
+---
+
+### 9. Who saves an SEO analysis, and why "No saved searches yet" — `Question` (answered)
+
+**Observed:** the AI SEO tool works — Analyze SEO returns a scorecard, Generate Meta returns a
+description, Get Suggestions returns a strategy. But "Recent SEO Analyses" said *No saved
+searches yet* after running one, prompting: who saves it — the user or the system?
+
+**Answer: the system, automatically.** There is no "save" button and no user action anywhere in
+search — every analyze / meta / research / leadgen call auto-persists to history via
+`execute_durable_search`. SEO analyze *is* wired into that: verified live that
+`POST /apps/seo/analyze` writes a `search_history` row with `search_type="seo_analysis"`, and
+`GET /apps/search/history?search_type=seo_analysis` returns it (count=1). So it is being saved,
+by the system, keyed to the user.
+
+**Why the panel looked empty (fixed):** `SearchHistory` fetched once on mount
+(`useEffect(…, [searchType])`) and never again, so a just-run analysis didn't appear until a
+page reload. Fixed: the panel now takes a `refreshToken` the tool bumps after a successful
+analyze, so the new entry shows immediately.
+
+**Also fixed — meta description length:** `generate_meta_description` used `enforce_word_limit`
+(a WORD limit), so the default `limit=160` produced ~160 *words* (~900+ chars) rather than the
+~155–160 *characters* a SERP meta description should be. Rewritten to a character budget with
+sentence-safe trimming.
+
+**Left as-is (as the owner noted):** suggestion depth scales with the article — "light" output
+reflects light input, not a defect. Worth revisiting as an upgrade, not a fix.
+
+**Design note (feeds the frontend-redesign thought):** the auto-save-everything model and the
+"Recent …" panels are worth a deliberate decision — should history be per-article, searchable,
+deletable, shared across the search surfaces? Currently it's an implicit system behavior with a
+thin UI. Not a bug; a design call.
+
+**Status:** answered + the two concrete gaps fixed (panel refresh, meta length).
 
 ---
 
