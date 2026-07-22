@@ -142,21 +142,26 @@ def list_results(
 @router.post("/query")
 @limiter.limit("30/minute")
 def run_research_query(
-    http_request: Request,
-    request: ResearchResultCreate,
+    request: Request,
+    payload: ResearchResultCreate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    # slowapi's @limiter.limit requires a parameter literally named `request` that is a
+    # starlette Request. This endpoint had them swapped — the Request was `http_request` and
+    # the Pydantic body was `request` — so the limiter grabbed the body and raised
+    # "parameter `request` must be an instance of starlette.requests.Request", surfacing to
+    # the user as a bare 500 on every research query. Name matches the rest of this router.
     user_id = str(current_user["sub"])
     def handler(_ctx):
-        return _do_run_research_query(db, request, user_id)
+        return _do_run_research_query(db, payload, user_id)
     return _execute_research(
-        http_request,
+        request,
         "research.query",
         handler,
         db=db,
         user_id=user_id,
-        input_payload=request.model_dump(),
+        input_payload=payload.model_dump(),
     )
 
 
