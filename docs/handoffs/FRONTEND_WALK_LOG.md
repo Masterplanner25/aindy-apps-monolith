@@ -34,7 +34,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 4 | Defect | network | `InfiniteNetwork` calls `/api/users`, which no route serves | diagnosed, unfixed |
 | 5 | Defect | Genesis | Leaving the page abandons the session; transcript is never stored | diagnosed, decision needed |
 | 6 | Gap | auth | No password recovery — a forgotten password locks the account out permanently | runtime feature request |
-| 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | diagnosed, decision needed |
+| 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | decided: wire Perplexity (opt 1), not built |
 
 ---
 
@@ -284,8 +284,22 @@ which is a web-search provider.
    over memory/LLM only or return a clear "web search not configured" state, rather than
    summarising a provider error as if it were a result.
 
-**Status:** diagnosed. Needs a provider decision before it can do real web research; option (3)
-is a safe interim so the surface stops presenting auth errors as content.
+**Decision (owner, 2026-07-21): option 1 — wire Perplexity properly.** Real web research via
+Perplexity, not a degrade or a swap. Scope to implement:
+
+- add a `PERPLEXITY_API_KEY` setting (config field + `.env`); the deployment supplies the key
+- rewrite `research_engine.web_search` to `POST https://api.perplexity.ai/chat/completions`
+  (OpenAI-compatible body: a `sonar`/`sonar-pro` model + messages), with
+  `Authorization: Bearer <key>` — routed through `perform_external_call` so the key is never
+  logged
+- when the key is absent, degrade honestly (option 3 as the fallback path) rather than
+  summarising Perplexity's auth error as a result — so local/dev stacks without a key don't
+  surface error text as content
+- the OpenAI `ai_analyze` summariser stays as-is (it works); it now summarises real search
+  results instead of an auth error
+
+**Status:** decided — option 1. Not yet built. Needs a Perplexity key at deploy; safe-degrade
+fallback lands with it so a missing key is a clean "web search not configured" state.
 
 ---
 
