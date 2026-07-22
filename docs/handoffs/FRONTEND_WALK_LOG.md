@@ -38,6 +38,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 8 | Design | auth / client | A 401 on ANY request logs the whole session out — a stray widget 401 bounces the user to sign-in | decision needed |
 | 9 | Question | search / SEO | Who saves an SEO analysis? (answered: the system, automatically) | answered |
 | 10 | Design | social | The social feed reads very bare on first look — presentation, and "social feed" vs "trust feed" identity | design note |
+| 11 | Defect | social | Posts don't appear after posting — Mongo not enabled + a 500 on the created post + a false-success degrade | fixed (needs Mongo) |
 
 ---
 
@@ -429,6 +430,40 @@ should it be."
 
 ---
 
+### 11. Posts don't appear after posting — `Defect`
+
+**Observed:** post from the composer, the form clears as if it worked, but the post never shows
+in the feed.
+
+**Three layered causes (all addressed):**
+
+1. **The social layer is MongoDB-backed, and Mongo wasn't running.** `docker-compose.prod.yml`
+   ships without Mongo (social is "degradable"). With no Mongo, `create_post` and `get_feed`
+   fall into their degraded branch. Added an opt-in overlay `docker-compose.mongo.yml` to run
+   Mongo locally:
+   `docker compose -f docker-compose.prod.yml -f docker-compose.mongo.yml up -d`.
+
+2. **A false-success on the degraded path (the real bug).** When Mongo was absent, `create_post`
+   returned a `_mongo_degraded_payload` wrapped in a **200 SUCCESS** envelope, so the client saw
+   success, cleared the form, and refetched an empty feed — a silent no-op the user reads as
+   "my post vanished." Now the `db is None` path raises **503** (`social_unavailable`) for both
+   `create_post` and `get_feed`, so a missing/again-down social layer reads as *unavailable*,
+   not *posted-and-lost*. Honest failure over silent data loss.
+
+3. **A 500 on every successful post once Mongo WAS enabled.** `insert_one` mutates the doc in
+   place, adding a Mongo `_id` (ObjectId); `create_post` returned that raw dict, and FastAPI's
+   JSON encoder raised `'ObjectId' object is not iterable` → 500. (The feed was unaffected — it
+   rebuilds each doc through the `SocialPost` model, which sheds `_id`.) Fixed by dropping `_id`
+   after insert. Verified live: with the Mongo overlay, `POST /apps/social/post` → 200 and the
+   post appears in `GET /apps/social/feed`.
+
+**Note for deploy:** social requires Mongo. It's degradable by design, but "degraded" now means
+an honest *unavailable*, not a fake success. Decide per-environment whether social is enabled.
+
+**Status:** fixed. Social works with the Mongo overlay; the false-success + 500 are gone.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -445,6 +480,8 @@ should it be."
 | search | Research query 500'd — `@limiter.limit` grabbed a Pydantic body named `request` | #141 |
 | dashboard | Graph tab bounced to Overview — `/dashboard/graph` route was missing | #144 |
 | rippletrace | Graph tab logged the user out — GraphView hit api-key-gated routes | #145 |
+| seo/leadgen | "Recent …" panels didn't refresh after a run; meta description too long | #147/#148 |
+| social | Posts didn't appear — Mongo overlay + ObjectId-500 fix + honest 503 degrade | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything

@@ -1,0 +1,31 @@
+# Opt-in overlay that enables the social layer's MongoDB backend.
+#
+# The social domain is Mongo-backed but degradable, so docker-compose.prod.yml intentionally
+# ships WITHOUT Mongo (posts/feed just degrade). Layer this file on to run Mongo locally and
+# point the api at it, so the social feed actually persists and renders:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.mongo.yml up -d
+#
+# Not for production-by-default — enable it deliberately where you want the social feature live.
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    environment:
+      MONGO_URL: "mongodb://mongo:27017/aindy"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:

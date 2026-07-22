@@ -404,7 +404,17 @@ def create_post(
 ):
     def handler(ctx):
         if db is None:
-            return _mongo_degraded_payload("mongodb_unavailable")
+            # The social layer is Mongo-backed. When Mongo isn't available the post cannot be
+            # persisted — say so with a 503 instead of returning a success-wrapped degraded
+            # payload, which made the client believe the post succeeded (form cleared, feed
+            # refetched empty) while nothing was saved. Honest failure > silent data loss.
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "social_unavailable",
+                    "message": "The social layer is unavailable — your post was not saved.",
+                },
+            )
         post_data = post.dict()
         user_id = str(current_user["sub"])
         post_data["user_id"] = user_id
@@ -424,6 +434,11 @@ def create_post(
             return _mongo_degraded_payload("mongodb_unavailable")
         except PyMongoError as exc:
             return _mongo_degraded_payload(str(exc))
+        # insert_one mutates post_data in place, adding a Mongo `_id` (ObjectId). Returning it
+        # raw made FastAPI's JSON encoder raise "'ObjectId' object is not iterable" -> 500 on
+        # every successful post. The app keys posts by its own `id`, not `_id`, so drop it (the
+        # feed already sheds it by rebuilding through the SocialPost model).
+        post_data.pop("_id", None)
         return {
             "data": post_data,
             "execution_hints": {
@@ -463,7 +478,16 @@ def get_feed(
 ):
     def handler(ctx):
         if db is None:
-            return _mongo_degraded_payload("mongodb_unavailable")
+            # Mongo-backed; when it's unavailable, surface it as unavailable (503 -> the
+            # client's "Could not load the feed" state) rather than an empty feed, which reads
+            # as "you have no posts" and hides that the social layer is simply off.
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "social_unavailable",
+                    "message": "The social layer is unavailable.",
+                },
+            )
         posts_collection = db["posts"]
         query = {}
         if trust_filter:
