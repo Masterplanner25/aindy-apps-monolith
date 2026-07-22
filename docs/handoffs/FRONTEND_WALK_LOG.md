@@ -34,6 +34,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 4 | Defect | network | `InfiniteNetwork` calls `/api/users`, which no route serves | diagnosed, unfixed |
 | 5 | Defect | Genesis | Leaving the page abandons the session; transcript is never stored | diagnosed, decision needed |
 | 6 | Gap | auth | No password recovery — a forgotten password locks the account out permanently | runtime feature request |
+| 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | diagnosed, decision needed |
 
 ---
 
@@ -239,6 +240,52 @@ it required shell access to the database and is not a substitute for a recovery 
 deployment has no such door.
 
 **Status:** logged for the runtime team. Not an app-repo fix.
+
+---
+
+### 7. Research web-search provider is an unwired stub — `Defect`
+
+**Observed:** a research query returns a summary that reads like an error — e.g. "The provided
+message indicates an error due to an invalid API key." The query no longer 500s (that was a
+separate route bug, fixed in `fix/research-query-request-param`), but the *content* is the
+provider's own auth-failure text, summarised back to the user.
+
+**Why:** the research path is two providers in sequence
+(`apps/search/services/research_engine.py`):
+
+1. `web_search(query)` → Perplexity, `GET https://api.perplexity.ai/search?q=…`
+2. `ai_analyze(content)` → OpenAI gpt-4o, which summarises whatever step 1 returned
+
+**OpenAI works** — it successfully produced the summary, so `OPENAI_API_KEY` is valid. The
+break is entirely in `web_search`, and it is not just a missing env var:
+
+```python
+url = f"https://api.perplexity.ai/search?q={query}"
+resp = perform_external_call(..., operation=lambda: requests.get(url))
+```
+
+- **No auth is ever sent** — a bare `requests.get(url)`, no `Authorization` header.
+- **There is no `PERPLEXITY_API_KEY` in config at all** (`hasattr(settings, "PERPLEXITY_API_KEY")`
+  is `False`), so there is nothing to send even if a key were added to `.env`.
+- **Wrong endpoint** — Perplexity's API is `POST /chat/completions` (OpenAI-compatible), not a
+  `GET /search?q=`.
+
+So Perplexity rejects the unauthenticated request with "invalid API key", and gpt-4o dutifully
+summarises that error. Present keys on the stack: `OPENAI`, `ANTHROPIC`, `DEEPSEEK` — none of
+which is a web-search provider.
+
+**Fix options (a decision, not just a key):**
+
+1. **Wire Perplexity properly** — add a `PERPLEXITY_API_KEY` config field, send it as a Bearer
+   header, and call `POST /chat/completions`. Requires the user to hold a Perplexity key.
+2. **Switch to a search provider the stack has a key for** — none of OPENAI/ANTHROPIC/DEEPSEEK
+   is a web search API, so this means adding one (Tavily, Brave, SerpAPI, …).
+3. **Degrade honestly** — if no search key is configured, skip `web_search` and either research
+   over memory/LLM only or return a clear "web search not configured" state, rather than
+   summarising a provider error as if it were a result.
+
+**Status:** diagnosed. Needs a provider decision before it can do real web research; option (3)
+is a safe interim so the surface stops presenting auth errors as content.
 
 ---
 
