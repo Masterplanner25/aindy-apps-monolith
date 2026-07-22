@@ -35,6 +35,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 5 | Defect | Genesis | Leaving the page abandons the session; transcript is never stored | diagnosed, decision needed |
 | 6 | Gap | auth | No password recovery — a forgotten password locks the account out permanently | runtime feature request |
 | 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | decided: wire Perplexity (opt 1), not built |
+| 8 | Design | auth / client | A 401 on ANY request logs the whole session out — a stray widget 401 bounces the user to sign-in | decision needed |
 
 ---
 
@@ -303,6 +304,56 @@ fallback lands with it so a missing key is a clean "web search not configured" s
 
 ---
 
+### 8. A 401 on any request logs the whole session out — `Design`
+
+**Observed:** opening the Dashboard Graph tab bounced the user to the sign-in page, in a loop
+(re-login → back to /dashboard/graph → bounce again). The concrete cause was fixed (GraphView
+was hitting api-key-gated routes that 401 a normal user — see Resolved #145). But the reason a
+*graph widget* could log the user out at all is a broader client-side design choice worth a
+decision.
+
+**Why:** the `@aindy/ui-kit` request core dispatches a global `aindy:session-expired` event on
+**any** response with status 401 (`authRequest` → `status === 401 && dispatch()`). `AuthContext`
+listens for it and clears the token, which drops `isAuthenticated` and sends the user to
+`/login`. So a 401 from *any* endpoint — including optional, non-critical dashboard data —
+tears down the entire session, even when the component itself catches the error and would have
+degraded gracefully. The dispatch fires *inside* the request wrapper, before the component's own
+`catch` runs, so a component cannot opt out after the fact.
+
+**Why it's a design item, not just a bug:** treating 401 as "session dead" is correct for
+*auth-critical* calls (the token genuinely expired or was revoked). It is wrong for *optional
+data* calls, where a 401 may mean "you lack access to this one widget", not "your session is
+over". The current all-or-nothing rule means any future endpoint that 401s for a normal user
+(a permissions edge, a deprecated route, an admin-only widget on a shared page) becomes a
+full-logout bug — exactly how #145 manifested.
+
+**Ownership caveat:** the dispatch lives in `@aindy/ui-kit` (the request core), so the cleanest
+fix is upstream. App-side mitigations are possible but partial.
+
+**Options:**
+
+1. **Distinguish auth-critical from optional requests (upstream).** Give the ui-kit a request
+   variant that returns `null`/throws on 401 *without* dispatching session-expired (one already
+   exists internally — some helpers do `if (status === 401) return null`). Optional widgets
+   (graphs, side panels) use it; auth-critical calls keep the session-ending behavior. Correct,
+   but needs a ui-kit change.
+2. **Verify before logout.** On a 401, don't clear the session immediately — re-check the token
+   (local `exp`, or a lightweight `/auth`-side check) and only log out if it's actually invalid.
+   Prevents a single endpoint's authorization 401 from ending a valid session. App-side-ish
+   (AuthContext), but the dispatch still originates upstream.
+3. **Accept it, and enforce a rule:** no user-facing surface may call an endpoint that 401s for
+   a normal user. Cheapest, but fragile — it's a convention with no guardrail, and #145 shows
+   how easily it's violated.
+
+**Recommendation:** option 1 (upstream) is the right long-term fix; option 2 is a reasonable
+app-side stopgap. Until then, the API-route audit + the ownership tests are the only guardrail
+against another #145.
+
+**Status:** logged for a decision. Primarily a `@aindy/ui-kit` concern; app-side stopgap
+possible in `AuthContext`.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -313,6 +364,13 @@ fallback lands with it so a missing key is a clean "web search not configured" s
 | client | No scrollbar anywhere: `body{overflow:hidden}` + unbounded shell height | #133 |
 | client | Freelance dashboard treated its empty state as a hard error | #133 |
 | client | A tripped route error boundary poisoned every subsequent page | #133 |
+| genesis | Leaving the page abandoned the session; now resumes the active one | #135 |
+| dashboard | Score-history sparkline crashed the panel (undefined `score_delta`) | #139 |
+| assistant | Agent run looked stuck at "planning" — response-shape mismatch | #140 |
+| search | Research query 500'd — `@limiter.limit` grabbed a Pydantic body named `request` | #141 |
+| dashboard | Graph tab bounced to Overview — `/dashboard/graph` route was missing | #144 |
+| rippletrace | Graph tab logged the user out — GraphView hit api-key-gated routes | #145 |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
-`client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`.
+`client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
+behavior (open item 8) is also a `@aindy/ui-kit` request-core concern.
