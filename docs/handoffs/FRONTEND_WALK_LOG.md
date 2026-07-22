@@ -37,6 +37,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | decided: wire Perplexity (opt 1), not built |
 | 8 | Design | auth / client | A 401 on ANY request logs the whole session out — a stray widget 401 bounces the user to sign-in | decision needed |
 | 9 | Question | search / SEO | Who saves an SEO analysis? (answered: the system, automatically) | answered |
+| 10 | Design | social | The social feed reads very bare on first look — presentation, and "social feed" vs "trust feed" identity | design note |
 
 ---
 
@@ -396,6 +397,35 @@ deletable, shared across the search surfaces? Currently it's an implicit system 
 thin UI. Not a bug; a design call.
 
 **Status:** answered + the two concrete gaps fixed (panel refresh, meta length).
+
+---
+
+### 10. The social feed reads bare on first look — `Design`
+
+**Observed:** the social feed looks very bare for a social feed on a first pass. Not wrong —
+a design note.
+
+**What's actually there:** the primitives exist. `Feed.jsx` renders a post composer, a
+social-analytics panel (Posts / Impressions / Clicks / Avg Engagement, top posts, a trend),
+post cards with interactions, a loading panel, and an empty state. So it's not unfinished
+plumbing — it's minimal *presentation* over a working structure (inline styles, few visual
+cues, no rich post chrome).
+
+**The more interesting design point:** it's labelled **"Trust Feed"**, not a social feed, and
+the metrics are engagement/impressions/trust-flavoured. So part of why it reads as "bare for a
+social feed" may be that it isn't trying to be one — it's a trust/reputation surface wearing a
+feed's shape. The design question is identity: is this meant to be a conventional social feed
+(rich posts, threading, reactions, media) or a trust/reputation dashboard (scores, standing,
+signal)? The current UI sits between the two, which is what makes it feel thin.
+
+**Redesign signal:** this is the third design note in the walk (after the thin "Recent …"
+history panels on SEO/LeadGen, and the search surfaces all sharing one shape). The recurring
+theme: the app has the right *data and primitives* almost everywhere, but the *presentation
+layer and surface identity* are underspecified. That is exactly the input a frontend redesign
+wants — the bones are sound; the decisions to make are "what is each surface for, and how rich
+should it be."
+
+**Status:** design note, no code change. Feeds the frontend-redesign thread.
 
 ---
 
