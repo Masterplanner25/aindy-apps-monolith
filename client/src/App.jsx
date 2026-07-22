@@ -232,6 +232,11 @@ export default function App() {
                   <Route element={routeElement("Application Shell", <MasterplanProjectionProvider><AppShell /></MasterplanProjectionProvider>)}>
                     <Route path="/" element={<RuntimeAwareHomeRedirect />} />
                     <Route path="/dashboard" element={<AppProfileRoute element={routeElement("Dashboard", <Dashboard />)} />} />
+                    {/* Same Dashboard component; it switches to the Graph tab off pathname
+                        (isGraphRoute). Without this route the Graph tab navigated to
+                        /dashboard/graph, matched nothing, hit the catch-all redirect, and
+                        bounced back to /dashboard — i.e. the Graph tab landed on Overview. */}
+                    <Route path="/dashboard/graph" element={<AppProfileRoute element={routeElement("Dashboard", <Dashboard />)} />} />
                     <Route path="/tasks" element={<AppProfileRoute element={routeElement("Tasks", <TaskDashboard />)} />} />
                     <Route path="/genesis" element={<AppProfileRoute element={routeElement("Genesis", <Genesis />)} />} />
                     <Route path="/assistant" element={<AppProfileRoute element={routeElement("Assistant", <Assistant />)} />} />
