@@ -187,11 +187,19 @@ function InfinityScorePanel() {
           <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 6 }}>Score History</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 40 }}>
             {safeMap(history.slice().reverse(), (h, i) => {
-            const barH = Math.max(4, h.master_score / 100 * 40);
-            const delta = h.score_delta;
-            const barColor = delta === null ? "#6cf" : delta >= 0 ? "#4caf50" : "#f44336";
+            // Guard every numeric field: a single malformed history row must not take down
+            // the whole panel. score_delta in particular is nullable (no prior on the first
+            // sample) and was previously absent from the payload entirely — `!= null` catches
+            // both null and undefined, where the old `!== null` let undefined through to
+            // delta.toFixed() and crashed InfinityScorePanel.
+            const score = Number.isFinite(h?.master_score) ? h.master_score : null;
+            const delta = Number.isFinite(h?.score_delta) ? h.score_delta : null;
+            const barH = Math.max(4, ((score ?? 0) / 100) * 40);
+            const barColor = delta == null ? "#6cf" : delta >= 0 ? "#4caf50" : "#f44336";
+            const scoreLabel = score == null ? "—" : score.toFixed(1);
+            const deltaLabel = delta == null ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}`;
             return (
-              <div key={i} title={`${h.master_score.toFixed(1)} (${delta !== null ? (delta >= 0 ? "+" : "") + delta.toFixed(1) : "—"})`}
+              <div key={i} title={`${scoreLabel} (${deltaLabel})`}
               style={{
                 flex: 1, height: barH, background: barColor,
                 borderRadius: 2, cursor: "default", transition: "height 0.3s ease"

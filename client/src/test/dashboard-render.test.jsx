@@ -59,6 +59,18 @@ const LIVE_SCORE = {
 
 const LIVE_HISTORY = { user_id: "aa4dcf66-14dd-422f-8d2d-d849fc9c6dfd", history: [] };
 
+// A real account with >1 score samples renders the sparkline. The payload historically did
+// NOT include score_delta, so h.score_delta was undefined — and the old `delta !== null` guard
+// let undefined through to delta.toFixed(), crashing InfinityScorePanel. This is the exact
+// shape that crashed the live dashboard.
+const HISTORY_NO_DELTA = {
+  user_id: "u",
+  history: [
+    { master_score: 45.76, calculated_at: "2026-07-20T12:34:30Z" },
+    { master_score: 45.76, calculated_at: "2026-07-20T12:34:27Z" },
+  ],
+};
+
 let Dashboard;
 
 beforeAll(async () => {
@@ -111,6 +123,38 @@ describe("Dashboard against live API shapes", () => {
     );
     expect(screen.queryByText(/Loading dashboard/i)).not.toBeInTheDocument();
     // The rest of the page must still render — one failed panel is not a dead page.
+    expect(screen.getByText(/Infinity Score/i)).toBeInTheDocument();
+  });
+
+  it("renders the score-history sparkline when score_delta is absent from the payload", async () => {
+    // Regression for the live crash: history rows without score_delta previously threw
+    // "Cannot read properties of undefined (reading 'toFixed')" and took down InfinityScorePanel.
+    mockGetScoreHistory.mockResolvedValue(HISTORY_NO_DELTA);
+    render(
+      <AppProviders>
+        <Dashboard />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(mockGetMyScore).toHaveBeenCalled());
+    expect(await screen.findByText(/Score History/i)).toBeInTheDocument();
+    // Panel is intact — no error-boundary fallback swapped in.
+    expect(screen.getByText(/Infinity Score/i)).toBeInTheDocument();
+  });
+
+  it("survives history rows with null/undefined master_score", async () => {
+    mockGetScoreHistory.mockResolvedValue({
+      history: [
+        { master_score: 40.0, score_delta: 2.0, calculated_at: "2026-07-20T12:00:00Z" },
+        { master_score: null, score_delta: null, calculated_at: "2026-07-20T12:01:00Z" },
+      ],
+    });
+    render(
+      <AppProviders>
+        <Dashboard />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(mockGetMyScore).toHaveBeenCalled());
+    expect(await screen.findByText(/Score History/i)).toBeInTheDocument();
     expect(screen.getByText(/Infinity Score/i)).toBeInTheDocument();
   });
 });
