@@ -1,8 +1,15 @@
 import { authRequest, taggedRequest, unwrapEnvelope } from "./_core.js";
 import { ROUTES } from "./_routes.js";
 
+// `/apps/tasks/list` nests the array one level deeper than the other list routes:
+// unwrapping the envelope yields `{tasks: [...], execution_envelope: {...}}`, not an
+// array. TaskDashboard does `Array.isArray(data) ? [...data] : []`, so before this
+// second unwrap every task list rendered as "No active directives" — a created task
+// persisted fine and simply never appeared.
 export const getTasks = taggedRequest("tasks", () =>
-  authRequest(ROUTES.TASKS.LIST, { method: "GET" }).then(unwrapEnvelope)
+  authRequest(ROUTES.TASKS.LIST, { method: "GET" })
+    .then(unwrapEnvelope)
+    .then((data) => (Array.isArray(data) ? data : data?.tasks ?? []))
 );
 
 export const createTask = taggedRequest("tasks", (taskData) =>

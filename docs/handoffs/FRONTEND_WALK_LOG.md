@@ -41,6 +41,8 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 11 | Defect | social | Posts don't appear after posting — Mongo not enabled + a 500 on the created post + a false-success degrade | fixed (needs Mongo) |
 | 12 | Defect | social / client api | The feed renders nothing and analytics shows all zeros — `social.js` never unwrapped the execution envelope | fixed |
 | 13 | Defect | client api (systemic) | `unwrapEnvelope` coverage is inconsistent across `client/src/api/` — 8 modules have none | diagnosed, watch while walking |
+| 14 | Defect | tasks | Created tasks never appear — `/apps/tasks/list` nests the array one level deeper than the unwrap handles | fixed |
+| 15 | Question | tasks | Is a task tracked, or executed by the AI? (answered: tracked; AI execution is opt-in and has no UI) | answered, decision needed |
 
 ---
 
@@ -567,6 +569,84 @@ overview (#137). Tasks, MasterPlan and Memory are the next likely hits.
 
 ---
 
+### 14. A created task never appears in the list — `Defect`
+
+**Observed:** on `/tasks`, adding a directive appeared to do nothing — the input cleared and the
+list still read "No active directives."
+
+**The task was created correctly.** Verified live with exactly the body the UI sends
+(`{name, priority}`): `POST /apps/tasks/create` → **200**, row persisted with `task_id=2`, and
+`GET /apps/tasks/list` → **200** returning that task. Both ends of the round trip work.
+
+**Why nothing rendered:** `/apps/tasks/list` nests its array one level deeper than the other
+list routes. After `unwrapEnvelope` the caller holds:
+
+```json
+{ "tasks": [ { "task_id": 2, "task_name": "…" } ], "execution_envelope": { … } }
+```
+
+— an object, not an array. `TaskDashboard` then does
+`Array.isArray(data) ? [...data] : []`, which discards it and falls through to the empty state.
+So the screen reported "no tasks" while the API was returning one.
+
+This is the *second* form of item 13. The first (social, item 12) was a missing unwrap; this one
+has the unwrap and still fails, because a single unwrap isn't sufficient when the payload nests
+the collection under a named key. Worth checking both shapes on the remaining surfaces.
+
+**Fixed:** `getTasks` now flattens `data.tasks`, passing a bare array through unchanged and
+yielding `[]` when the key is absent. Regression test at
+`client/src/test/tasks-list-payload.test.jsx` (3 cases).
+
+**Status:** fixed.
+
+---
+
+### 15. Is a task tracked, or executed by the AI? — `Question` (answered)
+
+**Asked while walking `/tasks`:** the screen is titled "Execution Engine" and the input says
+"Initialize new directive," which reads like work handed to the AI. Is a task something the AI
+completes, or something the user tracks?
+
+**Answer: tracked by default. AI execution exists, is opt-in, and has no UI.**
+
+The `Task` model is a rich tracking record — status, priority, category, due/scheduled/reminder
+times, recurrence, estimated hours (`duration`), actual elapsed `time_spent`, dependencies
+(`depends_on` / `dependency_type`), parent/child nesting, and a `masterplan_id` link. Completing
+one drives real machinery: MasterPlan ETA/WCU recalculation, the Infinity orchestrator, a TWR
+score, dependency-unlock cascade.
+
+Autonomous execution hangs off two columns — `automation_type` and `automation_config`. When
+`automation_type` is set, `queue_task_automation` dispatches an `automation.execute` autonomous
+job into the automation domain's connectors (social, crm, email, webhook, stripe, subscription,
+content_generation).
+
+**Two facts explain why adding a task feels inert even by design:**
+
+1. **Automation fires on completion and unlock — never on creation.** The call sites are
+   `reason="task_completed"` and `reason="task_unlocked"` in `task_service.py`. Nothing runs
+   when a task is added, even a fully configured one.
+2. **The UI cannot set `automation_type` at all.** `TaskCreate` accepts 13 fields; the dashboard
+   sends exactly two — `{name, priority}` (`TaskDashboard.jsx` line 36). So `automation_type`,
+   `automation_config`, `due_date`, `estimated_hours`, `masterplan_id`, `dependencies`,
+   `recurrence`, `reminder_time` and `scheduled_time` are all reachable by the API and by agent
+   tools, and unreachable from the screen.
+
+So the surface is a plain to-do list wearing an execution engine's name, sitting on top of a
+scheduler, a dependency graph, a MasterPlan link and an automation dispatcher — none of which
+it exposes. The tracked-vs-executed confusion is an honest reading of what's on screen.
+
+**Redesign signal — the strongest one yet.** Earlier notes (thin "Recent…" panels, the shared
+search shape, the Trust Feed identity) were about presentation depth. This is the same pattern
+at its most extreme: the backend supports scheduling, recurrence, dependencies, MasterPlan
+linkage and autonomous execution, and the UI is one text input. The decision to make is what
+`/tasks` is *for* — a quick capture list, a project planner over the dependency/MasterPlan
+model, or the console for AI-executed work — and it can be answered without building backend.
+
+**Status:** answered. The design decision (what to expose, and whether creation should ever
+trigger automation) is open.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -585,7 +665,8 @@ overview (#137). Tasks, MasterPlan and Memory are the next likely hits.
 | rippletrace | Graph tab logged the user out — GraphView hit api-key-gated routes | #145 |
 | seo/leadgen | "Recent …" panels didn't refresh after a run; meta description too long | #147/#148 |
 | social | Posts didn't appear — Mongo overlay + ObjectId-500 fix + honest 503 degrade | #149 |
-| social | Feed rendered nothing and analytics read all zeros — `social.js` never unwrapped the envelope | (this PR) |
+| social | Feed rendered nothing and analytics read all zeros — `social.js` never unwrapped the envelope | #150 |
+| tasks | Created tasks never appeared — the list array is nested under `data.tasks` | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
