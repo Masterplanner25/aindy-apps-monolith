@@ -112,6 +112,33 @@ describe("FlowEngineConsole", () => {
     expect(await screen.findByText("task.pipeline")).toBeInTheDocument();
   });
 
+  // The seeded `default` strategies the engine ships with carry `score: null`, so on a
+  // fresh install every row hit `score.toFixed(2)` and took the panel down. The empty
+  // state never rescued it either — `strategies.length` is 2, not 0.
+  it("renders strategies that have never been scored", async () => {
+    mockGetFlowStrategies.mockResolvedValue({
+      count: 1,
+      strategies: [
+        {
+          id: "default",
+          intent_type: "default",
+          user_id: null,
+          score: null,
+          usage_count: 0,
+          success_count: 0,
+          flow: { handler: "select_strategy", type: "default" },
+        },
+      ],
+    });
+
+    render(<FlowEngineConsole />);
+
+    fireEvent.click(screen.getByRole("button", { name: /strategies/i }));
+
+    expect(await screen.findByText("—")).toBeInTheDocument();
+    expect(screen.queryByText(/no learned strategies yet/i)).not.toBeInTheDocument();
+  });
+
   it("does not crash when the registry payload omits flow_definitions", async () => {
     mockGetFlowRegistry.mockResolvedValue({ flow_count: 0, node_count: 0 });
 
