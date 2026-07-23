@@ -56,6 +56,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 26 | Defect | platform / registry | Registry read `registry.flows`; the route returns `flow_definitions`. Its unit test encoded the bug | fixed (#159) |
 | 27 | Defect | platform / strategies | `ScoreBar` calls `score.toFixed(2)` on a null score — both live strategies have `score: null` | fixed |
 | 28 | Defect | client telemetry | `reportClientError` POSTs to `/client/error`, which no route serves — every boundary trip 404s silently | diagnosed, unfixed |
+| 29 | Design | platform UI | The operator surface is a **record**, not a control plane — the API exposes 24 write routes, the UI wires 5 | design decision |
 
 ---
 
@@ -1194,6 +1195,79 @@ and the call should be removed. Silently 404-ing on every crash is the one optio
 nobody.
 
 **Status:** diagnosed, unfixed.
+
+---
+
+### 29. The platform UI is a record, not a control plane — `Design`
+
+**Observed (owner), on finishing the Flow Engine console:** the operator surface reads as a
+*record* of what happened rather than a place to *act*. Noted as a possible upgrade, not a fault.
+
+**The code agrees, and the gap is measurable.** The `/platform` API exposes **59 operations
+across 51 routes: 35 read, 24 write**. The platform UI wires **5** of those 24:
+
+| Wired | Where |
+|---|---|
+| `POST /flows/runs/{id}/resume` | FlowEngineConsole — resume a waiting run |
+| `POST` automation replay | FlowEngineConsole — single row, and a bulk "replay all failed" |
+| approve / reject agent run | AgentApprovalInbox, AgentConsole |
+| create agent run | AgentConsole |
+
+**Not reachable from any UI (19 of 24):**
+
+```
+POST   /platform/flows/{name}/run          run a flow on demand
+POST   /platform/syscall                   dispatch a syscall
+POST   /platform/flows                     DELETE /platform/flows/{name}
+POST   /platform/nodes/register            DELETE /platform/nodes/{name}
+POST   /platform/admin/agents/register     DELETE /platform/admin/agents/{namespace}
+POST   /platform/admin/users/{id}/promote
+POST   /platform/keys                      DELETE /platform/keys/{key_id}
+POST   /platform/observability/queue/dlq/drain
+POST   /platform/queue/dead-letters/drain
+POST   /platform/queue/dead-letters/{id}/replay
+DELETE /platform/queue/dead-letters/{id}
+POST   /platform/nodus/upload | /run | /flow | /schedule
+DELETE /platform/nodus/schedule/{job_id}
+POST   /platform/webhooks                  DELETE /platform/webhooks/{subscription_id}
+POST   /platform/ops/rotate-secret-key
+```
+
+**Write actions per panel** — the split is stark:
+
+| Panel | Actions |
+|---|---|
+| FlowEngineConsole | 2 (resume, replay) |
+| AgentApprovalInbox / AgentConsole / AgentRegistry | approve, reject, create run |
+| **ExecutionConsole** | **0** |
+| **HealthDashboard** | **0** |
+| **ObservabilityDashboard** | **0** |
+| **RippleTraceViewer** | **0** |
+
+Four of the seven panels are pure read.
+
+**Why this is the same theme as the product walk, not a new one.** Every earlier design note came
+down to *working backends, underspecified presentation*. This is that pattern at the operator
+layer: the control capability is fully built and routed — it simply has no surface. The
+`admin/users/{id}/promote` case makes it concrete: making the first admin for this walk required
+a direct `UPDATE users SET is_admin` in Postgres, because the only route that does it is
+admin-gated and has no UI, so there is no bootstrap path from a running system.
+
+**Cheapest upgrades, if pursued** — ordered by value per unit of work:
+
+1. **Dead-letter actions.** `ObservabilityDashboard` already reads the DLQ; replay / drain /
+   delete are three buttons on data it is already showing. This is the highest-value gap: a
+   dead-letter you can see but not act on is precisely a record where a control plane is wanted.
+2. **`POST /flows/{name}/run`.** The Registry panel already lists every registered flow. A "run"
+   button next to each turns an inventory into an operator tool.
+3. **Admin promotion.** Removes the "edit the database to create your first admin" bootstrap.
+4. **Nodus + node/agent registration.** Larger surface, real UI design needed; not a button.
+
+`POST /platform/syscall` is deliberately left off that list — arbitrary syscall dispatch from a
+browser is a different risk class and wants an explicit decision, not a convenience button.
+
+**Status:** design decision for the owner. Nothing here is broken; the record half works. The
+question is whether the operator surface should be able to act on what it shows.
 
 ---
 
