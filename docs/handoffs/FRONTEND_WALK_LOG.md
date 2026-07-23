@@ -45,6 +45,9 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 15 | Question | tasks | Is a task tracked, or executed by the AI? (answered: tracked; AI execution is opt-in and has no UI) | answered, decision needed |
 | 16 | Defect | masterplan | The only non-Genesis MasterPlan create route 500s — Genesis is the sole working way to get a plan | confirmed live, unfixed |
 | 17 | Design | masterplan / genesis / tasks | The three surfaces were one section and are now disconnected tabs; no UI links a task to a plan. Includes an import-an-external-plan proposal | design decision |
+| 18 | Design | analytics / kpi | Analytics is LinkedIn-specific and owner-specific; KPI Snapshot is a manual-entry calculator that wants to be a dashboard | owner verdict: redesign or remove |
+| 19 | Defect | arm | ARM Analyze reads files from the **server**, the prefilled default cannot exist, and a failed analysis renders a blank screen | fixed (client); default path decision open |
+| 20 | Security | arm | ARM has no project-root confinement — any allowlisted-extension file anywhere on the server is readable and gets sent to an external LLM | hardening recommended |
 
 ---
 
@@ -737,6 +740,95 @@ independently of any redesign.
 
 ---
 
+### 18. Analytics and KPI Snapshot — owner verdict on scope — `Design`
+
+**Analytics (`/analytics`)** is LinkedIn analytics, and owner-specific: it reflects one person's
+channel rather than anything a general user of the product would have. Flagged by the owner as a
+candidate for removal rather than redesign.
+
+**KPI Snapshot (`/kpi`)** is currently a calculate-your-own-metrics surface — the user enters
+numbers and it computes. Nothing is wrong with it as built; the owner's original intent was a
+**dashboard** (values derived from the system's own data), not a manual calculator.
+
+**Status:** owner verdict recorded — two more surfaces to either redesign or remove. Not walked
+in depth, since scope is the open question rather than correctness.
+
+---
+
+### 19. ARM Analyze — what is it analyzing, and how would it reach your file? — `Defect`
+
+**Asked while walking `/arm/analyze`:** it is a small text box prefilled with `tests/example.py`.
+What does it actually analyze, and how would it get access to the file?
+
+**Answer: files on the SERVER's filesystem — never yours.** `validate_file_path` does
+`Path(file_path).resolve()` and requires `path.exists()`, resolved relative to the API process's
+working directory (`/app` in the deployed image). There is no upload, no repo connection, no
+file picker, and no access to the visitor's machine. In practice it can only analyze code that
+ships inside the container — A.I.N.D.Y.'s own source. It is a developer tool pointed at the
+server's own source tree, presented as a general product surface.
+
+**Three concrete defects behind that:**
+
+1. **The prefilled default cannot succeed.** `tests/` is not in the deployed image — `/app`
+   contains `README.md`, `apps`, `alembic`, `scripts`, `logs`, `build`, `pyproject.toml` and no
+   `tests`. Verified live: `tests/example.py` → `404: File not found`. The out-of-the-box first
+   run is guaranteed to fail.
+2. **The failure is completely invisible.** A failed analysis returns **HTTP 200 with
+   `status: "success"`**; the real error lands at `data.error` ("Node arm_analyze_code failed
+   after N retries"). `ARMAnalyze` only sets its error state when the request *throws*, so
+   nothing throws, `result` has no `summary` / scores / findings, every render block is falsy,
+   and the screen shows **nothing at all** after Run Analysis. Same false-success class as the
+   social degrade (item 11) and the dashboard envelope bug (#137) — this is the third instance.
+3. **A valid path also fails on this stack**, but for an unrelated reason: `apps/arm/models.py`
+   passes validation, is read, and then the outbound LLM call fails repeatedly
+   (`external.call.failed`) — a local provider-key/config matter, not an ARM bug.
+
+**Fixed (client):** `submit` now surfaces `res.error` (with `failed_node`) in the existing error
+banner instead of silently rendering an empty page; the misleading default is cleared; the
+placeholder states that the path is server-side and relative to the API working directory; and
+an empty submit is guarded.
+
+**Left open (needs the owner's intent):** what the default path *should* be, and more
+fundamentally whether ARM Analyze is a product surface at all. If it is meant to analyze the
+user's code, it needs an upload or a repo connection — neither exists. If it is meant to analyze
+A.I.N.D.Y.'s own source, it is an internal/dev tool and should say so.
+
+---
+
+### 20. ARM has no project-root confinement — `Security`
+
+**Found while answering item 19.** `validate_file_path` guards with three mechanisms: a blocked
+path-segment list (`.env`, `venv`, `__pycache__`, `.git`, `secrets`, `credentials`, `keys`), an
+extension allowlist (`.py .js .jsx .ts .tsx .json .md .txt .yaml .yml`), and a post-read content
+scan for secret-shaped patterns. **There is no check that the resolved path stays inside the
+project root.**
+
+Verified directly against the validator in the running container:
+
+```
+/usr/local/lib/python3.11/this.py  -> ALLOWED
+/app/apps/arm/models.py            -> ALLOWED
+/etc/hostname                      -> blocked (422, no extension — not by confinement)
+```
+
+`/etc/passwd` and `../../etc/hosts` are rejected only because they lack an allowlisted
+extension, not because they are outside the project. So any authenticated user can read **any
+`.py`/`.js`/`.json`/`.yaml`/`.md`/… file anywhere on the server filesystem**, and its contents
+are then sent to an external LLM provider. The content scan catches secret-shaped strings, but
+it runs *after* the read and only matches known patterns — site-packages source, deployment
+YAML, and application config that isn't shaped like a key all pass through.
+
+**Recommended hardening:** resolve against an explicit configured root and require
+`resolved.is_relative_to(root)`, rejecting anything outside it — a confinement check rather than
+an extension guess. Cheap to add, and it makes the existing allowlist a second layer instead of
+the only one.
+
+**Status:** hardening recommended, not applied — the right root depends on the item 19 decision
+about what ARM is for. Worth doing before any deployment where the API host holds anything the
+signed-in user shouldn't read.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -756,7 +848,8 @@ independently of any redesign.
 | seo/leadgen | "Recent …" panels didn't refresh after a run; meta description too long | #147/#148 |
 | social | Posts didn't appear — Mongo overlay + ObjectId-500 fix + honest 503 degrade | #149 |
 | social | Feed rendered nothing and analytics read all zeros — `social.js` never unwrapped the envelope | #150 |
-| tasks | Created tasks never appeared — the list array is nested under `data.tasks` | (this PR) |
+| tasks | Created tasks never appeared — the list array is nested under `data.tasks` | #151 |
+| arm | Analyze rendered a blank screen on failure; the default path could never resolve | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
