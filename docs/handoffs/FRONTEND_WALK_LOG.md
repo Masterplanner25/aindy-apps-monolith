@@ -59,6 +59,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 29 | Design | platform UI | The operator surface is a **record**, not a control plane — the API exposes 24 write routes, the UI wires 5 | design decision |
 | 30 | Defect | platform UI | The platform SPA had **no navigation at all** — 8 registered routes, 7 reachable only by typing a URL | fixed |
 | 31 | Defect | platform / agent console | `agent.js` never unwrapped `{data: […]}` — `runs.filter is not a function` blanked the console | fixed |
+| 32 | Defect | platform / executions | The Executions tab is 13 app-domain Infinity calculators on the operator surface — it shows no executions, and strands 7 panels behind admin | diagnosed, decision needed |
 
 ---
 
@@ -1328,6 +1329,61 @@ surprise renders an empty list instead of taking the console down. `data || []` 
 against this — every object passes it.
 
 **Status:** fixed.
+
+---
+
+### 32. The Executions tab is app content on the operator surface — `Defect`
+
+**Observed (owner):** the Executions tab looks like a section that shouldn''t be there — it appears
+to show manual inputs for the Infinity algorithm that a human fills in and calculates, rather than
+executions being run. Suspected to be something missed in the runtime/app split.
+
+**Confirmed, and it is app-owned — not a ui-kit or runtime concern.**
+`client/src/components/platform/ExecutionConsole.jsx` lives in *this* repo, and
+`@aindy/ui-kit` ships no `ExecutionConsole` at all (grep of the built bundle: 0 hits). That is why
+it was not visible when looking at the runtime''s frontend — it was never there. Nothing needs to
+go back to the runtime repo; the fix is entirely app-side.
+
+**What it actually is:** the component imports **13 panels from `../app/`** and calls
+**zero `/platform` routes**. Its only API call is `calculateTwr`, an app analytics route.
+
+```
+Engagement · AIEfficiency · Impact · RevenueScaling · ExecutionSpeed · AttentionValue
+IncomeEfficiency · MonetizationEfficiency · BusinessGrowth · EngagementRate
+AIProductivityBoost · DecisionEfficiency · LostPotential
+```
+
+**The part that makes this more than misfiling — 7 of the 13 are reachable *only* here:**
+
+```
+EngagementPanel · AIEfficiencyPanel · RevenueScalingPanel · BusinessGrowthPanel
+AIProductivityBoostPanel · DecisionEfficiencyPanel · LostPotentialPanel
+```
+
+The other six are also on `/kpi` via `KPIDashboard`. So seven app-domain calculators are
+**admin-gated and stranded on the operator surface** — a normal user cannot reach them at all,
+and an operator finds them where executions should be.
+
+**And there is no execution console.** The tab named "Executions" shows none. The data a real one
+would use exists and is already routed: `/platform/flows/runs`,
+`/platform/observability/execution_graph/{trace_id}`, `/platform/observability/requests`,
+plus the execution-unit records every pipeline route emits.
+
+**Relationship to item 18.** The owner already flagged `/kpi` as "a manual calculator that was
+meant to be a dashboard". This is the same content, duplicated onto the platform side — so the
+KPI decision and this one should be made together rather than separately.
+
+**Three options:**
+
+| # | Option | Notes |
+|---|---|---|
+| A | Move all 13 panels to the app KPI surface; delete the platform tab | Un-strands the 7, makes `/kpi` whole, removes a tab that shows nothing it claims to |
+| B | Move the panels **and** build a real execution console in the freed tab | Same as A plus an operator surface over `flows/runs` + `execution_graph` — the routes already exist (see item 29) |
+| C | Delete the 7 exclusive panels outright | Only if the manual-calculator model is being dropped, which the item 18 decision may settle |
+
+A is strictly better than leaving it; B is A plus the control-plane work already scoped in item 29.
+
+**Status:** diagnosed. Decision belongs with the item 18 / item 29 decisions, not on its own.
 
 ---
 
