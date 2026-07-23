@@ -1,6 +1,6 @@
 ---
 title: "Frontend Walk Log — live user-path walkthrough"
-last_verified: "2026-07-19"
+last_verified: "2026-07-22"
 api_version: "1.0"
 status: current
 owner: "app-team"
@@ -39,6 +39,8 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 9 | Question | search / SEO | Who saves an SEO analysis? (answered: the system, automatically) | answered |
 | 10 | Design | social | The social feed reads very bare on first look — presentation, and "social feed" vs "trust feed" identity | design note |
 | 11 | Defect | social | Posts don't appear after posting — Mongo not enabled + a 500 on the created post + a false-success degrade | fixed (needs Mongo) |
+| 12 | Defect | social / client api | The feed renders nothing and analytics shows all zeros — `social.js` never unwrapped the execution envelope | fixed |
+| 13 | Defect | client api (systemic) | `unwrapEnvelope` coverage is inconsistent across `client/src/api/` — 8 modules have none | diagnosed, watch while walking |
 
 ---
 
@@ -151,6 +153,47 @@ prefix handling; it 404s either way.
 
 **Status:** diagnosed, unfixed. Needs a decision: point at a real route, gate the surface, or
 require the env var.
+
+**Update (2026-07-22 walk) — confirmed live, and it's broader than a wrong URL.**
+
+Verified against the running stack: `GET /api/users` → **404**, `POST /api/users` → **404**,
+and nothing resembling it exists in the OpenAPI schema. Both halves of the page (list members,
+create profile) are wired to a route that has never existed on this backend — the component is
+a leftover from a standalone prototype and was never connected.
+
+Two further findings that constrain the fix:
+
+1. **There is no member-listing endpoint at all.** Social exposes only
+   `POST /apps/social/profile` and `GET /apps/social/profile/{username}`. A "Network Members"
+   list has nothing to call; it would need a new `GET /apps/social/profiles` route.
+2. **`network_bridge` is not a drop-in target.** `GET /apps/network_bridge/authors` returns
+   **401 with a valid bearer token** — it is API-key gated. Pointing the page at it would
+   reproduce the RippleTrace logout bug (#145), where an api-key-gated call 401s and the
+   global 401 handler signs the user out (open item 8).
+
+**Related gap — profile provisioning was never moved to signup.** The owner recalled asking for
+profile creation to happen at sign-up rather than on a separate tab. It was not implemented.
+`apps/identity/services/signup_initialization_service.py` provisions a `UserIdentity` row, an
+initial memory node, an analytics score, an initial agent run, and an `identity.created` event —
+**no social profile**. Confirmed live: a freshly registered user returns **404** from
+`GET /apps/social/profile/{username}`. A profile only exists once the user visits
+`/profile/:username` and clicks "Create Identity Node", which is why that screen opens in
+create-mode for every new account.
+
+**Consolidation options (logged, not chosen — owner deferred the decision to keep walking):**
+
+| # | Option | What it entails |
+|---|---|---|
+| A | Delete the tab; provision at signup | Remove `InfiniteNetwork` + its route; add social-profile creation to `initialize_signup_state`; `/profile/:username` becomes the single profile surface. Smallest surface, matches the original intent. |
+| B | Keep a directory; build its backend | Add `GET /apps/social/profiles`, repoint the page at it, make `/network` read-only browse. Profile creation still moves to signup. |
+| C | Fold into `/social` as a Members tab | Delete the standalone route, add a directory tab beside the Trust Feed. Still needs the list endpoint; consolidates social into one destination. |
+| D | Park it | Disable the route so nobody hits a dead page; treat consolidation as a redesign decision. |
+
+All four share two prerequisites: profile creation moves into signup, and any directory needs a
+new social list endpoint. Note also that `/network` and `/profile/:username` are two UIs for one
+concept built against two different backends, one of which doesn't exist — a redesign /
+consolidation candidate in the owner's own framing, consistent with the "underspecified
+presentation over working backends" theme running through this walk.
 
 ---
 
@@ -464,6 +507,66 @@ an honest *unavailable*, not a fake success. Decide per-environment whether soci
 
 ---
 
+### 12. The feed renders nothing, and the analytics panel is structurally zeroed — `Defect`
+
+**Observed (from the browser console, while walking `/network`):**
+
+```
+Feed.jsx:69 safeMap prevented crash. Value: {status:'SUCCESS', data: Array(7), result: Array(7), …}
+```
+
+Seven posts came back and none were on screen.
+
+**Why:** every `/apps/social` route runs its handler through `execute_with_pipeline_sync` and
+returns the standard `{status, data, result, events, next_action, trace_id}` envelope. But
+`client/src/api/social.js` was the one API module with **zero** `unwrapEnvelope` calls, so the
+raw envelope was handed to the components:
+
+- `setPosts(envelope)` → `safeMap` receives an object and renders nothing. The empty state
+  doesn't rescue it either: `posts.length === 0` is `undefined === 0` → false. So the stream is
+  blank with no explanation — the worst of both branches.
+- `analytics.overview` is read off the envelope → `undefined` → Posts / Impressions / Clicks /
+  Avg Engagement all display `0`.
+- View-mode `ProfileView` reads `profile.username.charAt(0)`, which throws on an envelope.
+
+**This partly re-explains open item 10** ("the feed reads bare"). That was logged as a
+presentation/identity design note, and the presentation point stands — but the analytics panel
+was *also* structurally zeroed by this bug, so the surface was reading barer than it is.
+
+**Fixed:** all six functions in `social.js` now `.then(unwrapEnvelope)`. `unwrapEnvelope` is
+safe here — it only unwraps when a `data` key is present and rethrows an embedded `error`.
+Regression test added at `client/src/test/social-envelope.test.jsx` (feed returns an array,
+analytics exposes `overview`, profile returns the document).
+
+**Status:** fixed.
+
+---
+
+### 13. `unwrapEnvelope` coverage across the client API layer is inconsistent — `Defect` (systemic)
+
+**Observed:** item 12 was not a one-off. Auditing `client/src/api/`:
+
+| Has `unwrapEnvelope` | Has none |
+|---|---|
+| `analytics`, `arm`, `tasks` | `agent`, `masterplan`, `memory`, `rippletrace`, `search`, `freelance`, `identity`, `operator` |
+
+The same walk console also emitted ~40 `safeMap prevented crash` lines originating **inside
+`@aindy/ui-kit`**, which is the same signature: a component handed an envelope where it expected
+an array.
+
+**Why it isn't a blanket fix:** not every route is enveloped — only those routed through the
+execution pipeline. Applying `unwrapEnvelope` indiscriminately would corrupt any plain response
+that legitimately carries a `data` key. The correct unit of work is per-module: check which of
+that domain's routes wrap, then unwrap those.
+
+**Predicted symptom while walking:** "the data exists but the screen is empty," with no error
+and no empty state — precisely the shape of items 11 and 12, and previously of the dashboard
+overview (#137). Tasks, MasterPlan and Memory are the next likely hits.
+
+**Status:** diagnosed. Verify per surface as the walk reaches it rather than sweeping blind.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -481,7 +584,8 @@ an honest *unavailable*, not a fake success. Decide per-environment whether soci
 | dashboard | Graph tab bounced to Overview — `/dashboard/graph` route was missing | #144 |
 | rippletrace | Graph tab logged the user out — GraphView hit api-key-gated routes | #145 |
 | seo/leadgen | "Recent …" panels didn't refresh after a run; meta description too long | #147/#148 |
-| social | Posts didn't appear — Mongo overlay + ObjectId-500 fix + honest 503 degrade | (this PR) |
+| social | Posts didn't appear — Mongo overlay + ObjectId-500 fix + honest 503 degrade | #149 |
+| social | Feed rendered nothing and analytics read all zeros — `social.js` never unwrapped the envelope | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
