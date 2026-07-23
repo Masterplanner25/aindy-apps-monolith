@@ -43,6 +43,8 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 13 | Defect | client api (systemic) | `unwrapEnvelope` coverage is inconsistent across `client/src/api/` — 8 modules have none | diagnosed, watch while walking |
 | 14 | Defect | tasks | Created tasks never appear — `/apps/tasks/list` nests the array one level deeper than the unwrap handles | fixed |
 | 15 | Question | tasks | Is a task tracked, or executed by the AI? (answered: tracked; AI execution is opt-in and has no UI) | answered, decision needed |
+| 16 | Defect | masterplan | The only non-Genesis MasterPlan create route 500s — Genesis is the sole working way to get a plan | confirmed live, unfixed |
+| 17 | Design | masterplan / genesis / tasks | The three surfaces were one section and are now disconnected tabs; no UI links a task to a plan. Includes an import-an-external-plan proposal | design decision |
 
 ---
 
@@ -644,6 +646,94 @@ model, or the console for AI-executed work — and it can be answered without bu
 
 **Status:** answered. The design decision (what to expose, and whether creation should ever
 trigger automation) is open.
+
+---
+
+### 16. The only non-Genesis MasterPlan create route 500s — `Defect`
+
+**Context:** raised while walking `/tasks` — "to walk the MasterPlan tab, one has to be created
+via Genesis first." That is correct, and not only by design: the alternative path is broken.
+
+There is **no** `POST /apps/masterplans`. Two creation paths exist:
+
+1. `POST /apps/genesis/lock` → `create_masterplan_from_genesis` — the Genesis route.
+2. `POST /apps/compute/create_masterplan` — a direct create from raw fields.
+
+**Path 2 fails.** Verified live with a well-formed `MasterPlanInput` body:
+
+```
+POST /apps/compute/create_masterplan -> 500
+{"detail": "'name' is an invalid keyword argument for MasterPlan"}
+```
+
+`create_masterplan_compute` does `MasterPlan(**data)`, but `MasterPlanInput` declares a `name`
+field the `master_plans` table does not have. Even with `name` removed it would still fail:
+`target_date` is `nullable=False` and the input never supplies it (the Genesis factory computes
+it as `start_date + duration_years × 365`). The schema and the model have drifted apart, and
+nothing in the client calls this route, so it went unnoticed.
+
+**Consequence:** Genesis is the *only* working way to obtain a MasterPlan. Every downstream
+surface that depends on a plan — MasterPlan dashboard, ETA/WCU projection, task→plan linkage,
+the analytics masterplan endpoints — is gated behind completing a Genesis conversation.
+
+**Note:** `GET /apps/masterplans/` returns `{plans, execution_envelope}` *unwrapped* (no
+`{status, data}` envelope), and `MasterPlanDashboard` reads `data.plans` accordingly, so that
+path is correct. Recording it because it is a *third* response convention alongside the two in
+item 13 — enveloped, and enveloped-with-a-nested-key.
+
+**Status:** confirmed live, unfixed. The fix needs a decision, not just a patch: `name` has no
+column to land in, so either the model gains one or the schema drops it.
+
+---
+
+### 17. MasterPlan, Genesis/Assistant and Tasks were one section and are now disconnected — `Design`
+
+**Observed (owner):** these three were originally a single tab/section. They are now separate
+top-level routes, and the connective tissue went with the split.
+
+**What the code confirms:**
+
+- **Tasks cannot be attached to a plan from the UI.** `Task.masterplan_id` exists, is indexed,
+  and drives ETA/WCU recalculation and the completion cascade. `TaskCreate` accepts it.
+  `masterplan_id` appears in the client only in `AnalyticsPanel` and the projection context —
+  **never** in the task-creation path (see item 15: the form sends `{name, priority}`).
+  So every task created through the UI is permanently orphaned from every plan.
+- **The link is real on the backend.** Completing a task recalculates the active plan's ETA and
+  WCU and cascade-activates it (`_handle_task_completed` in `apps/tasks/bootstrap.py`). The
+  machinery to make tasks and plans one system is built and running — it just never receives a
+  `masterplan_id` from the surface where users create tasks.
+- **Genesis is the sole entry point**, and its one alternative is broken (item 16).
+
+So the split is not cosmetic: it severed the field that made the three surfaces one product.
+This is the same "working backends, underspecified presentation" theme, but here the missing
+piece is a *single field on a form*.
+
+**Proposal raised by the owner — import a plan authored elsewhere.** Bring in a MasterPlan
+drafted with an external assistant (Claude, ChatGPT), translated into A.I.N.D.Y.'s data points.
+Worth recording because the insertion point is unusually clean:
+
+- The translation target already exists. Genesis synthesis produces a **draft** — phases,
+  success criteria, risk factors, ambition score, `time_horizon_years` — persisted to
+  `GenesisSessionDB.draft_json`, and `create_masterplan_from_genesis` builds the plan from it
+  (`structure_json`, `posture`, timeline, plus the anchor/goal fields `anchor_date`,
+  `goal_value`, `goal_unit`, `goal_description`).
+- So an import does **not** need a new creation pathway. It needs a translator from external
+  prose into the existing draft shape, written to `draft_json` with `synthesis_ready=True` —
+  after which the existing `/apps/genesis/lock` does the rest unchanged.
+- That also answers where it belongs: import becomes a *way to start a Genesis session*, not a
+  fourth parallel path, which keeps a single lock/versioning/audit route.
+- Open questions: how much fidelity is required before a plan is "translatable"; whether the
+  user reviews and edits the translated draft before locking (the audit route `/apps/genesis/audit`
+  is the natural hook); and whether a low-confidence translation should drop the user into a
+  Genesis conversation to fill the gaps rather than fail.
+
+**Redesign signal:** the fourth and clearest structural one. Earlier notes were about how rich a
+surface should look. This is about which surfaces should exist at all — the owner's read is that
+MasterPlan, Genesis/Assistant and Tasks want to be one section again, and the orphaned
+`masterplan_id` is the concrete evidence.
+
+**Status:** design decision. The task→plan link is the smallest piece and could be fixed
+independently of any redesign.
 
 ---
 
