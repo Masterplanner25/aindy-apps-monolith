@@ -31,7 +31,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 1 | Design | Genesis | AI interrogates but never contributes ideas | decision needed |
 | 2 | Papercut | Genesis chat | Enter inserts a newline instead of sending | ready to fix |
 | 3 | Defect | masterplan / memory | A 404 surfaces to the user as "Internal Server Error" | diagnosed, unfixed |
-| 4 | Defect | network | `InfiniteNetwork` calls `/api/users`, which no route serves | diagnosed, unfixed |
+| 4 | Defect | network | `InfiniteNetwork` calls `/api/users`, which no route serves; also no member-list endpoint exists and signup never provisions a social profile | confirmed live; 4 consolidation options logged, decision deferred |
 | 5 | Defect | Genesis | Leaving the page abandons the session; transcript is never stored | diagnosed, decision needed |
 | 6 | Gap | auth | No password recovery — a forgotten password locks the account out permanently | runtime feature request |
 | 7 | Defect | search / research | Research web-search provider (Perplexity) is an unwired stub — no key sent, wrong endpoint | decided: wire Perplexity (opt 1), not built |
