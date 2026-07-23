@@ -480,7 +480,9 @@ function AgentConsoleContent() {
     setRunsLoading(true);
     try {
       const data = await getAgentRuns();
-      setRuns(data || []);
+      // `runs` is filtered and mapped directly, so anything non-array takes the whole
+      // console down through the boundary rather than showing an empty list.
+      setRuns(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Failed to load runs", e);
       showToast(e?.message || "Failed to load agent runs.");
@@ -492,7 +494,7 @@ function AgentConsoleContent() {
   const loadTools = useCallback(async () => {
     try {
       const data = await getAgentTools();
-      setTools(data || []);
+      setTools(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Failed to load tools", e);
       showToast(e?.message || "Failed to load agent tools.");
@@ -512,7 +514,7 @@ function AgentConsoleContent() {
   const loadSuggestions = useCallback(async () => {
     try {
       const data = await getAgentSuggestions();
-      setSuggestions(data || []);
+      setSuggestions(Array.isArray(data) ? data : []);
     } catch {
 
       // Suggestions are non-critical — fail silently
