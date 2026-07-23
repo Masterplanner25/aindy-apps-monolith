@@ -36,7 +36,20 @@ function platformHtmlFallback() {
           pathname === "/platform" || pathname.startsWith("/platform/");
         const hasExtension = extname(pathname) !== "";
 
-        if (!isPlatformRoute || hasExtension) {
+        // `/platform` is BOTH the SPA mount and the backend's operator API namespace
+        // (51 routes: /platform/flows/runs, /platform/observability/*, /platform/admin/*).
+        // This middleware runs before Vite's proxy, so rewriting every extension-less
+        // /platform GET to platform.html also swallowed every platform API call — the
+        // panels received the SPA's HTML with a 200 instead of JSON. FlowRunsPanel then
+        // did `runs.runs.reduce(...)` on a string and crashed the console.
+        //
+        // Only a real browser navigation asks for HTML; fetch/XHR sends `*/*` or
+        // application/json. Gate on that, and let everything else fall through to the
+        // "/platform" proxy entry below.
+        const accept = String(req.headers.accept || "");
+        const wantsHtml = accept.includes("text/html");
+
+        if (!isPlatformRoute || hasExtension || !wantsHtml) {
           next();
           return;
         }
@@ -136,6 +149,31 @@ export default defineConfig(({ mode }) => {
         "/api": { target: "http://localhost:8000", changeOrigin: true },
         "/auth": { target: "http://localhost:8000", changeOrigin: true },
         "/apps": { target: "http://localhost:8000", changeOrigin: true },
+        // `/platform` is BOTH the SPA mount and the backend's operator API namespace
+        // (51 routes). The split has to happen here rather than in a plugin middleware:
+        // Vite installs the proxy ahead of plugin middlewares, so the proxy sees these
+        // requests first and a middleware-only rule never gets a say.
+        //
+        // `bypass` returning a path hands the request back to Vite's static/HTML
+        // pipeline; returning undefined proxies it. Only a real browser navigation
+        // asks for text/html — fetch/XHR sends */* or application/json — so document
+        // requests render the SPA and every API call is forwarded verbatim.
+        "/platform": {
+          target: "http://localhost:8000",
+          changeOrigin: true,
+          bypass(req) {
+            const method = req.method?.toUpperCase();
+            if (method !== "GET" && method !== "HEAD") return undefined;
+            const [pathname] = (req.url ?? "/").split("?");
+            // `/platform.html` and `/platform/assets/*` start with the proxy prefix, so
+            // without this the SPA document and its bundles would be forwarded to the
+            // API and 404. Returning the path serves it from Vite instead of proxying —
+            // this also catches the rewrite platformHtmlFallback performs upstream.
+            if (extname(pathname) !== "") return req.url;
+            if (!String(req.headers.accept || "").includes("text/html")) return undefined;
+            return "/platform.html";
+          },
+        },
         "/health": { target: "http://localhost:8000", changeOrigin: true },
         "/openapi.json": { target: "http://localhost:8000", changeOrigin: true },
       },
