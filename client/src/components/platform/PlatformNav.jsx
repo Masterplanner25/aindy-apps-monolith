@@ -1,6 +1,7 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 
+import { safeMap } from "../../utils/safe";
 import { surfacePalette as P } from "./SurfacePrimitives";
 
 // The platform SPA registers eight routes and, until this component, rendered no links
@@ -60,7 +61,7 @@ export default function PlatformNav() {
         Platform
       </span>
 
-      {PLATFORM_LINKS.map((link) =>
+      {safeMap(PLATFORM_LINKS, (link) =>
       <NavLink key={link.to} to={link.to} style={({ isActive }) => linkStyle(isActive)}>
           {link.label}
         </NavLink>

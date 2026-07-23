@@ -24,12 +24,14 @@ describe("PlatformNav", () => {
       "/health",
       "/trace",
     ];
-    expect(PLATFORM_LINKS.map((l) => l.to)).toEqual(expected);
 
+    const actual = [];
     for (const link of PLATFORM_LINKS) {
+      actual.push(link.to);
       const el = screen.getByRole("link", { name: link.label });
       expect(el).toHaveAttribute("href", link.to);
     }
+    expect(actual).toEqual(expected);
   });
 
   it("marks the current route as active", () => {
