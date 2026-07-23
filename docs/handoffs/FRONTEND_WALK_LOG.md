@@ -51,6 +51,11 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 21 | Analysis | arm (whole surface) | What the six ARM screens actually do — the reasoning engine is real, but its entire input corpus is code-analysis telemetry | analysis, decisions listed |
 | 22 | Defect | identity | Every dimension card renders blank — `identity.js` never unwrapped the envelope | fixed |
 | 23 | Analysis | identity / memory | What both surfaces actually do — Identity is an AI personalization model (naming mismatch confirmed); Memory is a runtime-owned engine with a thin app wrapper | analysis, decisions listed |
+| 24 | Environment | dev stack | Two API instances answered `localhost:8000`; a stale `wslrelay` shadowed the container for hours | resolved |
+| 25 | Defect | platform / dev proxy | The dev proxy swallowed **every** `/platform` API call — no platform panel could load data | fixed (#158) |
+| 26 | Defect | platform / registry | Registry read `registry.flows`; the route returns `flow_definitions`. Its unit test encoded the bug | fixed (#159) |
+| 27 | Defect | platform / strategies | `ScoreBar` calls `score.toFixed(2)` on a null score — both live strategies have `score: null` | diagnosed, logged, unfixed |
+| 28 | Defect | client telemetry | `reportClientError` POSTs to `/client/error`, which no route serves — every boundary trip 404s silently | diagnosed, unfixed |
 
 ---
 
@@ -1040,6 +1045,157 @@ owner's.
 
 ---
 
+### 24. Two API instances answered `localhost:8000` — `Environment`
+
+**Symptom:** the admin account created for the platform walk returned
+`401 Invalid email or password` in the browser, while the identical credentials returned 200
+from inside the API container.
+
+**Cause — a stale WSL port relay, not the app.** Two listeners held port 8000:
+
+```
+PID 10840  com.docker backend   0.0.0.0:8000     (container publish)
+PID 3216   wslrelay.exe       127.0.0.1:8000     (stale WSL relay)
+```
+
+Windows resolves `localhost` to loopback first, and the more specific `127.0.0.1` binding beat
+Docker's `0.0.0.0` publish — so every `localhost:8000` request was relayed to a dead WSL endpoint
+that still had a live listener behind it, serving older code against a different database. The
+container's own listener was present and unreachable.
+
+Proved by bypassing loopback — same port, same moment, opposite datasets:
+
+| Path | `admin@local.test` | ghost-stack user |
+|---|---|---|
+| `localhost:8000` (via relay) | 401 | 200 |
+| `172.23.16.1:8000` (direct) | **200** | **401** |
+
+A standalone `aindy-runtime serve` (PID 773) was also running natively in WSL and was stopped
+first; that alone did **not** fix it. Killing `wslrelay.exe` did — after which Docker's listener
+was the only one on 8000 and `localhost` resolved correctly.
+
+**Why it mattered:** for several hours the browser and the verification commands were talking to
+*different stacks*. Everything "verified live" against the container during that window —
+including the empty-Mongo observation — described the wrong instance. `/api/version` is identical
+on both (`boot_mode`, `boot_profile`, `app_plugin_count=17`), so nothing in the API surface
+distinguishes them.
+
+**Guard for next time:** when a result contradicts what the browser shows, compare `localhost`
+against the direct Docker IP *before* debugging the application. The cheap remedy is killing the
+relay process, not a reboot. This is the concrete form of the "don't `wsl --shutdown` a running
+stack" hazard already recorded in the local-stack-operations notes.
+
+---
+
+### 25. The dev proxy swallowed every `/platform` API call — `Defect`
+
+**Observed:** `/platform/flows` crashed on load with
+`TypeError: Cannot read properties of undefined (reading 'reduce')` and the error boundary blanked
+the console.
+
+**Cause:** `/platform` is **both** the SPA mount and the backend's operator API namespace (51
+routes). `vite.config.ts` had **no `/platform` proxy entry at all**, while `platformHtmlFallback`
+rewrote every extension-less `/platform` GET to `platform.html`. So every platform API call
+returned the SPA's HTML with a **200**:
+
+```
+$ curl -H "Authorization: Bearer $TOK" localhost:5173/platform/flows/runs?limit=20
+<!DOCTYPE html> …
+```
+
+**No platform panel could load data.** `FlowRunsPanel` was simply the first to dereference the
+HTML (`runs.runs.reduce`).
+
+Two non-obvious details in the fix: the split must happen in the **proxy**, because Vite installs
+the proxy ahead of plugin middlewares (a middleware-only `Accept` gate was tried first and the
+proxy still won); and `bypass` must return extension paths rather than proxying them, since
+`/platform.html` and `/platform/assets/*` themselves start with the proxy prefix and would
+otherwise be forwarded to the API and 404.
+
+**Third dev-proxy / route-plumbing defect of the walk**, after the `/api` prefix strip (#132) and
+the missing `/apps` mount (#133).
+
+**Status:** fixed in #158.
+
+---
+
+### 26. Registry read a key the route has never returned — and its test encoded the bug — `Defect`
+
+`GET /platform/flows/registry` returns `{flow_definitions, nodes, flow_count, node_count}`.
+`RegistryPanel` read `registry.flows`, so `Object.keys(registry.flows)` threw
+`Cannot convert undefined or null to object` on every load.
+
+**The notable part is the test.** A unit test covering this exact panel was **passing**, because
+its fixture mocked a `flows` key the API never produces — written to match the component rather
+than the route. The test documented the bug and locked it in.
+
+This is a distinct failure mode from the rest of the walk. Items 12/14/19/22 were *untested*
+paths; this one was tested *wrongly*, which is worse — it produces false confidence. **A green
+test proves the component matches its fixture, not that the fixture matches the API.** Worth
+carrying through the remaining panels.
+
+Each tab panel also gained its own `ErrorBoundary` keyed on the active tab: previously every tab
+shared one route-level boundary, so a single panel throwing during render blanked the entire
+console until a full reload.
+
+**Status:** fixed in #159.
+
+---
+
+### 27. Strategies panel crashes on a null score — `Defect`
+
+**Correction to the previous entry's diagnosis.** Strategies was initially assessed as collateral
+damage from the shared error boundary, on the grounds that its payload matched what
+`StrategyCard` expects. That was wrong — with panels isolated, Strategies still failed. It is its
+own defect.
+
+**Cause:** `ScoreBar` renders `{score.toFixed(2)}` with no null guard, and both live strategies
+carry `score: null`:
+
+```
+id: 'default'  intent_type: 'default'  user_id: None  score: None
+usage_count: 0  success_count: 0  flow: {'handler': 'select_strategy', 'type': 'default'}
+```
+
+→ `TypeError: Cannot read properties of null (reading 'toFixed')`.
+
+Everything else in the component tolerates the null: `Math.min(100, null / 2.0 * 100)` is `0`, and
+both comparisons fall through to the "failed" colour. Only the label throws.
+
+Note the shape of it — the seeded `default` system strategies exist precisely so the panel has
+something to show before any learning has happened, and they are exactly the rows that crash it.
+The empty state is unreachable for the opposite reason: `strategies.length` is 2, not 0.
+
+**Fix (one line, not applied — owner asked to log it for now):** guard the label, e.g.
+`{typeof score === "number" ? score.toFixed(2) : "—"}`, and treat a null score as unscored rather
+than failed in the colour choice.
+
+**Status:** diagnosed, unfixed by request.
+
+---
+
+### 28. Client error telemetry has never worked — `Defect`
+
+Seen in the console alongside every boundary trip:
+
+```
+POST http://localhost:5173/client/error 404 (Not Found)
+```
+
+`reportClientError` (`client/src/api/operator.js`) POSTs to `ROUTES.OPERATOR.CLIENT_ERROR`, which
+no backend route serves. The call is wrapped in `.catch(() => {})`, so it can never break the
+page — and equally can never report. Every client-side crash during this entire walk was
+swallowed.
+
+Two possible reads, and the choice matters: either the route belongs in the runtime and is
+missing (making this a runtime feature request), or the client should stop pretending to report
+and the call should be removed. Silently 404-ing on every crash is the one option that helps
+nobody.
+
+**Status:** diagnosed, unfixed.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -1061,7 +1217,11 @@ owner's.
 | social | Feed rendered nothing and analytics read all zeros — `social.js` never unwrapped the envelope | #150 |
 | tasks | Created tasks never appeared — the list array is nested under `data.tasks` | #151 |
 | arm | Analyze rendered a blank screen on failure; the default path could never resolve | #152 |
-| identity | Every dimension card rendered blank — `identity.js` never unwrapped the envelope | (this PR) |
+| identity | Every dimension card rendered blank — `identity.js` never unwrapped the envelope | #154 |
+| tasks | Create form could not set estimated hours or a MasterPlan — Volume axis was always 0 | #157 |
+| compose | Shadow flags set in `.env` never reached the container | #156 |
+| platform | Dev proxy swallowed every `/platform` API call — no panel could load data | #158 |
+| platform | Registry read `registry.flows`; route returns `flow_definitions`. Panels now fail in isolation | #159 |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
