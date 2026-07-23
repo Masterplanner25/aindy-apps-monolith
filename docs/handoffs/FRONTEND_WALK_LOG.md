@@ -58,6 +58,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 28 | Defect | client telemetry | `reportClientError` POSTs to `/client/error`, which no route serves — every boundary trip 404s silently | diagnosed, unfixed |
 | 29 | Design | platform UI | The operator surface is a **record**, not a control plane — the API exposes 24 write routes, the UI wires 5 | design decision |
 | 30 | Defect | platform UI | The platform SPA had **no navigation at all** — 8 registered routes, 7 reachable only by typing a URL | fixed |
+| 31 | Defect | platform / agent console | `agent.js` never unwrapped `{data: […]}` — `runs.filter is not a function` blanked the console | fixed |
 
 ---
 
@@ -1299,6 +1300,37 @@ Test asserts the link set matches the registered routes exactly, that the curren
 
 ---
 
+### 31. Agent Console crashed on the wrapped agent reads — `Defect`
+
+**Observed:** `TypeError: runs.filter is not a function` at `AgentConsole.jsx:605`.
+
+**Cause:** several `/apps/agent` read routes wrap their payload as `{data: [...]}` and
+`client/src/api/agent.js` had **no** `unwrapEnvelope`. `loadRuns` did `setRuns(data || [])` —
+which happily stored `{data: []}`, since an object is truthy — and the very next render called
+`runs.filter(...)`.
+
+Probed live to find which routes wrap and which do not, rather than applying the unwrap blindly:
+
+| Route | Shape | Unwrap |
+|---|---|---|
+| `/apps/agent/runs` | `{data: [...]}` | yes |
+| `/apps/agent/tools` | `{data: [...]}` | yes |
+| `/apps/agent/suggestions` | `{data: [...]}` | yes |
+| `/apps/agent/trust` | bare object | no — already flat |
+| `/apps/memory/agents` | `{agents, total}` | no |
+
+**Fifth instance of item 13**, after social (12), tasks (14), ARM (19) and identity (22) — and the
+third distinct *shape* of it: a missing unwrap (12), a collection nested under a named key (14),
+and now a partial envelope carrying only `data` with no `status` alongside it.
+
+`AgentConsole`''s three list loaders were also normalised with `Array.isArray(...)`, so a shape
+surprise renders an empty list instead of taking the console down. `data || []` does not protect
+against this — every object passes it.
+
+**Status:** fixed.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -1326,7 +1358,8 @@ Test asserts the link set matches the registered routes exactly, that the curren
 | platform | Dev proxy swallowed every `/platform` API call — no panel could load data | #158 |
 | platform | Registry read `registry.flows`; route returns `flow_definitions`. Panels now fail in isolation | #159 |
 | platform | Strategies crashed on the seeded `default` strategies — `score.toFixed(2)` on a null score | #161 |
-| platform | No navigation existed — 7 of 8 panels were reachable only by typing a URL | (this PR) |
+| platform | No navigation existed — 7 of 8 panels were reachable only by typing a URL | #163 |
+| platform | Agent Console crashed — `agent.js` never unwrapped the `{data: …}` reads | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
