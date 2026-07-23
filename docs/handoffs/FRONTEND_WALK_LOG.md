@@ -49,6 +49,8 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 19 | Defect | arm | ARM Analyze reads files from the **server**, the prefilled default cannot exist, and a failed analysis renders a blank screen | fixed (client); default path decision open |
 | 20 | Security | arm | ARM has no project-root confinement — any allowlisted-extension file anywhere on the server is readable and gets sent to an external LLM | hardening recommended |
 | 21 | Analysis | arm (whole surface) | What the six ARM screens actually do — the reasoning engine is real, but its entire input corpus is code-analysis telemetry | analysis, decisions listed |
+| 22 | Defect | identity | Every dimension card renders blank — `identity.js` never unwrapped the envelope | fixed |
+| 23 | Analysis | identity / memory | What both surfaces actually do — Identity is an AI personalization model (naming mismatch confirmed); Memory is a runtime-owned engine with a thin app wrapper | analysis, decisions listed |
 
 ---
 
@@ -911,6 +913,133 @@ cost the reusable asset.
 
 ---
 
+### 22. Every Identity dimension card renders blank — `Defect`
+
+**Observed while auditing item 23:** the Identity screen renders, but all four dimension cards
+(Communication, Tools & Tech, Decision Making, Learning Style) show no values, and the evolution
+panel sits at 0 observations / 0 changes regardless of state.
+
+**Why:** every `/apps/identity` route runs through `execute_with_pipeline` and returns the
+`{status, data, …}` envelope — verified live on `/`, `/evolution`, `/context` and `/inference`.
+`client/src/api/identity.js` had **no** `unwrapEnvelope`, so `IdentityDashboard` read
+`profile?.["communication" | "tools" | "decision_making" | "learning"]` off the envelope, where
+all four are `undefined`. `profile?.evolution` is undefined for the same reason.
+
+The payload keys match the UI's `DIMENSION_META` exactly (`get_profile()` returns
+`communication` / `tools` / `decision_making` / `learning` / `evolution`), so nothing else was
+wrong — one missing unwrap emptied the whole screen.
+
+**Fourth instance of item 13**, after social (12), tasks (14) and ARM's blank render (19).
+
+**Note on the contrast, now pinned by a test:** the `/apps/memory` routes are **not** enveloped —
+they return `{nodes, execution_envelope}` and `{results, count, …}` directly — which is why
+`memory.js` correctly has no unwrap, and why Memory "seems to work" while Identity did not.
+
+**Fixed:** all four functions in `identity.js` now unwrap. Regression test at
+`client/src/test/identity-envelope.test.jsx`, which also pins the memory-side non-unwrap so a
+future sweep doesn't "fix" it into breakage.
+
+---
+
+### 23. Identity and Memory — what they actually do — `Analysis`
+
+Requested audit of both surfaces.
+
+## Identity — the naming mismatch is real
+
+**Identity is not an account/profile surface. It is a personalization model of the user, built
+for the AI to condition on.** The owner's read while walking ("it seems to be tuning for the AI,
+possibly with the assistant") is correct, and slightly understated: that is its entire purpose.
+
+`UserIdentity` (runtime-owned) stores four dimensions:
+
+| Dimension | Fields |
+|---|---|
+| Communication | `tone`, `communication_notes` |
+| Tools & languages | `preferred_languages`, `preferred_tools`, `avoided_tools` |
+| Decision-making | `risk_tolerance`, `speed_vs_quality`, `decision_notes` |
+| Learning style | `learning_style`, `detail_preference`, `learning_notes` |
+
+Plus evolution tracking: `observation_count`, `evolution_log`, `last_updated`.
+
+The service docstring states the design principle outright: *"Identity is inferred, not declared.
+A.I.N.D.Y. watches what users do and builds a picture of who they are over time."*
+
+**Where it is consumed — confirmed by call sites:** `apps/identity/public.get_context_for_prompt`
+returns an LLM-injectable string, and it is injected into
+
+- **Genesis** — `genesis_ai.py` concatenates `GENESIS_SYSTEM_PROMPT + prior_context +
+  arm_context + identity_context`;
+- **ARM analysis** — `deepseek_code_analyzer.py` prepends `identity_context` to the analysis
+  prompt.
+
+So the screen is a **control panel for how the AI talks to you**, mislabelled as "Identity" —
+which in every other product means account, login, profile, or the social identity that
+`/profile/:username` actually owns (see item 4). Two different things share the word across the
+nav.
+
+**The inference machinery is genuinely good, and almost unfed.** `identity_inference_service`
+is a transparent weighted vote over accumulated `IdentitySignal` evidence: exponential recency
+decay (30-day half-life, env-overridable), a 0.6 confidence floor, `MIN_SUPPORT = 2.0`, and a
+0.15 switch margin so a committed value only flips on sustained counter-evidence. Every verdict
+exposes its full distribution, confidence and support.
+
+But **`observe_identity_event` is called from exactly one place in the entire app** —
+`masterplan_factory`, when a plan is locked from Genesis. One event source, and it fires once
+per plan lock. An inference engine designed to watch behaviour over time is being fed a single
+rare event, so in practice the profile only ever changes when the user edits it by hand — the
+opposite of "inferred, not declared."
+
+**Note:** `/apps/identity/inference` and `/apps/identity/boot` exist and have **no client
+caller** — the inference verdicts (the interesting part, with distributions and confidence) are
+not surfaced anywhere.
+
+## Memory — a runtime engine with a thin app wrapper
+
+**The memory system is runtime-owned.** `apps/memory/bootstrap.py` is 18 lines and registers
+exactly two routers: traces and metrics. Everything else the browser uses —
+`/apps/memory/nodes`, `/recall`, `/recall/v3`, `/suggest`, `/nodes/{id}/feedback`,
+`/performance`, `/history`, `/traverse`, `/share`, `/federated/recall`, `/nodes/search`,
+`/nodes/expand`, `/links`, `/agents` — is registered by the runtime and merely surfaced under
+the `/apps/memory` prefix. The app owns ~289 lines; the client surface is 590.
+
+**It works because it is actually fed.** Unlike ARM's starved loop (item 21) and Identity's
+single observer, memory is populated automatically by domain events through registered capture
+policies — `tasks`, `arm`, `automation`, `masterplan` and `search` each register a
+`memory_policy` mapping event types to significance, node type and tags (e.g. `task_completed`
+→ significance 0.5, `outcome`; `task_failed` → 0.8, `failure`). Signup also writes a first node.
+So memory accumulates from ordinary product use with no user action, which is why this surface
+behaves.
+
+**What the browser exposes:** node list with tag filter, semantic recall (v3, with a scoring
+formula and version returned), suggestions, per-node success/failure feedback, per-node
+performance and history, graph traversal to depth 2, sharing a node, and a metrics dashboard.
+That is a rich, coherent surface — the most complete one found in the walk so far.
+
+**Observation:** memory is the one surface where the presentation matches the backend's
+capability. It is also the one the owner reports as working. Worth noting for the redesign —
+it is the internal benchmark for what "richness matched to the engine behind it" looks like.
+
+## Decisions surfaced
+
+- **Rename Identity.** It is an AI personalization/preferences surface, not identity. Candidates:
+  "Preferences", "How A.I.N.D.Y. works with you", "Personalization". This also removes the
+  collision with the social profile at `/profile/:username`.
+- **Feed the inference engine, or drop it.** One observer for a machine built to watch
+  behaviour is the core defect of the design, not the code. Task completions, agent runs and
+  flow outcomes are all already-instrumented events that could call `observe_identity_event`.
+- **Surface the inference verdicts, or delete the routes.** `/inference` and `/boot` have no
+  caller; the distribution/confidence output is the most interesting thing Identity produces.
+- **Consider folding Identity into the assistant surface.** If its only job is conditioning how
+  the AI behaves, it belongs next to the AI — consistent with the item 17 view that
+  Genesis/Assistant/MasterPlan/Tasks want to be one section.
+- **Memory needs no rework.** Judge other surfaces against it.
+
+**Status:** analysis complete; one defect found and fixed (item 22). Decisions above are the
+owner's.
+
+---
+
 ## Resolved during this walk
 
 | Area | Item | PR |
@@ -931,7 +1060,8 @@ cost the reusable asset.
 | social | Posts didn't appear — Mongo overlay + ObjectId-500 fix + honest 503 degrade | #149 |
 | social | Feed rendered nothing and analytics read all zeros — `social.js` never unwrapped the envelope | #150 |
 | tasks | Created tasks never appeared — the list array is nested under `data.tasks` | #151 |
-| arm | Analyze rendered a blank screen on failure; the default path could never resolve | (this PR) |
+| arm | Analyze rendered a blank screen on failure; the default path could never resolve | #152 |
+| identity | Every dimension card rendered blank — `identity.js` never unwrapped the envelope | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
