@@ -2,6 +2,7 @@ import { lazy, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import ErrorBoundary, { RouteErrorBoundary } from "./components/shared/ErrorBoundary";
+import PlatformNav from "./components/platform/PlatformNav";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { SystemProvider, useSystem } from "./context/SystemContext";
 
@@ -57,6 +58,10 @@ export default function PlatformApp() {
       <SystemProvider skipBoot>
         <BrowserRouter basename="/platform">
           <PlatformGuard>
+            {/* Rendered inside the guard (so it never shows to a non-admin) but outside
+                the route boundary, so a panel that throws still leaves the operator a way
+                to navigate off it. */}
+            <PlatformNav />
             <ErrorBoundary layer="platform">
               <Routes>
                 <Route path="/" element={<PlatformHomeRedirect />} />
