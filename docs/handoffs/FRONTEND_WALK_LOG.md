@@ -54,7 +54,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 24 | Environment | dev stack | Two API instances answered `localhost:8000`; a stale `wslrelay` shadowed the container for hours | resolved |
 | 25 | Defect | platform / dev proxy | The dev proxy swallowed **every** `/platform` API call — no platform panel could load data | fixed (#158) |
 | 26 | Defect | platform / registry | Registry read `registry.flows`; the route returns `flow_definitions`. Its unit test encoded the bug | fixed (#159) |
-| 27 | Defect | platform / strategies | `ScoreBar` calls `score.toFixed(2)` on a null score — both live strategies have `score: null` | diagnosed, logged, unfixed |
+| 27 | Defect | platform / strategies | `ScoreBar` calls `score.toFixed(2)` on a null score — both live strategies have `score: null` | fixed |
 | 28 | Defect | client telemetry | `reportClientError` POSTs to `/client/error`, which no route serves — every boundary trip 404s silently | diagnosed, unfixed |
 
 ---
@@ -1166,11 +1166,12 @@ Note the shape of it — the seeded `default` system strategies exist precisely 
 something to show before any learning has happened, and they are exactly the rows that crash it.
 The empty state is unreachable for the opposite reason: `strategies.length` is 2, not 0.
 
-**Fix (one line, not applied — owner asked to log it for now):** guard the label, e.g.
-`{typeof score === "number" ? score.toFixed(2) : "—"}`, and treat a null score as unscored rather
-than failed in the colour choice.
+**Fixed:** the label renders `—` when there is no score, the bar width clamps to 0, and an
+unscored strategy gets a neutral colour rather than the red used for a genuinely low score —
+"never scored" and "scored badly" are different states and should not look identical. Regression
+test added covering a strategy with `score: null`.
 
-**Status:** diagnosed, unfixed by request.
+**Status:** fixed.
 
 ---
 
@@ -1222,6 +1223,7 @@ nobody.
 | compose | Shadow flags set in `.env` never reached the container | #156 |
 | platform | Dev proxy swallowed every `/platform` API call — no panel could load data | #158 |
 | platform | Registry read `registry.flows`; route returns `flow_definitions`. Panels now fail in isolation | #159 |
+| platform | Strategies crashed on the seeded `default` strategies — `score.toFixed(2)` on a null score | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything

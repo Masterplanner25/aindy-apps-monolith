@@ -1355,10 +1355,17 @@ function RegistryPanel({ triggerRefresh }) {
 // PANEL 4 — Strategies
 // ═══════════════════════════════════════════════════════════════════
 
+// A strategy that has never been scored carries `score: null` — which is the state of
+// the seeded `default` strategies the engine ships with, so this was every row on a
+// fresh install. `score.toFixed(2)` threw and took the Strategies panel down with it.
+// An unscored strategy is not a *failing* strategy either, so it gets its own neutral
+// treatment rather than the red used for a genuinely low score.
 function ScoreBar({ score }) {
   const max = 2.0;
-  const pct = Math.min(100, score / max * 100);
-  const color =
+  const hasScore = typeof score === "number" && Number.isFinite(score);
+  const pct = hasScore ? Math.min(100, Math.max(0, score / max * 100)) : 0;
+  const color = !hasScore ?
+  C.text1 :
   score > 1.0 ?
   STATUS_COLOR.success :
   score >= 0.5 ?
@@ -1385,8 +1392,10 @@ function ScoreBar({ score }) {
           }} />
 
       </div>
-      <span style={{ fontSize: 11, color, minWidth: 28, textAlign: "right" }}>
-        {score.toFixed(2)}
+      <span
+        style={{ fontSize: 11, color, minWidth: 28, textAlign: "right" }}
+        title={hasScore ? undefined : "Not yet scored"}>
+        {hasScore ? score.toFixed(2) : "—"}
       </span>
     </div>);
 
