@@ -48,6 +48,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 18 | Design | analytics / kpi | Analytics is LinkedIn-specific and owner-specific; KPI Snapshot is a manual-entry calculator that wants to be a dashboard | owner verdict: redesign or remove |
 | 19 | Defect | arm | ARM Analyze reads files from the **server**, the prefilled default cannot exist, and a failed analysis renders a blank screen | fixed (client); default path decision open |
 | 20 | Security | arm | ARM has no project-root confinement — any allowlisted-extension file anywhere on the server is readable and gets sent to an external LLM | hardening recommended |
+| 21 | Analysis | arm (whole surface) | What the six ARM screens actually do — the reasoning engine is real, but its entire input corpus is code-analysis telemetry | analysis, decisions listed |
 
 ---
 
@@ -826,6 +827,87 @@ the only one.
 **Status:** hardening recommended, not applied — the right root depends on the item 19 decision
 about what ARM is for. Worth doing before any deployment where the API host holds anything the
 signed-in user shouldn't read.
+
+---
+
+### 21. The whole ARM surface — what it actually does — `Analysis`
+
+Requested instead of walking the remaining five screens. Context: ARM began as a **coding tool**
+and was later reframed as the **Autonomous Reasoning Module**. This records what the code does
+today, so the redesign decision is made against fact rather than intent.
+
+**Headline:** the autonomy is real and it is the best-engineered part of the domain — but its
+entire input corpus is code-analysis telemetry. ARM autonomously tunes the LLM parameters of a
+code analyzer, based on how well that code analyzer performed. The reframing happened at the
+naming layer; the substrate is unchanged.
+
+**The six screens**
+
+| Screen | Route | What it actually does |
+|---|---|---|
+| Analyze | `POST /arm/analyze` | The original coding tool. Reads a **server-side** file, sends it to an LLM, returns architecture / performance / integrity scores and findings. Writes `AnalysisResult`. (See items 19 & 20.) |
+| Generate | `POST /arm/generate` | The other half of the coding tool: prompt + `original_code` + language → generated/refactored code, optionally linked to a prior analysis via `analysis_id`. Writes `CodeGeneration`. |
+| Logs | `GET /arm/logs` | A usage ledger over `AnalysisResult` + `CodeGeneration` — file, status, tokens, execution seconds, task priority, derived tokens/sec. Not reasoning traces; session history. |
+| Config | `GET/PUT /arm/config` | The LLM knobs: model ids (analysis/generation), temperatures, `max_chunk_tokens`, `max_output_tokens`, retry limit/delay, `max_file_size_bytes`, `allowed_extensions`, plus Infinity TP defaults (complexity / urgency / resource cost). Per-user row in `arm_config`. |
+| Metrics | `GET /arm/metrics` | The "Thinking KPI System": execution speed (tokens/sec), decision efficiency (% successful sessions), AI productivity boost, lost potential (waste), learning efficiency (trend). |
+| Suggest | `GET /arm/config/suggest` | `ARMConfigSuggestionEngine` — threshold rules over those metrics producing prioritized config changes with issue / expected impact / risk. Advisory; the user applies via `PUT /arm/config`. |
+
+**The genuinely autonomous layer — and it has no UI.** Three routes exist that no client code
+calls: `POST /arm/config/auto-tune`, `POST /arm/config/auto-tune/revert`,
+`GET /arm/config/auto-tune/history`. This is the closed Reflect → Adjust → **Learn** loop, and
+it is carefully built:
+
+- a **key allowlist** of six numeric knobs — model ids and `allowed_extensions` are deliberately
+  excluded so a tuner can never silently swap the model or widen the readable file surface;
+- **absolute clamps** per key, independent of the suggestion engine's own step math;
+- `MIN_SESSIONS = 5`, `MAX_CHANGES_PER_RUN = 3`, `COOLDOWN_HOURS = 6`;
+- a 24h observation window, after which each applied change is judged on a health scalar
+  (`decision_efficiency − waste_percentage`); a change that degrades health by ≥3 is
+  **auto-reverted** and its key enters a **7-day penalty box**;
+- full `prior_config` / `resulting_config` snapshots per run, so any run reverts exactly.
+
+**Five structural findings**
+
+1. **The reasoning corpus is code sessions.** `ARMMetricsService` reads only `AnalysisResult`
+   and `CodeGeneration`. Nothing else writes those tables — the sole writer is
+   `deepseek_code_analyzer.py`. Every metric, every suggestion and every auto-tune decision
+   traces back to "how did our file analyses go."
+2. **The loop is starved by design.** Metrics need ≥5 sessions; sessions only come from
+   analyze/generate; analyze can only read files that ship inside the container (item 19). In a
+   real deployment the autonomous layer can never accumulate the data it needs to act.
+3. **Three dead models.** `ARMRun`, `ARMLog` and `ARMConfig` (the old `parameter`/`value` table)
+   are never instantiated anywhere in the codebase — verified by grep across `apps/` and
+   `AINDY/`. Vestigial from the coding-tool era; `/arm/logs` is served from the analysis tables
+   instead. Three of ARM's seven models are dead weight.
+4. **Nothing schedules it.** ARM registers no scheduled job. Auto-tune fires only on an explicit
+   route call, the `arm.autotune` agent tool, or the `arm_config_autotune` flow. "Autonomous"
+   means *unattended when invoked*, not *running on its own*.
+5. **The quality proxy is weak, and says so.** "AI productivity boost" is the output/input token
+   ratio — a more verbose response scores as more productive. The module docstring is honest
+   about it being a proxy, but the suggestion engine treats it as signal.
+
+**What is actually valuable here.** The gate/clamp/cooldown/penalty-box/auto-revert/audit
+machinery is domain-agnostic, and it has **already been reused** — `revenue_intelligence_service`
+(freelance) and `lead_execution_service` (search) implement the same `evaluate_outcomes`
+learning-close pattern. ARM's real contribution to the product is that pattern, not its file
+analysis. That is worth knowing before deciding ARM's fate: deleting the coding tool would not
+cost the reusable asset.
+
+**Decisions this surfaces**
+
+- **Is ARM a product surface or a dev tool?** Analyze/Generate/Logs are a coding tool with no
+  path to the user's code. If it stays, it needs an upload or repo connection; if not, it should
+  be internal.
+- **Should the reasoning engine reason about something else?** The self-tuning machinery is
+  sound and domain-agnostic. Pointing it at agent runs, flow executions or task outcomes would
+  make "Autonomous Reasoning Module" literally true — and those tables already have data,
+  unlike `analysis_results`.
+- **Six screens for one domain is disproportionate**, especially when the most autonomous part
+  (auto-tune apply/revert/history) is the part with no UI at all. If ARM survives, Config /
+  Suggest / Metrics / Logs are one screen, not four.
+- **Drop the dead models** regardless of the outcome.
+
+**Status:** analysis complete; no code changed. Decisions above are the owner's.
 
 ---
 
