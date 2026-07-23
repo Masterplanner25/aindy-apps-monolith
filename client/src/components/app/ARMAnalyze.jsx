@@ -38,7 +38,11 @@ function MetricBadge({ label, value }) {
 }
 
 export default function ARMAnalyze() {
-  const [filePath, setFilePath] = useState("tests/example.py");
+  // ARM reads files from the SERVER's filesystem, resolved relative to the API
+  // process's working directory — there is no upload and no access to the visitor's
+  // machine. The previous default, "tests/example.py", is not in the deployed image
+  // at all, so the prefilled value could only ever 404 on a first run.
+  const [filePath, setFilePath] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -66,11 +70,25 @@ export default function ARMAnalyze() {
   };
 
   const submit = async () => {
+    if (!filePath.trim()) {
+      setError("Enter a file path to analyze.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
     try {
       const res = await runARMAnalysis(filePath);
+      // A failed analysis still returns HTTP 200 with status "success" — the real
+      // failure ("File not found", an LLM call that never landed) is reported as
+      // `error` on the payload. Without this branch nothing throws, `result` has no
+      // summary/scores/findings, every render block is falsy, and the screen shows
+      // absolutely nothing after Run Analysis.
+      if (res?.error) {
+        setError(res.failed_node ? `${res.error} (node: ${res.failed_node})` : String(res.error));
+        setResult(null);
+        return;
+      }
       setResult(res);
       setFeedbackState(null);
     } catch (e) {
@@ -104,7 +122,7 @@ export default function ARMAnalyze() {
           value={filePath}
           onChange={(e) => setFilePath(e.target.value)}
           style={inputStyle}
-          placeholder="File path (e.g. tests/example.py)" />
+          placeholder="Server-side file path, relative to the API working directory (e.g. apps/arm/models.py)" />
         
         <button onClick={submit} style={buttonStyle} disabled={loading}>
           {loading ? "Analyzing..." : "Run Analysis"}
