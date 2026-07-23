@@ -78,8 +78,8 @@ docs live in `aindy-runtime` and are consumed as a published dependency.
 `dashboard`, `freelance`, `identity`, `masterplan`, `memory`, `network_bridge`,
 `rippletrace`, `search`, `social`, `agent`
 
-**Core domains** (`IS_CORE_DOMAIN = True`): `tasks`, `identity` — startup fails
-if either fails to register.
+**Core domains** (`IS_CORE_DOMAIN = True`): `tasks`, `identity`, `analytics` — startup
+fails if any of them fails to register.
 
 All other domains are degradable peripherals — startup continues with a warning.
 
