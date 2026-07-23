@@ -123,6 +123,22 @@ registration and Nodus scripts are all runtime-owned surfaces.
 It is walked **after** the product UI on purpose — the panels only show something if
 live traffic exists, and the product walk has now generated it.
 
+### 2b. Cross-cutting checks — ✅ RUN 2026-07-22
+
+| Check | Result |
+|---|---|
+| Data isolation | **PASS** — two fresh users, one task each: neither sees the other's. Memory nodes fully separated (6 vs 6, **0 shared ids**), scores per user. |
+| Trace continuity | **PASS** — `X-Trace-ID` matches `data.trace_id` and resolves to a 12-node `execution_graph`. Caveat logged as walk-log item 33: the envelope's own `trace_id` is a *different* id resolving to a 2-node graph, so debugging from the response body misleads. |
+| State persistence | **PASS** — exercised continuously through both halves of the walk; every fixed surface was re-verified after reload. |
+| Dead-letter | **Read path PASS, capture path unexercised.** Forced a real failure (`POST /platform/flows/task_create/run` with invalid state → 500). The failed run is recorded and visible via `/platform/flows/runs?status=failed`, but both DLQ surfaces stayed at count 0 — **correctly**: dead-lettering is `flow_run.dead_lettered_at`, set by the resume watchdog for *stranded* runs past `STUCK_RUN_THRESHOLD_MINUTES`, not by an ordinary synchronous failure. Proving capture needs a genuinely stuck run and real elapsed time. |
+| Scheduler liveness | **PASS with a gap.** `scheduler_running: true`, `is_leader: true`, and a lease heartbeat that is current and advancing — itself proof the 60s heartbeat job runs. But the status payload exposes **no job inventory** (walk-log item 34), so the five registered jobs cannot be confirmed from the operator surface. |
+
+**One false alarm worth recording:** an early probe reported `/apps/analytics/scores/me` → 404 for
+every user. The route is `/apps/scores/me` — the probe used the wrong path. Verified working:
+`master_score: 42.21` with a populated KPI block and history. No defect.
+
+#### Original definition
+
 ### 2b. Cross-cutting checks
 
 These cut across every panel and are cheapest to verify once, deliberately:

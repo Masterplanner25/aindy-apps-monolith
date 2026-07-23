@@ -60,6 +60,8 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 30 | Defect | platform UI | The platform SPA had **no navigation at all** — 8 registered routes, 7 reachable only by typing a URL | fixed |
 | 31 | Defect | platform / agent console | `agent.js` never unwrapped `{data: […]}` — `runs.filter is not a function` blanked the console | fixed |
 | 32 | Defect | platform / executions | The Executions tab is 13 app-domain Infinity calculators on the operator surface — it shows no executions, and strands 7 panels behind admin | diagnosed, decision needed |
+| 33 | Defect | runtime / tracing | Every response carries **two** trace ids — the envelope's and the header's — resolving to different graphs, unlabelled | diagnosed, unfixed |
+| 34 | Gap | platform / scheduler | Scheduler status reports health but lists **no jobs** — the 5 registered jobs can't be verified from the operator surface | diagnosed, unfixed |
 
 ---
 
@@ -1384,6 +1386,71 @@ KPI decision and this one should be made together rather than separately.
 A is strictly better than leaving it; B is A plus the control-plane work already scoped in item 29.
 
 **Status:** diagnosed. Decision belongs with the item 18 / item 29 decisions, not on its own.
+
+---
+
+### 33. Every response carries two trace ids — `Defect`
+
+Found running the Phase 2b trace-continuity check. A single `POST /apps/tasks/create` returns:
+
+```
+X-Trace-ID header : 67b4230a-2205-49fa-8e7c-a848629853e2
+data.trace_id     : 67b4230a-2205-49fa-8e7c-a848629853e2   ← same as the header
+envelope trace_id : cd21cbf0-29f0-4287-b88a-bd5c32aadf3f   ← different
+```
+
+Both resolve — and to **different graphs**:
+
+| Trace id | `execution_graph` entries |
+|---|---|
+| header / `data.trace_id` | **12** |
+| envelope `trace_id` | **2** |
+
+So the header and the inner payload agree and point at the real work; the envelope's top-level
+`trace_id` is the outer pipeline wrapper's own trace and resolves to a nearly empty graph.
+
+**Trace continuity itself passes** — `X-Trace-ID` is observable and matches a platform
+observability record, which is what the scope document asks for. The defect is that the response
+body offers a *second*, more prominent id that silently leads somewhere thinner. Anyone debugging
+from a copied response — the obvious thing to do — gets the 2-node graph and concludes the tracing
+is broken.
+
+**Fix is naming, not plumbing:** the outer id wants a distinct key (`pipeline_trace_id`, say) so
+the two are not interchangeable-looking, or the envelope should echo the work trace.
+
+**Status:** diagnosed, unfixed. Runtime-owned (the envelope is built by
+`execute_with_pipeline`), so this is a runtime discussion rather than an app fix.
+
+---
+
+### 34. Scheduler status reports health but no jobs — `Gap`
+
+`GET /platform/observability/scheduler/status` returns:
+
+```json
+{"scheduler_running": true, "is_leader": true,
+ "lease": {"owner_id": "0c2f54ad3877",
+           "acquired_at": "2026-07-23T03:16:44Z",
+           "heartbeat_at": "2026-07-23T05:09:44Z",
+           "expires_at":  "2026-07-23T05:11:44Z"},
+ "tasks_domain_available": true}
+```
+
+**Liveness passes.** The lease heartbeat is current and advancing, which is itself proof that at
+least one scheduled job (`background_lease_heartbeat`, 60s) is executing.
+
+**But there is no job inventory.** `apps/tasks/bootstrap.py` registers five scheduled jobs —
+`task_reminder_check` (1m), `task_recurrence_check` (6h), `background_lease_heartbeat` (60s),
+`wait_recovery_poll` (60s), `resume_watchdog` — and none of them are visible from the operator
+surface. There is no way to answer "is the recurrence check actually scheduled?" without reading
+the source.
+
+**Correction to an earlier note in this walk:** a previous probe reported `jobs: 0`. That was an
+artefact of the probe defaulting a missing key — the payload has no `jobs` field at all. The
+scheduler was never reporting zero jobs; it reports none.
+
+**Status:** diagnosed, unfixed. A `jobs` array with id / trigger / next-run-time is the natural
+addition, and it is the single piece that would make Health a real operator surface.
 
 ---
 
