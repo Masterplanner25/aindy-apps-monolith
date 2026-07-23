@@ -87,12 +87,16 @@ describe("FlowEngineConsole", () => {
     });
   });
 
+  // The fixture below previously used a `flows` key. `GET /platform/flows/registry` has
+  // never returned that — it returns `flow_definitions` — so this test passed against a
+  // shape the API does not produce while the real panel crashed on every load. Keep the
+  // fixture matching the route.
   it("shows flow list when flows are returned", async () => {
     mockGetFlowRegistry.mockResolvedValue({
       flow_count: 1,
       node_count: 2,
       nodes: ["task.start", "task.end"],
-      flows: {
+      flow_definitions: {
         "task.pipeline": {
           start: "task.start",
           end: ["task.end"],
@@ -106,6 +110,16 @@ describe("FlowEngineConsole", () => {
     fireEvent.click(screen.getByRole("button", { name: /registry/i }));
 
     expect(await screen.findByText("task.pipeline")).toBeInTheDocument();
+  });
+
+  it("does not crash when the registry payload omits flow_definitions", async () => {
+    mockGetFlowRegistry.mockResolvedValue({ flow_count: 0, node_count: 0 });
+
+    render(<FlowEngineConsole />);
+
+    fireEvent.click(screen.getByRole("button", { name: /registry/i }));
+
+    expect(await screen.findByText(/no flows registered\./i)).toBeInTheDocument();
   });
 
   it("shows empty state when no flows are registered", async () => {

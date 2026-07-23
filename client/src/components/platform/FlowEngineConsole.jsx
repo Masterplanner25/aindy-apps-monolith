@@ -11,6 +11,7 @@ import {
   getFlowStrategies } from "../../api/operator.js";
 import { useAuth } from "../../context/AuthContext";
 import { AdminAccessRequired } from "../shared/AdminApiErrorBoundary";
+import ErrorBoundary from "../shared/ErrorBoundary";
 import { LoadingPanel } from "../shared/LoadingPanel";
 import { EmptyState } from "../shared/EmptyState";
 
@@ -1131,8 +1132,12 @@ function AutomationPanel({ triggerRefresh }) {
 // PANEL 3 — Registry
 // ═══════════════════════════════════════════════════════════════════
 
+// `GET /platform/flows/registry` returns `{flow_definitions, nodes, flow_count,
+// node_count}`. This panel read `registry.flows`, which the route has never returned,
+// so `Object.keys(registry.flows)` threw "Cannot convert undefined or null to object"
+// and the route error boundary took the whole console down with it.
 function FlowGraph({ flowName, registry }) {
-  const flow = registry.flows[flowName];
+  const flow = (registry?.flow_definitions ?? {})[flowName];
   if (!flow) return null;
 
   // Build a simple linear node chain from start node
@@ -1187,7 +1192,7 @@ function NodeBox({ name, highlighted }) {
 
 function FlowCard({ flowName, registry }) {
   const [expanded, setExpanded] = useState(false);
-  const flow = registry.flows[flowName];
+  const flow = (registry?.flow_definitions ?? {})[flowName];
   if (!flow) return null;
 
   return (
@@ -1267,14 +1272,14 @@ function RegistryPanel({ triggerRefresh }) {
       {loading && <LoadingPanel label="Loading flow registry..." />}
       {error && <ErrorState error={error} onRetry={load} />}
 
-      {!loading && registry && Object.keys(registry.flows).length === 0 &&
+      {!loading && registry && Object.keys(registry.flow_definitions ?? {}).length === 0 &&
       <EmptyState
         message="No flows registered."
         hint="Flows are registered at server startup." />
 
       }
 
-      {!loading && registry && safeMap(Object.keys(registry.flows), (flowName) =>
+      {!loading && registry && safeMap(Object.keys(registry.flow_definitions ?? {}), (flowName) =>
       <FlowCard
         key={flowName}
         flowName={flowName}
@@ -1284,7 +1289,7 @@ function RegistryPanel({ triggerRefresh }) {
       }
 
       {/* Node registry */}
-      {registry && registry.nodes.length > 0 &&
+      {registry && (registry.nodes ?? []).length > 0 &&
       <div
         style={{
           background: C.bg1,
@@ -1306,11 +1311,11 @@ function RegistryPanel({ triggerRefresh }) {
             padding: 0
           }}>
 
-            {nodesOpen ? "▼" : "▶"} All registered nodes ({registry.nodes.length})
+            {nodesOpen ? "▼" : "▶"} All registered nodes ({(registry.nodes ?? []).length})
           </button>
           {nodesOpen &&
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-              {safeMap(registry.nodes, (node) =>
+              {safeMap(registry.nodes ?? [], (node) =>
           <button
             key={node}
             onClick={() =>
@@ -1598,20 +1603,28 @@ function FlowEngineConsoleContent() {
         }
       </div>
 
-      {/* Tab content */}
+      {/* Tab content.
+          Each panel gets its own boundary keyed on the active tab. Without this a single
+          panel that throws during render trips the ROUTE boundary and blanks the entire
+          console — every other tab included — until a full reload, which is how one bad
+          field reference (registry.flows) presented as "Flows, Registry and Strategies
+          are all broken". The resetKey also clears a tripped boundary on tab change, so
+          a failing panel no longer strands the ones that work. */}
       <div>
-        {activeTab === "runs" &&
-        <FlowRunsPanel triggerRefresh={refreshTick} />
-        }
-        {activeTab === "automation" &&
-        <AutomationPanel triggerRefresh={refreshTick} />
-        }
-        {activeTab === "registry" &&
-        <RegistryPanel triggerRefresh={refreshTick} />
-        }
-        {activeTab === "strategies" &&
-        <StrategiesPanel triggerRefresh={refreshTick} />
-        }
+        <ErrorBoundary resetKey={activeTab}>
+          {activeTab === "runs" &&
+          <FlowRunsPanel triggerRefresh={refreshTick} />
+          }
+          {activeTab === "automation" &&
+          <AutomationPanel triggerRefresh={refreshTick} />
+          }
+          {activeTab === "registry" &&
+          <RegistryPanel triggerRefresh={refreshTick} />
+          }
+          {activeTab === "strategies" &&
+          <StrategiesPanel triggerRefresh={refreshTick} />
+          }
+        </ErrorBoundary>
       </div>
     </div>);
 
