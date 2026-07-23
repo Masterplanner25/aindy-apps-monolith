@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getTasks, createTask, completeTask, startTask } from "../../api/tasks.js";
+import { listMasterPlans } from "../../api/masterplan.js";
 import { Toast } from "../shared/Toast";
 import DomainError from "../shared/DomainError.jsx";
 import { safeMap } from "../../utils/safe";
@@ -12,6 +13,16 @@ import {
 
 export default function TaskDashboard() {
   const [newTask, setNewTask] = useState("");
+  // `estimated_hours` lands in Task.duration, which is the effort term the MasterPlan
+  // ETA projects against AND the input to the Infinity Volume axis. The form used to
+  // send only {name, priority}, so duration was always 0 — every three-axis shadow
+  // record came back with volume_score = 0 regardless of how much work was completed.
+  const [estimatedHours, setEstimatedHours] = useState("");
+  // Task.masterplan_id drives ETA/WCU recalculation and the completion cascade. It was
+  // reachable by the API and by agent tools but never set from this screen, so every
+  // task created in the UI was permanently orphaned from every plan (walk-log item 17).
+  const [masterplanId, setMasterplanId] = useState("");
+  const [plans, setPlans] = useState([]);
   const [velocityMessage, setVelocityMessage] = useState("");
   const { toast, showToast, clearToast } = useToast();
   const { publishProjection } = useMasterplanProjection();
@@ -28,13 +39,42 @@ export default function TaskDashboard() {
     fetchTasks();
   }, [fetchTasks]);
 
+  // The plan picker is additive: if plans can't be listed (or none exist — creation is
+  // Genesis-only today) the selector simply doesn't render and task creation is unaffected.
+  useEffect(() => {
+    let cancelled = false;
+    listMasterPlans()
+      .then((data) => {
+        if (!cancelled) setPlans(Array.isArray(data?.plans) ? data.plans : []);
+      })
+      .catch(() => {
+        if (!cancelled) setPlans([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!newTask.trim()) return;
 
+    const hours = Number.parseFloat(estimatedHours);
+    if (estimatedHours.trim() !== "" && (!Number.isFinite(hours) || hours < 0)) {
+      showToast("Estimated hours must be a positive number.");
+      return;
+    }
+
     try {
-      await createTask({ name: newTask, priority: "medium" });
+      // Only send the optional fields when they carry a value — the API treats both as
+      // Optional and an explicit null is not the same as omitting them.
+      const payload = { name: newTask, priority: "medium" };
+      if (Number.isFinite(hours) && hours > 0) payload.estimated_hours = hours;
+      if (masterplanId) payload.masterplan_id = Number.parseInt(masterplanId, 10);
+
+      await createTask(payload);
       setNewTask("");
+      setEstimatedHours("");
       fetchTasks();
     } catch (err) {
       showToast(err?.message || "Failed to create task. Please try again.");
@@ -85,13 +125,52 @@ export default function TaskDashboard() {
 
       {/* --- INPUT --- */}
       <form onSubmit={handleCreate} style={styles.form}>
-        <input
-          style={styles.input}
-          placeholder="Initialize new directive..."
-          value={newTask}
-          onChange={(e) => setNewTask(e.target.value)} />
-        
-        <button type="submit" style={styles.addButton}>ADD</button>
+        <div style={styles.formRow}>
+          <input
+            style={styles.input}
+            placeholder="Initialize new directive..."
+            value={newTask}
+            onChange={(e) => setNewTask(e.target.value)} />
+
+          <button type="submit" style={styles.addButton}>ADD</button>
+        </div>
+
+        <div style={styles.formRow}>
+          <label style={styles.fieldLabel}>
+            Est. hours
+            <input
+              style={styles.smallInput}
+              type="number"
+              min="0"
+              step="0.25"
+              placeholder="0"
+              value={estimatedHours}
+              onChange={(e) => setEstimatedHours(e.target.value)} />
+          </label>
+
+          {plans.length > 0 &&
+          <label style={styles.fieldLabel}>
+              MasterPlan
+              <select
+              style={styles.select}
+              value={masterplanId}
+              onChange={(e) => setMasterplanId(e.target.value)}>
+                <option value="">— none —</option>
+                {safeMap(plans, (plan) =>
+              <option key={plan.id} value={plan.id}>
+                    {plan.version_label || `Plan ${plan.id}`}
+                    {plan.is_active ? " (active)" : ""}
+                  </option>)
+              }
+              </select>
+            </label>
+          }
+        </div>
+
+        <p style={styles.formHint}>
+          Estimated hours feeds the MasterPlan ETA and the Infinity Volume axis; leaving it
+          empty records the task as zero effort.
+        </p>
       </form>
 
       {/* --- TASK LIST --- */}
@@ -104,6 +183,7 @@ export default function TaskDashboard() {
               <div style={styles.taskMeta}>
                 Status: <span style={{ color: getStatusColor(task.status) }}>{task.status.toUpperCase()}</span>
                 {task.time_spent > 0 && ` • Time: ${(task.time_spent / 60).toFixed(1)}m`}
+                {task.masterplan_id ? ` • Plan ${task.masterplan_id}` : ""}
               </div>
             </div>
             
@@ -147,7 +227,12 @@ const styles = {
     background: "rgba(0, 255, 170, 0.1)", border: "1px solid #00ffaa", color: "#00ffaa",
     padding: "12px", borderRadius: "6px", marginBottom: "20px", fontWeight: "bold"
   },
-  form: { display: "flex", gap: "12px", marginBottom: "32px" },
+  form: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "32px" },
+  formRow: { display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" },
+  fieldLabel: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", color: "#888" },
+  smallInput: { width: "90px", padding: "10px", background: "#111", border: "1px solid #333", color: "#fff", borderRadius: "6px" },
+  select: { padding: "10px", background: "#111", border: "1px solid #333", color: "#fff", borderRadius: "6px", minWidth: "160px" },
+  formHint: { fontSize: "11px", color: "#666", margin: 0 },
   input: { flex: 1, padding: "12px", background: "#111", border: "1px solid #333", color: "#fff", borderRadius: "6px" },
   addButton: { background: "#f6f", color: "#000", border: "none", padding: "0 24px", fontWeight: "bold", borderRadius: "6px", cursor: "pointer" },
   list: { display: "flex", flexDirection: "column", gap: "12px" },
