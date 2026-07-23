@@ -653,22 +653,23 @@ function FlowRunsPanel({ triggerRefresh }) {
     if (triggerRefresh) load();
   }, [triggerRefresh, load]);
 
-  const counts =
-  runs ?
-  runs.runs.reduce(
+  // Normalise before use. `runs` was dereferenced as `runs.runs.reduce(...)`, so any
+  // response that wasn't the expected object took the whole console down through the
+  // error boundary rather than failing to just this panel — which is what happened when
+  // the dev proxy returned the SPA's HTML for /platform/flows/runs.
+  const runList = Array.isArray(runs?.runs) ? runs.runs : [];
+
+  const counts = runList.reduce(
     (acc, r) => {
       acc[r.status] = (acc[r.status] || 0) + 1;
       return acc;
     },
     { running: 0, waiting: 0, success: 0, failed: 0 }
-  ) :
-  { running: 0, waiting: 0, success: 0, failed: 0 };
+  );
 
-  const displayed = runs ?
-  activeStatusFilter ?
-  runs.runs.filter((r) => r.status === activeStatusFilter) :
-  runs.runs :
-  [];
+  const displayed = activeStatusFilter ?
+  runList.filter((r) => r.status === activeStatusFilter) :
+  runList;
 
   return (
     <div>
