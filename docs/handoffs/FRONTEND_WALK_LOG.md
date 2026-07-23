@@ -57,6 +57,7 @@ client on Vite dev server at `localhost:5173` proxying to the API at `localhost:
 | 27 | Defect | platform / strategies | `ScoreBar` calls `score.toFixed(2)` on a null score — both live strategies have `score: null` | fixed |
 | 28 | Defect | client telemetry | `reportClientError` POSTs to `/client/error`, which no route serves — every boundary trip 404s silently | diagnosed, unfixed |
 | 29 | Design | platform UI | The operator surface is a **record**, not a control plane — the API exposes 24 write routes, the UI wires 5 | design decision |
+| 30 | Defect | platform UI | The platform SPA had **no navigation at all** — 8 registered routes, 7 reachable only by typing a URL | fixed |
 
 ---
 
@@ -1269,6 +1270,33 @@ browser is a different risk class and wants an explicit decision, not a convenie
 **Status:** design decision for the owner. Nothing here is broken; the record half works. The
 question is whether the operator surface should be able to act on what it shows.
 
+### 30. The platform SPA had no navigation — `Defect`
+
+**Observed:** "Agent Registry, Approval Inbox, Observability, Health, Execution Console,
+RippleTrace don't show at all."
+
+**Cause:** they were never missing — they were unreachable. `PlatformApp.tsx` registers **eight**
+routes (`/agent`, `/flows`, `/observability`, `/health`, `/executions`, `/approvals`, `/registry`,
+`/trace`), and the app rendered **no links between them**. A grep for `NavLink` or `<nav>` across
+`client/src/components/platform/` returned nothing.
+
+`/platform/flows` was reachable only because the product app's "Open platform" button happens to
+land there. Every other panel could be reached only by typing its URL. All eight are real: their
+backing endpoints return 200 (`/platform/observability/dashboard`, `/platform/admin/agents`,
+`/platform/observability/system`, `/platform/observability/rippletrace/status`).
+
+This is the plainest instance yet of the theme running through the whole walk — built backend,
+built panel, no way in.
+
+**Fixed:** added `PlatformNav`, a sticky bar linking all eight routes with active-state styling
+plus a "Back to app" link. It renders **inside** `PlatformGuard` (so a non-admin never sees it)
+but **outside** the route error boundary, so a panel that throws still leaves the operator a way
+to navigate off it — which, before the per-panel boundaries landed in #159, was the difference
+between a broken tab and a dead console.
+
+Test asserts the link set matches the registered routes exactly, that the current route is marked
+`aria-current`, and that the escape hatch back to the product app exists.
+
 ---
 
 ## Resolved during this walk
@@ -1297,7 +1325,8 @@ question is whether the operator surface should be able to act on what it shows.
 | compose | Shadow flags set in `.env` never reached the container | #156 |
 | platform | Dev proxy swallowed every `/platform` API call — no panel could load data | #158 |
 | platform | Registry read `registry.flows`; route returns `flow_definitions`. Panels now fail in isolation | #159 |
-| platform | Strategies crashed on the seeded `default` strategies — `score.toFixed(2)` on a null score | (this PR) |
+| platform | Strategies crashed on the seeded `default` strategies — `score.toFixed(2)` on a null score | #161 |
+| platform | No navigation existed — 7 of 8 panels were reachable only by typing a URL | (this PR) |
 
 **Upstream:** the `/apps` mount omission belongs in `@aindy/ui-kit`; corrected app-side in
 `client/src/api/_routes.js` and logged against `UIKIT-ROUTE-DRIFT-1`. The 401-logs-out-everything
